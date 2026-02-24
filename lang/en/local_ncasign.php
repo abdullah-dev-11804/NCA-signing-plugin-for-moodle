@@ -39,8 +39,13 @@ $string['manualsigned'] = 'Manual signatures';
 $string['autosigned'] = 'Auto-signed';
 
 $string['signtitle'] = 'Certificate signature request';
-$string['signinstructions'] = 'This is a demo manual-sign step. In production this action should trigger NCALayer signing.';
-$string['signbutton'] = 'Sign certificate';
+$string['signinstructions'] = 'Use NCALayer below to create a real CMS signature for this request.';
+$string['ncarunninghint'] = 'NCALayer must be installed and running on this signer machine.';
+$string['storage'] = 'Key storage';
+$string['loadtokens'] = 'Load available tokens';
+$string['signwithnca'] = 'Sign with NCALayer';
 $string['signedok'] = 'Signature recorded successfully.';
 $string['invalidtoken'] = 'Invalid or expired signing token.';
 $string['alreadysigned'] = 'This request has already been signed.';
+$string['invalidpayload'] = 'Invalid signing payload received.';
+$string['emptysignature'] = 'Empty signature received from NCALayer.';

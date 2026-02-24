@@ -7,13 +7,13 @@ This is a Moodle demo plugin for your workflow:
 3. If signers do not act before the deadline, server fallback auto-signs.
 4. Student gets the final signed-certificate notification email.
 
-This demo records signing state and emails. It does **not** perform real NCALayer cryptographic signing yet.
+This demo now performs a **real NCALayer CMS signing action** on signer machines and stores signature metadata/audit in Moodle.
 
 ## What This Plugin Includes
 
 - `course_completed` observer to create signing jobs automatically.
 - Admin settings for window/deadline and role-based signers.
-- Manual signer page with secure token links (`/local/ncasign/sign.php?token=...`).
+- Manual signer page with secure token links (`/local/ncasign/sign.php?token=...`) and NCALayer CMS signing call.
 - Scheduled task every 15 minutes for auto-sign fallback.
 - Admin UI to list jobs and create demo jobs.
 - CLI helper to create demo jobs quickly.
@@ -48,8 +48,11 @@ This demo records signing state and emails. It does **not** perform real NCALaye
 3. Submit.
 4. Check:
    - `/local/ncasign/index.php`
-5. Open signer link from email and click **Sign certificate**.
-6. Verify job becomes `completed_manual` when all signers act.
+5. Open signer link from email.
+6. Start NCALayer on the signer machine.
+7. Click **Load available tokens**, choose storage, then click **Sign with NCALayer**.
+8. NCALayer signs payload with a real key and result is sent back to Moodle.
+9. Verify job becomes `completed_manual` when all signers act.
 
 ## Demo Test Flow (Auto-sign)
 
@@ -70,6 +73,7 @@ php local/ncasign/cli/create_demo_job.php --userid=5 --courseid=2 --emails=appro
 
 If `--emails` is omitted, plugin uses configured role IDs in the course context.
 
-## Next Step To Make It Real
+## Notes
 
-Replace the manual-sign click handler in `sign.php` with real NCALayer integration and a server endpoint that verifies/stores real signatures.
+- Current implementation stores CMS signature hash/length/preview and payload hash in audit metadata.
+- If you need strict cryptographic verification on server and PDF-embedded signature (PAdES), add backend verification and PDF signing pipeline in next phase.

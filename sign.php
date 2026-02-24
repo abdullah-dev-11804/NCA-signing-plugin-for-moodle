@@ -38,24 +38,12 @@ if (!$row) {
 $signer = $row['signer'];
 $job = $row['job'];
 
-if (optional_param('signnow', 0, PARAM_BOOL) && $signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
-    $meta = [
-        'mode' => 'demo_manual_click',
-        'ip' => getremoteaddr(null),
-        'time' => time(),
-    ];
-    $manager->mark_signer_signed($token, 'manual_demo', $meta);
-    echo $OUTPUT->notification(get_string('signedok', 'local_ncasign'), \core\output\notification::NOTIFY_SUCCESS);
-    $row = $manager->get_signer_by_token($token);
-    $signer = $row['signer'];
-    $job = $row['job'];
-}
-
 if ($signer->status !== \local_ncasign\local\job_manager::SIGNER_PENDING) {
     echo $OUTPUT->notification(get_string('alreadysigned', 'local_ncasign'), \core\output\notification::NOTIFY_INFO);
 }
 
 echo html_writer::tag('p', get_string('signinstructions', 'local_ncasign'));
+echo html_writer::tag('p', get_string('ncarunninghint', 'local_ncasign'));
 echo html_writer::start_tag('ul');
 echo html_writer::tag('li', 'Signer email: ' . s($signer->signeremail));
 echo html_writer::tag('li', 'Student user ID: ' . (int)$job->userid);
@@ -65,11 +53,161 @@ echo html_writer::tag('li', 'Manual deadline: ' . userdate((int)$job->manualdead
 echo html_writer::end_tag('ul');
 
 if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
-    echo html_writer::start_tag('form', ['method' => 'post']);
+    $payload = [
+        'token' => $token,
+        'jobid' => (int)$job->id,
+        'userid' => (int)$job->userid,
+        'courseid' => (int)$job->courseid,
+        'certificateurl' => (string)$job->certificateurl,
+        'signedat_request' => time(),
+    ];
+    $payloadjson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $payloadb64 = base64_encode($payloadjson);
+
+    echo html_writer::start_div('mb-3');
+    echo html_writer::tag('label', get_string('storage', 'local_ncasign'), ['for' => 'nca-storage']);
+    echo html_writer::start_tag('div');
+    echo html_writer::select(
+        ['PKCS12' => 'PKCS12'],
+        'storage',
+        'PKCS12',
+        false,
+        ['id' => 'nca-storage']
+    );
+    echo html_writer::end_tag('div');
+    echo html_writer::end_div();
+
+    echo html_writer::start_div('mb-3');
+    echo html_writer::tag('button', get_string('loadtokens', 'local_ncasign'), [
+        'type' => 'button',
+        'id' => 'loadtokensbtn',
+        'class' => 'btn btn-secondary',
+    ]);
+    echo html_writer::end_div();
+
+    echo html_writer::start_tag('div', ['id' => 'nca-status', 'style' => 'margin-bottom:10px;color:#555;']);
+    echo html_writer::end_tag('div');
+
+    echo html_writer::start_tag('form', [
+        'method' => 'post',
+        'action' => (new moodle_url('/local/ncasign/complete_nca_sign.php'))->out(false),
+        'id' => 'nca-sign-form',
+    ]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'token', 'value' => s($token)]);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'signnow', 'value' => 1]);
-    echo html_writer::empty_tag('input', ['type' => 'submit', 'value' => get_string('signbutton', 'local_ncasign'), 'class' => 'btn btn-primary']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadb64', 'id' => 'payloadb64', 'value' => s($payloadb64)]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'cmssignature', 'id' => 'cmssignature', 'value' => '']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'storageused', 'id' => 'storageused', 'value' => '']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamessage', 'id' => 'ncamessage', 'value' => '']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncaresponsecode', 'id' => 'ncaresponsecode', 'value' => '']);
+    echo html_writer::empty_tag('input', ['type' => 'button', 'value' => get_string('signwithnca', 'local_ncasign'), 'id' => 'signnca', 'class' => 'btn btn-primary']);
     echo html_writer::end_tag('form');
+
+    $js = <<<JS
+(function() {
+    let ws = null;
+    let pendingCallback = null;
+    const statusEl = document.getElementById('nca-status');
+    const storageEl = document.getElementById('nca-storage');
+    const signBtn = document.getElementById('signnca');
+
+    function setStatus(message, isError) {
+        statusEl.style.color = isError ? '#b00020' : '#2f4f4f';
+        statusEl.textContent = message;
+    }
+
+    function ensureWs(onReady) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            onReady();
+            return;
+        }
+        ws = new WebSocket('wss://127.0.0.1:13579/');
+        ws.onopen = function() {
+            setStatus('NCALayer connected.', false);
+            onReady();
+        };
+        ws.onclose = function() {
+            if (!statusEl.textContent) {
+                setStatus('NCALayer is not running.', true);
+            }
+        };
+        ws.onerror = function() {
+            setStatus('Failed to connect to NCALayer. Start NCALayer and refresh.', true);
+        };
+        ws.onmessage = function(evt) {
+            let result = null;
+            try {
+                result = JSON.parse(evt.data);
+            } catch (e) {
+                setStatus('Invalid response from NCALayer.', true);
+                return;
+            }
+            if (pendingCallback) {
+                const cb = pendingCallback;
+                pendingCallback = null;
+                cb(result);
+            }
+        };
+    }
+
+    function sendRequest(payload, callback) {
+        ensureWs(function() {
+            pendingCallback = callback;
+            ws.send(JSON.stringify(payload));
+        });
+    }
+
+    document.getElementById('loadtokensbtn').addEventListener('click', function() {
+        setStatus('Loading available storages from NCALayer...', false);
+        sendRequest({
+            module: 'kz.gov.pki.knca.commonUtils',
+            method: 'getActiveTokens'
+        }, function(result) {
+            if (String(result.code) !== '200') {
+                setStatus('NCALayer error: ' + (result.message || 'unknown'), true);
+                return;
+            }
+            const items = result.responseObject || [];
+            while (storageEl.options.length > 0) {
+                storageEl.remove(0);
+            }
+            storageEl.add(new Option('PKCS12', 'PKCS12'));
+            for (let i = 0; i < items.length; i++) {
+                storageEl.add(new Option(items[i], items[i]));
+            }
+            setStatus('Storages loaded. Select storage and click "Sign with NCALayer".', false);
+        });
+    });
+
+    signBtn.addEventListener('click', function() {
+        signBtn.disabled = true;
+        setStatus('Requesting signature from NCALayer...', false);
+
+        const storage = storageEl.value || 'PKCS12';
+        const payloadb64 = document.getElementById('payloadb64').value;
+
+        sendRequest({
+            module: 'kz.gov.pki.knca.commonUtils',
+            method: 'createCMSSignatureFromBase64',
+            args: [storage, 'SIGNATURE', payloadb64, true]
+        }, function(result) {
+            document.getElementById('ncaresponsecode').value = String(result.code || '');
+            document.getElementById('ncamessage').value = String(result.message || '');
+            document.getElementById('storageused').value = storage;
+
+            if (String(result.code) !== '200' || !result.responseObject) {
+                signBtn.disabled = false;
+                setStatus('Signing failed: ' + (result.message || 'unknown error'), true);
+                return;
+            }
+
+            document.getElementById('cmssignature').value = result.responseObject;
+            setStatus('Signature created. Sending to server...', false);
+            document.getElementById('nca-sign-form').submit();
+        });
+    });
+})();
+JS;
+    $PAGE->requires->js_init_code($js);
 }
 
 echo $OUTPUT->footer();
