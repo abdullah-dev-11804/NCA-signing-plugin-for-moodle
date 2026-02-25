@@ -97,6 +97,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadb64', 'id' => 'payloadb64', 'value' => s($payloadb64)]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'cmssignature', 'id' => 'cmssignature', 'value' => '']);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'storageused', 'id' => 'storageused', 'value' => '']);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamodule', 'id' => 'ncamodule', 'value' => '']);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamessage', 'id' => 'ncamessage', 'value' => '']);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncaresponsecode', 'id' => 'ncaresponsecode', 'value' => '']);
     echo html_writer::empty_tag('input', ['type' => 'button', 'value' => get_string('signwithnca', 'local_ncasign'), 'id' => 'signnca', 'class' => 'btn btn-primary']);
@@ -106,6 +107,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
 (function() {
     let ws = null;
     let pendingCallback = null;
+    const modules = ['kz.gov.pki.knca.commonUtils', 'kz.gov.pki.knca.basics'];
     const statusEl = document.getElementById('nca-status');
     const storageEl = document.getElementById('nca-storage');
     const signBtn = document.getElementById('signnca');
@@ -156,16 +158,62 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
         });
     }
 
-    document.getElementById('loadtokensbtn').addEventListener('click', function() {
-        setStatus('Loading available storages from NCALayer...', false);
-        sendRequest({
-            module: 'kz.gov.pki.knca.commonUtils',
-            method: 'getActiveTokens'
-        }, function(result) {
-            if (String(result.code) !== '200') {
-                setStatus('NCALayer error: ' + (result.message || 'unknown'), true);
+    function safeString(v) {
+        if (typeof v === 'string' && v.trim() !== '') {
+            return v;
+        }
+        try {
+            return JSON.stringify(v);
+        } catch (e) {
+            return String(v);
+        }
+    }
+
+    function callWithModuleFallback(method, args, done) {
+        const errors = [];
+        function tryModule(index) {
+            if (index >= modules.length) {
+                done({
+                    ok: false,
+                    module: null,
+                    result: errors.length ? errors[errors.length - 1].result : null,
+                    errors: errors
+                });
                 return;
             }
+
+            const moduleName = modules[index];
+            sendRequest({
+                module: moduleName,
+                method: method,
+                args: args || []
+            }, function(result) {
+                if (String(result.code) === '200') {
+                    done({
+                        ok: true,
+                        module: moduleName,
+                        result: result,
+                        errors: errors
+                    });
+                    return;
+                }
+                errors.push({module: moduleName, result: result});
+                tryModule(index + 1);
+            });
+        }
+        tryModule(0);
+    }
+
+    document.getElementById('loadtokensbtn').addEventListener('click', function() {
+        setStatus('Loading available storages from NCALayer...', false);
+        callWithModuleFallback('getActiveTokens', [], function(resp) {
+            if (!resp.ok) {
+                const last = resp.result || {};
+                const detail = safeString(last.message || last);
+                setStatus('NCALayer error (getActiveTokens): code=' + safeString(last.code) + ', detail=' + detail, true);
+                return;
+            }
+            const result = resp.result;
             const items = result.responseObject || [];
             while (storageEl.options.length > 0) {
                 storageEl.remove(0);
@@ -174,7 +222,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
             for (let i = 0; i < items.length; i++) {
                 storageEl.add(new Option(items[i], items[i]));
             }
-            setStatus('Storages loaded. Select storage and click "Sign with NCALayer".', false);
+            setStatus('Storages loaded from module "' + resp.module + '". Select storage and click "Sign with NCALayer".', false);
         });
     });
 
@@ -185,23 +233,24 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
         const storage = storageEl.value || 'PKCS12';
         const payloadb64 = document.getElementById('payloadb64').value;
 
-        sendRequest({
-            module: 'kz.gov.pki.knca.commonUtils',
-            method: 'createCMSSignatureFromBase64',
-            args: [storage, 'SIGNATURE', payloadb64, true]
-        }, function(result) {
+        callWithModuleFallback('createCMSSignatureFromBase64', [storage, 'SIGNATURE', payloadb64, true], function(resp) {
+            const result = resp.result || {};
             document.getElementById('ncaresponsecode').value = String(result.code || '');
-            document.getElementById('ncamessage').value = String(result.message || '');
+            document.getElementById('ncamessage').value = safeString(result.message || result);
             document.getElementById('storageused').value = storage;
+            document.getElementById('ncamodule').value = resp.module || '';
 
-            if (String(result.code) !== '200' || !result.responseObject) {
+            if (!resp.ok || !result.responseObject) {
                 signBtn.disabled = false;
-                setStatus('Signing failed: ' + (result.message || 'unknown error'), true);
+                setStatus(
+                    'Signing failed: code=' + safeString(result.code) + ', detail=' + safeString(result.message || result),
+                    true
+                );
                 return;
             }
 
             document.getElementById('cmssignature').value = result.responseObject;
-            setStatus('Signature created. Sending to server...', false);
+            setStatus('Signature created via module "' + resp.module + '". Sending to server...', false);
             document.getElementById('nca-sign-form').submit();
         });
     });

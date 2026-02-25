@@ -20,6 +20,7 @@ $token = required_param('token', PARAM_ALPHANUMEXT);
 $payloadb64 = required_param('payloadb64', PARAM_RAW_TRIMMED);
 $cmssignature = required_param('cmssignature', PARAM_RAW);
 $storageused = optional_param('storageused', 'UNKNOWN', PARAM_TEXT);
+$ncamodule = optional_param('ncamodule', 'UNKNOWN', PARAM_TEXT);
 $ncamessage = optional_param('ncamessage', '', PARAM_RAW_TRIMMED);
 $ncaresponsecode = optional_param('ncaresponsecode', '', PARAM_RAW_TRIMMED);
 
@@ -52,6 +53,7 @@ if (trim($cmssignature) === '') {
 $meta = [
     'mode' => 'ncalayer_real_cms',
     'storage' => $storageused,
+    'module' => $ncamodule,
     'ip' => getremoteaddr(null),
     'nca_response_code' => $ncaresponsecode,
     'nca_message' => $ncamessage,
