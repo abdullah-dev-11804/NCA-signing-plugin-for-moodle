@@ -18,6 +18,8 @@ require_once(__DIR__ . '/../../config.php');
 
 $token = required_param('token', PARAM_ALPHANUMEXT);
 $payloadb64 = required_param('payloadb64', PARAM_RAW_TRIMMED);
+$payloadmode = optional_param('payloadmode', 'job_metadata', PARAM_ALPHANUMEXT);
+$payloadmeta = optional_param('payloadmeta', '{}', PARAM_RAW_TRIMMED);
 $cmssignature = required_param('cmssignature', PARAM_RAW);
 $storageused = optional_param('storageused', 'UNKNOWN', PARAM_TEXT);
 $ncamodule = optional_param('ncamodule', 'UNKNOWN', PARAM_TEXT);
@@ -31,6 +33,7 @@ if (!$row) {
 }
 
 $signer = $row['signer'];
+$job = $row['job'];
 if ($signer->status !== \local_ncasign\local\job_manager::SIGNER_PENDING) {
     redirect(
         new moodle_url('/local/ncasign/sign.php', ['token' => $token]),
@@ -39,29 +42,51 @@ if ($signer->status !== \local_ncasign\local\job_manager::SIGNER_PENDING) {
     );
 }
 
-$payloadjson = base64_decode($payloadb64, true);
-$payload = $payloadjson !== false ? json_decode($payloadjson, true) : null;
-
-if (!is_array($payload) || (($payload['token'] ?? '') !== $token)) {
-    throw new moodle_exception('invalidpayload', 'local_ncasign');
-}
-
 if (trim($cmssignature) === '') {
     throw new moodle_exception('emptysignature', 'local_ncasign');
 }
 
+$decodedmeta = json_decode($payloadmeta, true);
+if (!is_array($decodedmeta)) {
+    $decodedmeta = [];
+}
+
+$payloadbytes = base64_decode($payloadb64, true);
+if ($payloadbytes === false) {
+    throw new moodle_exception('invalidpayload', 'local_ncasign');
+}
+
+$payloadsha256 = hash('sha256', $payloadbytes);
+if ($payloadmode === 'job_metadata') {
+    $payload = json_decode($payloadbytes, true);
+    if (!is_array($payload) || (($payload['token'] ?? '') !== $token)) {
+        throw new moodle_exception('invalidpayload', 'local_ncasign');
+    }
+} else if ($payloadmode === 'certificate_pdf') {
+    $certificate = $manager->get_job_certificate_binary((int)$job->id);
+    if (!$certificate || $certificate['sha256'] !== $payloadsha256) {
+        throw new moodle_exception('invalidpayload', 'local_ncasign');
+    }
+} else {
+    throw new moodle_exception('invalidpayload', 'local_ncasign');
+}
+
+$signaturefilename = $manager->store_signer_cms_signature((int)$job->id, (int)$signer->id, $cmssignature);
+
 $meta = [
     'mode' => 'ncalayer_real_cms',
+    'payload_mode' => $payloadmode,
     'storage' => $storageused,
     'module' => $ncamodule,
     'ip' => getremoteaddr(null),
     'nca_response_code' => $ncaresponsecode,
     'nca_message' => $ncamessage,
-    'payload_sha256' => hash('sha256', $payloadjson),
-    'payload' => $payload,
+    'payload_sha256' => $payloadsha256,
+    'payload_meta' => $decodedmeta,
     'cms_sha256' => hash('sha256', $cmssignature),
     'cms_length' => core_text::strlen($cmssignature),
     'cms_preview' => core_text::substr($cmssignature, 0, 120),
+    'signature_filename' => $signaturefilename,
     'server_received_at' => time(),
 ];
 

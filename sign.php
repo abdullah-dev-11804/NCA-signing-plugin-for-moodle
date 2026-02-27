@@ -53,16 +53,31 @@ echo html_writer::tag('li', 'Manual deadline: ' . userdate((int)$job->manualdead
 echo html_writer::end_tag('ul');
 
 if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
-    $payload = [
-        'token' => $token,
-        'jobid' => (int)$job->id,
-        'userid' => (int)$job->userid,
-        'courseid' => (int)$job->courseid,
-        'certificateurl' => (string)$job->certificateurl,
-        'signedat_request' => time(),
-    ];
-    $payloadjson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $payloadb64 = base64_encode($payloadjson);
+    $payloadmode = 'job_metadata';
+    $payloadmeta = [];
+    $certificate = $manager->get_job_certificate_binary((int)$job->id);
+    if ($certificate) {
+        $payloadmode = 'certificate_pdf';
+        $payloadb64 = base64_encode($certificate['content']);
+        $payloadmeta = [
+            'filename' => $certificate['filename'],
+            'sha256' => $certificate['sha256'],
+            'filesize' => $certificate['filesize'],
+        ];
+    } else {
+        $payload = [
+            'token' => $token,
+            'jobid' => (int)$job->id,
+            'userid' => (int)$job->userid,
+            'courseid' => (int)$job->courseid,
+            'certificateurl' => (string)$job->certificateurl,
+            'signedat_request' => time(),
+        ];
+        $payloadjson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $payloadb64 = base64_encode($payloadjson);
+        $payloadmeta = ['sha256' => hash('sha256', $payloadjson)];
+    }
+    $payloadmetajson = json_encode($payloadmeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     echo html_writer::start_div('mb-3');
     echo html_writer::tag('label', get_string('storage', 'local_ncasign'), ['for' => 'nca-storage']);
@@ -88,6 +103,20 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
     echo html_writer::start_tag('div', ['id' => 'nca-status', 'style' => 'margin-bottom:10px;color:#555;']);
     echo html_writer::end_tag('div');
 
+    if ($payloadmode === 'certificate_pdf') {
+        echo html_writer::tag(
+            'div',
+            'Signing mode: actual certificate PDF bytes (' . s($certificate['filename']) . ', SHA256 ' . s($certificate['sha256']) . ')',
+            ['style' => 'margin-bottom:10px;color:#0a5a0a;']
+        );
+    } else {
+        echo html_writer::tag(
+            'div',
+            'Signing mode: metadata fallback (no certificate PDF attached to this job yet).',
+            ['style' => 'margin-bottom:10px;color:#8a6d3b;']
+        );
+    }
+
     echo html_writer::start_tag('form', [
         'method' => 'post',
         'action' => (new moodle_url('/local/ncasign/complete_nca_sign.php'))->out(false),
@@ -95,6 +124,8 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
     ]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'token', 'value' => s($token)]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadb64', 'id' => 'payloadb64', 'value' => s($payloadb64)]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadmode', 'id' => 'payloadmode', 'value' => s($payloadmode)]);
+    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadmeta', 'id' => 'payloadmeta', 'value' => s($payloadmetajson)]);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'cmssignature', 'id' => 'cmssignature', 'value' => '']);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'storageused', 'id' => 'storageused', 'value' => '']);
     echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamodule', 'id' => 'ncamodule', 'value' => '']);

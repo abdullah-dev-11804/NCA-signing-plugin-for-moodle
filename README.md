@@ -7,15 +7,19 @@ This is a Moodle demo plugin for your workflow:
 3. If signers do not act before the deadline, server fallback auto-signs.
 4. Student gets the final signed-certificate notification email.
 
-This demo now performs a **real NCALayer CMS signing action** on signer machines and stores signature metadata/audit in Moodle.
+This plugin performs a **real NCALayer CMS signing action** on signer machines and stores signature artifacts in Moodle:
+
+- Original certificate PDF (`local_ncasign` file area: `originalpdf`)
+- Signer CMS signature (`local_ncasign` file area: `signatures`, `.p7s`)
 
 ## What This Plugin Includes
 
 - `course_completed` observer to create signing jobs automatically.
+- `mod_customcert\event\certificate_issued` observer to create jobs from real issued certificates.
 - Admin settings for window/deadline and role-based signers.
 - Manual signer page with secure token links (`/local/ncasign/sign.php?token=...`) and NCALayer CMS signing call.
 - Scheduled task every 15 minutes for auto-sign fallback.
-- Admin UI to list jobs and create demo jobs.
+- Admin UI to list jobs, create demo jobs, and download stored artifacts.
 - CLI helper to create demo jobs quickly.
 
 ## Install Steps
@@ -45,6 +49,7 @@ This demo now performs a **real NCALayer CMS signing action** on signer machines
    - student `userid`
    - `courseid`
    - signer emails (comma separated), or leave empty to use configured role IDs
+   - optional certificate PDF upload (recommended for real file-signing tests)
 3. Submit.
 4. Check:
    - `/local/ncasign/index.php`
@@ -52,6 +57,8 @@ This demo now performs a **real NCALayer CMS signing action** on signer machines
 6. Start NCALayer on the signer machine.
 7. Click **Load available tokens**, choose storage, then click **Sign with NCALayer**.
 8. NCALayer signs payload with a real key and result is sent back to Moodle.
+   - If a PDF is attached to the job, NCALayer signs actual PDF bytes.
+   - If no PDF is attached, plugin falls back to metadata payload signing.
 9. Verify job becomes `completed_manual` when all signers act.
 
 ## Demo Test Flow (Auto-sign)
@@ -75,5 +82,19 @@ If `--emails` is omitted, plugin uses configured role IDs in the course context.
 
 ## Notes
 
+- Job artifacts can be downloaded from `/local/ncasign/index.php`:
+  - `PDF` = original stored certificate
+  - `CMS signer #X` = signer detached/attached CMS signature file (`.p7s`)
 - Current implementation stores CMS signature hash/length/preview and payload hash in audit metadata.
-- If you need strict cryptographic verification on server and PDF-embedded signature (PAdES), add backend verification and PDF signing pipeline in next phase.
+- If you need PDF-embedded visual signature (PAdES), add a PDF post-processing stage. Current stage is CMS artifact generation and workflow orchestration.
+
+## customcert Template Design Guidance
+
+Your client slide shows official protocol/certificate forms with fixed layout and signature blocks. In `mod_customcert`, create template versions that preserve that exact visual layout and add:
+
+1. Dynamic student fields (name, course, dates, IDs).
+2. Reserved signature block area for each signer role.
+3. Certificate identifier/QR area.
+4. Optional "digitally signed" metadata line (signer, timestamp, hash).
+
+The plugin signs issued PDF bytes; template design remains in `mod_customcert`.

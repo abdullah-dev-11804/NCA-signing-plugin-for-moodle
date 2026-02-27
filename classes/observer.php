@@ -47,4 +47,96 @@ class observer {
         $certurl = $manager->build_certificate_url($courseid, $userid);
         $manager->create_job($userid, $courseid, $certurl, $signers);
     }
+
+    /**
+     * Queue signing job when customcert issues a certificate.
+     *
+     * @param \mod_customcert\event\certificate_issued $event
+     * @return void
+     */
+    public static function certificate_issued($event): void {
+        global $DB;
+        if (!(int)get_config('local_ncasign', 'enabled')) {
+            return;
+        }
+
+        $courseid = (int)$event->courseid;
+        $userid = (int)($event->relateduserid ?? $event->userid ?? 0);
+        if (!$courseid || !$userid) {
+            return;
+        }
+
+        $manager = new job_manager();
+        $coursecontext = \context_course::instance($courseid);
+        $signers = $manager->get_signers_from_configured_roles($coursecontext);
+
+        $cmid = (int)($event->contextinstanceid ?? 0);
+        if ($cmid > 0) {
+            $certurl = '/mod/customcert/view.php?id=' . $cmid;
+        } else {
+            $certurl = $manager->build_certificate_url($courseid, $userid);
+        }
+
+        $jobid = $manager->create_job($userid, $courseid, $certurl, $signers);
+
+        $contextid = (int)$event->contextid;
+        $issueid = (int)($event->objectid ?? 0);
+        $storedfile = self::find_customcert_pdf_file($contextid, $issueid, $userid);
+        if ($storedfile) {
+            $manager->attach_certificate_binary_to_job(
+                $jobid,
+                $storedfile->get_filename(),
+                $storedfile->get_content(),
+                'mod_customcert_event'
+            );
+        }
+    }
+
+    /**
+     * Find latest PDF file for a customcert issue/context.
+     *
+     * @param int $contextid
+     * @param int $issueid
+     * @param int $userid
+     * @return \stored_file|null
+     */
+    private static function find_customcert_pdf_file(int $contextid, int $issueid, int $userid): ?\stored_file {
+        global $DB;
+        $fs = get_file_storage();
+
+        $params = ['contextid' => $contextid, 'component' => 'mod_customcert'];
+
+        if ($issueid > 0) {
+            $sql = "SELECT id
+                      FROM {files}
+                     WHERE contextid = :contextid
+                       AND component = :component
+                       AND itemid = :itemid
+                       AND filename <> '.'
+                       AND mimetype = 'application/pdf'
+                  ORDER BY id DESC";
+            $fileid = $DB->get_field_sql($sql, $params + ['itemid' => $issueid], IGNORE_MULTIPLE);
+            if ($fileid) {
+                $file = $fs->get_file_by_id($fileid);
+                if ($file) {
+                    return $file;
+                }
+            }
+        }
+
+        $sql = "SELECT id
+                  FROM {files}
+                 WHERE contextid = :contextid
+                   AND component = :component
+                   AND filename <> '.'
+                   AND mimetype = 'application/pdf'
+                   AND userid = :userid
+              ORDER BY timemodified DESC, id DESC";
+        $fileid = $DB->get_field_sql($sql, $params + ['userid' => $userid], IGNORE_MULTIPLE);
+        if ($fileid) {
+            return $fs->get_file_by_id($fileid) ?: null;
+        }
+
+        return null;
+    }
 }

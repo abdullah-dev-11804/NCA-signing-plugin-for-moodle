@@ -44,6 +44,7 @@ $table->head = [
     get_string('deadline', 'local_ncasign'),
     get_string('manualsigned', 'local_ncasign'),
     get_string('autosigned', 'local_ncasign'),
+    get_string('artifacts', 'local_ncasign'),
 ];
 
 foreach ($jobs as $job) {
@@ -61,8 +62,41 @@ foreach ($jobs as $job) {
         userdate((int)$job->manualdeadline),
         "{$signedcount}/{$totalcount}",
         $job->autosigned ? userdate((int)$job->autosigned) : '-',
+        local_ncasign_render_artifacts((int)$job->id),
     ];
 }
 
 echo html_writer::table($table);
 echo $OUTPUT->footer();
+
+/**
+ * Render artifact links for a signing job.
+ *
+ * @param int $jobid
+ * @return string
+ */
+function local_ncasign_render_artifacts(int $jobid): string {
+    global $DB;
+
+    $links = [];
+    $originallink = new moodle_url('/local/ncasign/download_artifact.php', [
+        'jobid' => $jobid,
+        'type' => 'original',
+    ]);
+    $links[] = html_writer::link($originallink, 'PDF');
+
+    $signed = $DB->get_records('local_ncasign_signers', [
+        'jobid' => $jobid,
+        'status' => \local_ncasign\local\job_manager::SIGNER_SIGNED,
+    ]);
+    foreach ($signed as $signer) {
+        $siglink = new moodle_url('/local/ncasign/download_artifact.php', [
+            'jobid' => $jobid,
+            'type' => 'signature',
+            'signerid' => (int)$signer->id,
+        ]);
+        $links[] = html_writer::link($siglink, 'CMS signer #' . (int)$signer->id);
+    }
+
+    return implode(' | ', $links);
+}

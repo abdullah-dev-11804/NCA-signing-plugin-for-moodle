@@ -22,4 +22,9 @@ $observers = [
         'callback' => '\local_ncasign\observer::course_completed',
         'priority' => 9999,
     ],
+    [
+        'eventname' => '\mod_customcert\event\certificate_issued',
+        'callback' => '\local_ncasign\observer::certificate_issued',
+        'priority' => 9999,
+    ],
 ];

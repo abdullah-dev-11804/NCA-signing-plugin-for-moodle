@@ -25,6 +25,10 @@ use core_user;
  */
 class job_manager {
     /** @var string */
+    public const FILEAREA_ORIGINALPDF = 'originalpdf';
+    /** @var string */
+    public const FILEAREA_SIGNATURES = 'signatures';
+    /** @var string */
     public const JOB_PENDING = 'pending_manual';
     /** @var string */
     public const JOB_COMPLETED_MANUAL = 'completed_manual';
@@ -106,6 +110,150 @@ class job_manager {
         }
 
         return (int)$jobid;
+    }
+
+    /**
+     * Attach original certificate PDF content to a job.
+     *
+     * @param int $jobid
+     * @param string $filename
+     * @param string $content
+     * @param string $source
+     * @return void
+     */
+    public function attach_certificate_binary_to_job(
+        int $jobid,
+        string $filename,
+        string $content,
+        string $source = 'manual'
+    ): void {
+        global $DB;
+
+        if ($content === '') {
+            return;
+        }
+
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+
+        // Replace existing original certificate for this job.
+        $existing = $fs->get_area_files(
+            $context->id,
+            'local_ncasign',
+            self::FILEAREA_ORIGINALPDF,
+            $jobid,
+            'id',
+            false
+        );
+        foreach ($existing as $file) {
+            $file->delete();
+        }
+
+        $filename = trim($filename);
+        if ($filename === '' || $filename === '.') {
+            $filename = "certificate_job_{$jobid}.pdf";
+        }
+        if (!preg_match('/\.pdf$/i', $filename)) {
+            $filename .= '.pdf';
+        }
+
+        $record = (object)[
+            'contextid' => $context->id,
+            'component' => 'local_ncasign',
+            'filearea' => self::FILEAREA_ORIGINALPDF,
+            'itemid' => $jobid,
+            'filepath' => '/',
+            'filename' => $filename,
+            'userid' => 0,
+            'author' => 'local_ncasign',
+            'license' => 'allrightsreserved',
+            'source' => $source,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $fs->create_file_from_string($record, $content);
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
+        if (strpos((string)$job->certificateurl, 'stored://') !== 0) {
+            $job->certificateurl = "stored://local_ncasign/" . self::FILEAREA_ORIGINALPDF . "/{$jobid}/{$filename}";
+            $job->timemodified = time();
+            $DB->update_record('local_ncasign_jobs', $job);
+        }
+    }
+
+    /**
+     * Get stored original certificate PDF for a job.
+     *
+     * @param int $jobid
+     * @return array|null
+     */
+    public function get_job_certificate_binary(int $jobid): ?array {
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+        $files = $fs->get_area_files(
+            $context->id,
+            'local_ncasign',
+            self::FILEAREA_ORIGINALPDF,
+            $jobid,
+            'id DESC',
+            false
+        );
+
+        if (!$files) {
+            return null;
+        }
+        $file = reset($files);
+        $content = $file->get_content();
+        return [
+            'filename' => $file->get_filename(),
+            'mimetype' => $file->get_mimetype(),
+            'content' => $content,
+            'sha256' => hash('sha256', $content),
+            'filesize' => $file->get_filesize(),
+        ];
+    }
+
+    /**
+     * Store signer CMS signature artifact.
+     *
+     * @param int $jobid
+     * @param int $signerrecordid
+     * @param string $cms
+     * @return string stored filename
+     */
+    public function store_signer_cms_signature(int $jobid, int $signerrecordid, string $cms): string {
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+
+        $filename = "signer_{$signerrecordid}.p7s";
+        $existing = $fs->get_file(
+            $context->id,
+            'local_ncasign',
+            self::FILEAREA_SIGNATURES,
+            $jobid,
+            '/',
+            $filename
+        );
+        if ($existing) {
+            $existing->delete();
+        }
+
+        $record = (object)[
+            'contextid' => $context->id,
+            'component' => 'local_ncasign',
+            'filearea' => self::FILEAREA_SIGNATURES,
+            'itemid' => $jobid,
+            'filepath' => '/',
+            'filename' => $filename,
+            'userid' => 0,
+            'author' => 'local_ncasign',
+            'license' => 'allrightsreserved',
+            'source' => 'ncalayer',
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $fs->create_file_from_string($record, $cms);
+        return $filename;
     }
 
     /**

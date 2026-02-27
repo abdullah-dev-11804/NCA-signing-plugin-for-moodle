@@ -37,6 +37,7 @@ $string['status'] = 'Status';
 $string['deadline'] = 'Manual deadline';
 $string['manualsigned'] = 'Manual signatures';
 $string['autosigned'] = 'Auto-signed';
+$string['artifacts'] = 'Artifacts';
 
 $string['signtitle'] = 'Certificate signature request';
 $string['signinstructions'] = 'Use NCALayer below to create a real CMS signature for this request.';
