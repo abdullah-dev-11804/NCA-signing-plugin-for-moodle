@@ -14,8 +14,8 @@ This plugin performs a **real NCALayer CMS signing action** on signer machines a
 
 ## What This Plugin Includes
 
-- `course_completed` observer to create signing jobs automatically.
 - `mod_customcert\event\certificate_issued` observer to create jobs from real issued certificates.
+- No `course_completed` trigger in current version (to avoid stale/mock certificate URLs).
 - Admin settings for window/deadline and role-based signers.
 - Manual signer page with secure token links (`/local/ncasign/sign.php?token=...`) and NCALayer CMS signing call.
 - Scheduled task every 15 minutes for auto-sign fallback.
