@@ -40,7 +40,7 @@ class observer {
         if (!$courseid || !$userid) {
             return;
         }
-
+        error_log('Course completed event observed for user ' . $userid . ' in course ' . $courseid);
         $manager = new job_manager();
         $context = \context_course::instance($courseid);
         $signers = $manager->get_signers_from_configured_roles($context);
@@ -59,7 +59,7 @@ class observer {
         if (!(int)get_config('local_ncasign', 'enabled')) {
             return;
         }
-
+        error_log('Certificate issued event observed: ' . $event->get_name());
         $courseid = (int)$event->courseid;
         $userid = (int)($event->relateduserid ?? $event->userid ?? 0);
         if (!$courseid || !$userid) {
