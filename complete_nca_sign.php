@@ -16,6 +16,9 @@
 
 require_once(__DIR__ . '/../../config.php');
 
+$PAGE->set_context(context_system::instance());
+$PAGE->set_url(new moodle_url('/local/ncasign/complete_nca_sign.php'));
+
 $token = required_param('token', PARAM_ALPHANUMEXT);
 $payloadb64 = required_param('payloadb64', PARAM_RAW_TRIMMED);
 $payloadmode = optional_param('payloadmode', 'job_metadata', PARAM_ALPHANUMEXT);
