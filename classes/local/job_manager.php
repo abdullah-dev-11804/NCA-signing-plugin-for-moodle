@@ -445,7 +445,11 @@ class job_manager {
         $DB->update_record('local_ncasign_jobs', $job);
 
         try {
+            $this->ensure_original_pdf_for_job($jobid);
             $this->generate_signed_pdf_artifact($jobid);
+            if (!$this->has_job_signed_pdf($jobid)) {
+                error_log('local_ncasign: signed PDF was not generated for job ' . $jobid);
+            }
         } catch (\Throwable $e) {
             debugging('local_ncasign: failed to generate signed PDF artifact: ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
@@ -625,6 +629,51 @@ class job_manager {
     }
 
     /**
+     * Ensure job has an original PDF, resolving from mod_customcert issue if needed.
+     *
+     * @param int $jobid
+     * @return bool
+     */
+    public function ensure_original_pdf_for_job(int $jobid): bool {
+        global $DB;
+
+        if ($this->has_job_original_pdf($jobid)) {
+            return true;
+        }
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job) {
+            return false;
+        }
+
+        $sql = "SELECT ci.id, ci.userid
+                  FROM {customcert_issues} ci
+                  JOIN {customcert} c ON c.id = ci.customcertid
+                 WHERE c.course = :courseid
+                   AND ci.userid = :userid
+              ORDER BY ci.timecreated DESC, ci.id DESC";
+        $issue = $DB->get_record_sql($sql, ['courseid' => (int)$job->courseid, 'userid' => (int)$job->userid], IGNORE_MULTIPLE);
+        if (!$issue) {
+            error_log('local_ncasign: no customcert issue found for job ' . $jobid . ' (course ' . (int)$job->courseid . ', user ' . (int)$job->userid . ')');
+            return false;
+        }
+
+        $pdf = $this->generate_customcert_pdf_from_issue((int)$issue->id, (int)$issue->userid);
+        if (!$pdf) {
+            error_log('local_ncasign: failed to generate PDF from customcert issue ' . (int)$issue->id . ' for job ' . $jobid);
+            return false;
+        }
+
+        $this->attach_certificate_binary_to_job(
+            $jobid,
+            $pdf['filename'],
+            $pdf['content'],
+            'mod_customcert_late_resolve'
+        );
+        return true;
+    }
+
+    /**
      * Fetch latest stored file from an area.
      *
      * @param string $filearea
@@ -692,6 +741,56 @@ class job_manager {
             return 'local_ncasign job=' . $jobid;
         }
         return $json;
+    }
+
+    /**
+     * Generate certificate PDF bytes directly from mod_customcert issue data.
+     *
+     * @param int $issueid
+     * @param int $userid
+     * @return array|null ['filename' => string, 'content' => string]
+     */
+    private function generate_customcert_pdf_from_issue(int $issueid, int $userid): ?array {
+        global $DB;
+
+        if ($issueid <= 0 || !class_exists('\mod_customcert\template')) {
+            return null;
+        }
+
+        $issue = $DB->get_record('customcert_issues', ['id' => $issueid], 'id,customcertid,userid', IGNORE_MISSING);
+        if (!$issue) {
+            return null;
+        }
+
+        $customcert = $DB->get_record('customcert', ['id' => (int)$issue->customcertid], 'id,templateid', IGNORE_MISSING);
+        if (!$customcert || empty($customcert->templateid)) {
+            return null;
+        }
+
+        try {
+            $template = \mod_customcert\template::load((int)$customcert->templateid);
+            $targetuserid = (int)($issue->userid ?? $userid);
+            $content = null;
+
+            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+                $pdfservice = \mod_customcert\service\pdf_generation_service::create();
+                $content = $pdfservice->generate_pdf($template, false, $targetuserid, true);
+            } else if (method_exists($template, 'generate_pdf')) {
+                $content = $template->generate_pdf(false, $targetuserid, true);
+            }
+
+            if (!is_string($content) || $content === '') {
+                return null;
+            }
+
+            return [
+                'filename' => "customcert_issue_{$issueid}.pdf",
+                'content' => $content,
+            ];
+        } catch (\Throwable $e) {
+            debugging('local_ncasign: customcert PDF generation failed for issue ' . $issueid . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
+            return null;
+        }
     }
 
     /**
