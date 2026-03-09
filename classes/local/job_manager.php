@@ -451,7 +451,7 @@ class job_manager {
                 error_log('local_ncasign: signed PDF was not generated for job ' . $jobid);
             }
         } catch (\Throwable $e) {
-            debugging('local_ncasign: failed to generate signed PDF artifact: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            error_log('local_ncasign: failed to generate signed PDF artifact: ' . $e->getMessage());
         }
 
         $this->send_student_completion_email($job, false);
@@ -768,7 +768,10 @@ class job_manager {
         }
 
         try {
-            $template = \mod_customcert\template::load((int)$customcert->templateid);
+            $template = $this->get_customcert_template_instance((int)$customcert->templateid);
+            if (!$template) {
+                return null;
+            }
             $targetuserid = (int)($issue->userid ?? $userid);
             $content = null;
 
@@ -788,7 +791,32 @@ class job_manager {
                 'content' => $content,
             ];
         } catch (\Throwable $e) {
-            debugging('local_ncasign: customcert PDF generation failed for issue ' . $issueid . ': ' . $e->getMessage(), DEBUG_DEVELOPER);
+            error_log('local_ncasign: customcert PDF generation failed for issue ' . $issueid . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Load mod_customcert template object across plugin versions.
+     *
+     * @param int $templateid
+     * @return object|null
+     */
+    private function get_customcert_template_instance(int $templateid): ?object {
+        if (!class_exists('\mod_customcert\template')) {
+            return null;
+        }
+
+        try {
+            if (method_exists('\mod_customcert\template', 'load')) {
+                return \mod_customcert\template::load($templateid);
+            }
+            if (method_exists('\mod_customcert\template', 'instance')) {
+                return \mod_customcert\template::instance($templateid);
+            }
+            return new \mod_customcert\template($templateid);
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: failed to load customcert template ' . $templateid . ': ' . $e->getMessage());
             return null;
         }
     }
@@ -850,7 +878,7 @@ class job_manager {
 
                 return $pdf->Output('', 'S');
             } catch (\Throwable $e) {
-                debugging('local_ncasign: QR overlay failed, using fallback signed PDF. ' . $e->getMessage(), DEBUG_DEVELOPER);
+                error_log('local_ncasign: QR overlay failed, using fallback signed PDF. ' . $e->getMessage());
             }
         }
 

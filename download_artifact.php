@@ -30,7 +30,9 @@ if (!$job) {
 
 $ismanager = has_capability('local/ncasign:managejobs', $syscontext);
 $isownerstudent = ((int)$USER->id === (int)$job->userid);
-if (!$ismanager && !$isownerstudent) {
+$coursecontext = context_course::instance((int)$job->courseid, IGNORE_MISSING);
+$isenrolledincourse = ($coursecontext && is_enrolled($coursecontext, $USER, '', true));
+if (!$ismanager && !$isownerstudent && !$isenrolledincourse) {
     require_capability('local/ncasign:managejobs', $syscontext);
 }
 
