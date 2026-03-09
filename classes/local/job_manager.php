@@ -803,6 +803,8 @@ class job_manager {
      * @return object|null
      */
     private function get_customcert_template_instance(int $templateid): ?object {
+        global $DB;
+
         if (!class_exists('\mod_customcert\template')) {
             return null;
         }
@@ -814,7 +816,12 @@ class job_manager {
             if (method_exists('\mod_customcert\template', 'instance')) {
                 return \mod_customcert\template::instance($templateid);
             }
-            return new \mod_customcert\template($templateid);
+            $templaterecord = $DB->get_record('customcert_templates', ['id' => $templateid], '*', IGNORE_MISSING);
+            if (!$templaterecord) {
+                error_log('local_ncasign: customcert template record not found id=' . $templateid);
+                return null;
+            }
+            return new \mod_customcert\template($templaterecord);
         } catch (\Throwable $e) {
             error_log('local_ncasign: failed to load customcert template ' . $templateid . ': ' . $e->getMessage());
             return null;
