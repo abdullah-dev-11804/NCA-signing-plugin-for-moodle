@@ -78,12 +78,23 @@ echo $OUTPUT->footer();
 function local_ncasign_render_artifacts(int $jobid): string {
     global $DB;
 
+    $manager = new \local_ncasign\local\job_manager();
     $links = [];
-    $originallink = new moodle_url('/local/ncasign/download_artifact.php', [
-        'jobid' => $jobid,
-        'type' => 'original',
-    ]);
-    $links[] = html_writer::link($originallink, 'PDF');
+    if ($manager->has_job_original_pdf($jobid)) {
+        $originallink = new moodle_url('/local/ncasign/download_artifact.php', [
+            'jobid' => $jobid,
+            'type' => 'original',
+        ]);
+        $links[] = html_writer::link($originallink, 'Original PDF');
+    }
+
+    if ($manager->has_job_signed_pdf($jobid)) {
+        $signedpdflink = new moodle_url('/local/ncasign/download_artifact.php', [
+            'jobid' => $jobid,
+            'type' => 'signedpdf',
+        ]);
+        $links[] = html_writer::link($signedpdflink, 'Signed PDF (QR)');
+    }
 
     $signed = $DB->get_records('local_ncasign_signers', [
         'jobid' => $jobid,
@@ -96,6 +107,10 @@ function local_ncasign_render_artifacts(int $jobid): string {
             'signerid' => (int)$signer->id,
         ]);
         $links[] = html_writer::link($siglink, 'CMS signer #' . (int)$signer->id);
+    }
+
+    if (!$links) {
+        return '-';
     }
 
     return implode(' | ', $links);

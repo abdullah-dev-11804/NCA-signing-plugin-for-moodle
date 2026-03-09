@@ -40,7 +40,7 @@ class observer {
         if (!$courseid || !$userid) {
             return;
         }
-        error_log('Course completed event observed for user ' . $userid . ' in course ' . $courseid);
+
         $manager = new job_manager();
         $context = \context_course::instance($courseid);
         $signers = $manager->get_signers_from_configured_roles($context);
@@ -49,20 +49,40 @@ class observer {
     }
 
     /**
-     * Queue signing job when customcert issues a certificate.
+     * Queue signing job when customcert creates an issue.
+     *
+     * @param \mod_customcert\event\issue_created $event
+     * @return void
+     */
+    public static function issue_created($event): void {
+        self::handle_customcert_issue_event($event);
+    }
+
+    /**
+     * Backward-compatible alias for older/forked customcert versions.
      *
      * @param \mod_customcert\event\certificate_issued $event
      * @return void
      */
     public static function certificate_issued($event): void {
-        global $DB;
+        self::handle_customcert_issue_event($event);
+    }
+
+    /**
+     * Shared handler for customcert issue events.
+     *
+     * @param \core\event\base $event
+     * @return void
+     */
+    private static function handle_customcert_issue_event(\core\event\base $event): void {
         if (!(int)get_config('local_ncasign', 'enabled')) {
             return;
         }
-        error_log('Certificate issued event observed: ' . $event->get_name());
-        $courseid = (int)$event->courseid;
+
+        $courseid = self::extract_courseid($event);
         $userid = (int)($event->relateduserid ?? $event->userid ?? 0);
         if (!$courseid || !$userid) {
+            error_log('local_ncasign: customcert event missing course/user ids. Event=' . get_class($event));
             return;
         }
 
@@ -79,21 +99,114 @@ class observer {
 
         $jobid = $manager->create_job($userid, $courseid, $certurl, $signers);
 
-        $contextid = (int)$event->contextid;
         $issueid = (int)($event->objectid ?? 0);
-        $storedfile = self::find_customcert_pdf_file($contextid, $issueid, $userid);
-        if ($storedfile) {
+        $attached = false;
+
+        $generated = self::generate_customcert_pdf_from_issue($issueid, $userid);
+        if ($generated) {
             $manager->attach_certificate_binary_to_job(
                 $jobid,
-                $storedfile->get_filename(),
-                $storedfile->get_content(),
-                'mod_customcert_event'
+                $generated['filename'],
+                $generated['content'],
+                'mod_customcert_generated'
             );
+            $attached = true;
+        }
+
+        if (!$attached) {
+            $contextid = (int)$event->contextid;
+            $storedfile = self::find_customcert_pdf_file($contextid, $issueid, $userid);
+            if ($storedfile) {
+                $manager->attach_certificate_binary_to_job(
+                    $jobid,
+                    $storedfile->get_filename(),
+                    $storedfile->get_content(),
+                    'mod_customcert_filearea'
+                );
+                $attached = true;
+            }
+        }
+
+        if (!$attached) {
+            error_log('local_ncasign: no PDF attached for job ' . $jobid . ' from event ' . get_class($event));
         }
     }
 
     /**
-     * Find latest PDF file for a customcert issue/context.
+     * Extract course id across customcert event variants.
+     *
+     * @param \core\event\base $event
+     * @return int
+     */
+    private static function extract_courseid(\core\event\base $event): int {
+        $courseid = (int)($event->courseid ?? 0);
+        if ($courseid > 0) {
+            return $courseid;
+        }
+
+        $cmid = (int)($event->contextinstanceid ?? 0);
+        if ($cmid > 0) {
+            $cm = get_coursemodule_from_id('customcert', $cmid, 0, false, 'id,course', IGNORE_MISSING);
+            if ($cm && !empty($cm->course)) {
+                return (int)$cm->course;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * Generate certificate PDF bytes directly from mod_customcert issue data.
+     *
+     * @param int $issueid
+     * @param int $fallbackuserid
+     * @return array|null ['filename' => string, 'content' => string]
+     */
+    private static function generate_customcert_pdf_from_issue(int $issueid, int $fallbackuserid): ?array {
+        global $DB;
+
+        if ($issueid <= 0 || !class_exists('\mod_customcert\template')) {
+            return null;
+        }
+
+        $issue = $DB->get_record('customcert_issues', ['id' => $issueid], 'id,customcertid,userid', IGNORE_MISSING);
+        if (!$issue) {
+            return null;
+        }
+
+        $customcert = $DB->get_record('customcert', ['id' => (int)$issue->customcertid], 'id,templateid', IGNORE_MISSING);
+        if (!$customcert || empty($customcert->templateid)) {
+            return null;
+        }
+
+        try {
+            $template = \mod_customcert\template::load((int)$customcert->templateid);
+            $userid = (int)($issue->userid ?? $fallbackuserid);
+            $content = null;
+
+            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+                $pdfservice = \mod_customcert\service\pdf_generation_service::create();
+                $content = $pdfservice->generate_pdf($template, false, $userid, true);
+            } else if (method_exists($template, 'generate_pdf')) {
+                $content = $template->generate_pdf(false, $userid, true);
+            }
+
+            if (!is_string($content) || $content === '') {
+                return null;
+            }
+
+            return [
+                'filename' => "customcert_issue_{$issueid}.pdf",
+                'content' => $content,
+            ];
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: customcert PDF generation failed for issue ' . $issueid . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Find latest PDF file for a customcert issue/context as fallback.
      *
      * @param int $contextid
      * @param int $issueid

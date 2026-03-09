@@ -18,6 +18,12 @@ defined('MOODLE_INTERNAL') || die();
 
 $observers = [
     [
+        'eventname' => '\mod_customcert\event\issue_created',
+        'callback' => '\local_ncasign\observer::issue_created',
+        'priority' => 9999,
+    ],
+    // Backward-compat hook for older/forked customcert variants.
+    [
         'eventname' => '\mod_customcert\event\certificate_issued',
         'callback' => '\local_ncasign\observer::certificate_issued',
         'priority' => 9999,

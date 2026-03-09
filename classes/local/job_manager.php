@@ -29,6 +29,8 @@ class job_manager {
     /** @var string */
     public const FILEAREA_SIGNATURES = 'signatures';
     /** @var string */
+    public const FILEAREA_SIGNEDPDF = 'signedpdf';
+    /** @var string */
     public const JOB_PENDING = 'pending_manual';
     /** @var string */
     public const JOB_COMPLETED_MANUAL = 'completed_manual';
@@ -214,6 +216,107 @@ class job_manager {
     }
 
     /**
+     * Check whether original PDF exists for a job.
+     *
+     * @param int $jobid
+     * @return bool
+     */
+    public function has_job_original_pdf(int $jobid): bool {
+        return $this->get_latest_file_from_area(self::FILEAREA_ORIGINALPDF, $jobid) !== null;
+    }
+
+    /**
+     * Check whether signed PDF exists for a job.
+     *
+     * @param int $jobid
+     * @return bool
+     */
+    public function has_job_signed_pdf(int $jobid): bool {
+        return $this->get_latest_file_from_area(self::FILEAREA_SIGNEDPDF, $jobid) !== null;
+    }
+
+    /**
+     * Get signed PDF binary payload for a job.
+     *
+     * @param int $jobid
+     * @return array|null
+     */
+    public function get_job_signed_pdf_binary(int $jobid): ?array {
+        $file = $this->get_latest_file_from_area(self::FILEAREA_SIGNEDPDF, $jobid);
+        if (!$file) {
+            return null;
+        }
+        $content = $file->get_content();
+        return [
+            'filename' => $file->get_filename(),
+            'mimetype' => $file->get_mimetype(),
+            'content' => $content,
+            'sha256' => hash('sha256', $content),
+            'filesize' => $file->get_filesize(),
+        ];
+    }
+
+    /**
+     * Generate and store signed PDF artifact containing QR block.
+     *
+     * @param int $jobid
+     * @return string|null stored filename
+     */
+    public function generate_signed_pdf_artifact(int $jobid): ?string {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job) {
+            return null;
+        }
+
+        $original = $this->get_job_certificate_binary($jobid);
+        if (!$original) {
+            return null;
+        }
+
+        $qrpayload = $this->build_qr_payload((int)$job->id);
+        $signedcontent = $this->build_qr_stamped_pdf($original['content'], $qrpayload, (int)$job->id);
+        if ($signedcontent === null || $signedcontent === '') {
+            return null;
+        }
+
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+        $filename = "signed_job_{$jobid}.pdf";
+
+        $existing = $fs->get_area_files(
+            $context->id,
+            'local_ncasign',
+            self::FILEAREA_SIGNEDPDF,
+            $jobid,
+            'id',
+            false
+        );
+        foreach ($existing as $file) {
+            $file->delete();
+        }
+
+        $record = (object)[
+            'contextid' => $context->id,
+            'component' => 'local_ncasign',
+            'filearea' => self::FILEAREA_SIGNEDPDF,
+            'itemid' => $jobid,
+            'filepath' => '/',
+            'filename' => $filename,
+            'userid' => 0,
+            'author' => 'local_ncasign',
+            'license' => 'allrightsreserved',
+            'source' => 'ncasign_qr_overlay',
+            'mimetype' => 'application/pdf',
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $fs->create_file_from_string($record, $signedcontent);
+        return $filename;
+    }
+
+    /**
      * Store signer CMS signature artifact.
      *
      * @param int $jobid
@@ -226,6 +329,12 @@ class job_manager {
         $fs = get_file_storage();
 
         $filename = "signer_{$signerrecordid}.p7s";
+        $cms = trim($cms);
+        $cmscompact = preg_replace('/\s+/', '', $cms);
+        $binarycms = base64_decode((string)$cmscompact, true);
+        if ($binarycms === false || $binarycms === '') {
+            $binarycms = $cms;
+        }
         $existing = $fs->get_file(
             $context->id,
             'local_ncasign',
@@ -249,10 +358,11 @@ class job_manager {
             'author' => 'local_ncasign',
             'license' => 'allrightsreserved',
             'source' => 'ncalayer',
+            'mimetype' => 'application/pkcs7-signature',
             'timecreated' => time(),
             'timemodified' => time(),
         ];
-        $fs->create_file_from_string($record, $cms);
+        $fs->create_file_from_string($record, $binarycms);
         return $filename;
     }
 
@@ -333,6 +443,13 @@ class job_manager {
         $job->manualcompleted = time();
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
+
+        try {
+            $this->generate_signed_pdf_artifact($jobid);
+        } catch (\Throwable $e) {
+            debugging('local_ncasign: failed to generate signed PDF artifact: ' . $e->getMessage(), DEBUG_DEVELOPER);
+        }
+
         $this->send_student_completion_email($job, false);
     }
 
@@ -491,18 +608,202 @@ class job_manager {
      * @return void
      */
     private function send_student_completion_email(\stdClass $job, bool $auto): void {
-        global $DB;
+        global $CFG, $DB;
         $student = $DB->get_record('user', ['id' => $job->userid, 'deleted' => 0, 'suspended' => 0]);
         if (!$student || empty($student->email)) {
             return;
         }
         $from = core_user::get_support_user();
         $mode = $auto ? 'automatic server fallback' : 'manual signer approvals';
+        $signedpdflink = $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . (int)$job->id . '&type=signedpdf';
         $subject = 'Your course certificate has been signed';
         $message = "Your certificate is now signed ({$mode}).\n\n" .
             "Course ID: {$job->courseid}\n" .
-            "Certificate URL: {$job->certificateurl}\n";
+            "Certificate URL: {$job->certificateurl}\n" .
+            "Signed PDF (with QR block): {$signedpdflink}\n";
         email_to_user($student, $from, $subject, $message);
+    }
+
+    /**
+     * Fetch latest stored file from an area.
+     *
+     * @param string $filearea
+     * @param int $itemid
+     * @return \stored_file|null
+     */
+    private function get_latest_file_from_area(string $filearea, int $itemid): ?\stored_file {
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+        $files = $fs->get_area_files(
+            $context->id,
+            'local_ncasign',
+            $filearea,
+            $itemid,
+            'id DESC',
+            false
+        );
+
+        if (!$files) {
+            return null;
+        }
+
+        $file = reset($files);
+        return $file ?: null;
+    }
+
+    /**
+     * Build QR payload for signed job audit.
+     *
+     * @param int $jobid
+     * @return string
+     */
+    private function build_qr_payload(int $jobid): string {
+        global $CFG, $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
+        $signers = $DB->get_records('local_ncasign_signers', ['jobid' => $jobid], 'id ASC');
+
+        $signedsigners = [];
+        foreach ($signers as $signer) {
+            if ((string)$signer->status !== self::SIGNER_SIGNED) {
+                continue;
+            }
+            $signedsigners[] = [
+                'email' => (string)$signer->signeremail,
+                'signedat' => (int)($signer->signedat ?? 0),
+                'signedby' => (string)($signer->signedby ?? ''),
+            ];
+        }
+
+        $payload = [
+            'source' => 'local_ncasign',
+            'jobid' => $jobid,
+            'courseid' => (int)$job->courseid,
+            'userid' => (int)$job->userid,
+            'status' => (string)$job->status,
+            'manualcompleted' => (int)($job->manualcompleted ?? 0),
+            'certificateurl' => (string)$job->certificateurl,
+            'signedpdf_url' => $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . $jobid . '&type=signedpdf',
+            'signers' => $signedsigners,
+        ];
+
+        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false || $json === '') {
+            return 'local_ncasign job=' . $jobid;
+        }
+        return $json;
+    }
+
+    /**
+     * Build signed PDF with QR stamp. Uses FPDI overlay if available, else fallback summary page.
+     *
+     * @param string $originalpdf
+     * @param string $qrpayload
+     * @param int $jobid
+     * @return string|null
+     */
+    private function build_qr_stamped_pdf(string $originalpdf, string $qrpayload, int $jobid): ?string {
+        global $CFG;
+
+        if (class_exists('\setasign\Fpdi\Tcpdf\Fpdi')) {
+            try {
+                $tmpdir = make_request_directory();
+                if (!$tmpdir) {
+                    return $this->build_qr_fallback_pdf($jobid, $qrpayload, hash('sha256', $originalpdf));
+                }
+
+                $sourcepath = $tmpdir . DIRECTORY_SEPARATOR . "ncasign_job_{$jobid}_source.pdf";
+                file_put_contents($sourcepath, $originalpdf);
+
+                $pdf = new \setasign\Fpdi\Tcpdf\Fpdi();
+                $pdf->setPrintHeader(false);
+                $pdf->setPrintFooter(false);
+                $pdf->SetAutoPageBreak(false, 0);
+
+                $pagecount = $pdf->setSourceFile($sourcepath);
+                $style = [
+                    'border' => 0,
+                    'padding' => 0,
+                    'fgcolor' => [0, 0, 0],
+                    'bgcolor' => false,
+                ];
+
+                for ($pageno = 1; $pageno <= $pagecount; $pageno++) {
+                    $templateid = $pdf->importPage($pageno);
+                    $size = $pdf->getTemplateSize($templateid);
+                    $w = (float)($size['width'] ?? $size['w'] ?? 210.0);
+                    $h = (float)($size['height'] ?? $size['h'] ?? 297.0);
+                    $orientation = ($w > $h) ? 'L' : 'P';
+
+                    $pdf->AddPage($orientation, [$w, $h]);
+                    $pdf->useTemplate($templateid, 0, 0, $w, $h, true);
+
+                    $qrsize = min(26.0, max(18.0, min($w, $h) * 0.12));
+                    $margin = 6.0;
+                    $x = max($margin, $w - $qrsize - $margin);
+                    $y = max($margin, $h - $qrsize - $margin);
+
+                    $pdf->write2DBarcode($qrpayload, 'QRCODE,H', $x, $y, $qrsize, $qrsize, $style, 'N');
+                    $pdf->SetFont('helvetica', '', 6);
+                    $pdf->SetXY(max($margin, $x - 28), max($margin, $y - 4));
+                    $pdf->Cell(28, 3, 'NCA signed', 0, 0, 'R', false, '', 0, false, 'T', 'M');
+                }
+
+                return $pdf->Output('', 'S');
+            } catch (\Throwable $e) {
+                debugging('local_ncasign: QR overlay failed, using fallback signed PDF. ' . $e->getMessage(), DEBUG_DEVELOPER);
+            }
+        }
+
+        return $this->build_qr_fallback_pdf($jobid, $qrpayload, hash('sha256', $originalpdf));
+    }
+
+    /**
+     * Build fallback one-page signed PDF with QR and audit details.
+     *
+     * @param int $jobid
+     * @param string $qrpayload
+     * @param string $originalsha256
+     * @return string|null
+     */
+    private function build_qr_fallback_pdf(int $jobid, string $qrpayload, string $originalsha256): ?string {
+        global $CFG, $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job) {
+            return null;
+        }
+
+        require_once($CFG->libdir . '/pdflib.php');
+        $pdf = new \pdf();
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetAutoPageBreak(true, 10);
+        $pdf->AddPage();
+
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Write(0, 'NCA Signed Certificate Artifact', '', 0, 'L', true, 0, false, false, 0);
+
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Ln(2);
+        $pdf->Write(0, 'Job ID: ' . (int)$job->id, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Student User ID: ' . (int)$job->userid, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Course ID: ' . (int)$job->courseid, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Signed at: ' . userdate((int)($job->manualcompleted ?? time())), '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Original PDF SHA256: ' . $originalsha256, '', 0, 'L', true, 0, false, false, 0);
+
+        $style = [
+            'border' => 0,
+            'padding' => 0,
+            'fgcolor' => [0, 0, 0],
+            'bgcolor' => false,
+        ];
+        $pdf->Ln(5);
+        $pdf->write2DBarcode($qrpayload, 'QRCODE,H', 15, 70, 45, 45, $style, 'N');
+        $pdf->SetXY(65, 73);
+        $pdf->MultiCell(125, 35, "QR contains signing audit payload for this certificate job.\nUse plugin verification tooling to validate CMS signature(s).");
+
+        return $pdf->Output('', 'S');
     }
 
     /**

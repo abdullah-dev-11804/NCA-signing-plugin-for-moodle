@@ -17,19 +17,29 @@
 require_once(__DIR__ . '/../../config.php');
 
 require_login();
-$context = context_system::instance();
-require_capability('local/ncasign:managejobs', $context);
+$syscontext = context_system::instance();
 
 $jobid = required_param('jobid', PARAM_INT);
 $type = required_param('type', PARAM_ALPHA);
 $signerid = optional_param('signerid', 0, PARAM_INT);
+
+$job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+if (!$job) {
+    throw new moodle_exception('invalidrecord', 'error');
+}
+
+$ismanager = has_capability('local/ncasign:managejobs', $syscontext);
+$isownerstudent = ((int)$USER->id === (int)$job->userid);
+if (!$ismanager && !$isownerstudent) {
+    require_capability('local/ncasign:managejobs', $syscontext);
+}
 
 $fs = get_file_storage();
 $file = null;
 
 if ($type === 'original') {
     $files = $fs->get_area_files(
-        $context->id,
+        $syscontext->id,
         'local_ncasign',
         \local_ncasign\local\job_manager::FILEAREA_ORIGINALPDF,
         $jobid,
@@ -39,10 +49,25 @@ if ($type === 'original') {
     if ($files) {
         $file = reset($files);
     }
+} else if ($type === 'signedpdf') {
+    $files = $fs->get_area_files(
+        $syscontext->id,
+        'local_ncasign',
+        \local_ncasign\local\job_manager::FILEAREA_SIGNEDPDF,
+        $jobid,
+        'id DESC',
+        false
+    );
+    if ($files) {
+        $file = reset($files);
+    }
 } else if ($type === 'signature' && $signerid > 0) {
+    if (!$ismanager) {
+        throw new moodle_exception('nopermissions', 'error', '', 'download signer CMS');
+    }
     $filename = "signer_{$signerid}.p7s";
     $file = $fs->get_file(
-        $context->id,
+        $syscontext->id,
         'local_ncasign',
         \local_ncasign\local\job_manager::FILEAREA_SIGNATURES,
         $jobid,
