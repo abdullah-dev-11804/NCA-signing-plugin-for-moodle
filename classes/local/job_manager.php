@@ -65,7 +65,9 @@ class job_manager {
         int $courseid,
         string $certificateurl,
         array $signers,
-        ?int $manualwindowhours = null
+        ?int $manualwindowhours = null,
+        string $documenttype = 'certificate',
+        string $documenttitle = ''
     ): int {
         global $DB;
 
@@ -80,6 +82,10 @@ class job_manager {
             'timemodified' => $now,
             'userid' => $userid,
             'courseid' => $courseid,
+            'documentuuid' => $this->generate_document_uuid(),
+            'documenttype' => $this->normalise_document_type($documenttype),
+            'documenttitle' => trim($documenttitle) !== '' ? trim($documenttitle) : null,
+            'finalhash' => null,
             'certificateurl' => $certificateurl,
             'status' => self::JOB_PENDING,
             'manualdeadline' => $now + ($manualwindowhours * HOURSECS),
@@ -176,11 +182,18 @@ class job_manager {
         $fs->create_file_from_string($record, $content);
 
         $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
+        if (empty($job->documenttitle)) {
+            $job->documenttitle = pathinfo($filename, PATHINFO_FILENAME);
+        }
+        if (empty($job->documenttype) || $job->documenttype === 'certificate') {
+            $job->documenttype = $this->infer_document_type((string)$job->documenttitle, (string)$filename);
+        }
+        $job->finalhash = null;
         if (strpos((string)$job->certificateurl, 'stored://') !== 0) {
             $job->certificateurl = "stored://local_ncasign/" . self::FILEAREA_ORIGINALPDF . "/{$jobid}/{$filename}";
-            $job->timemodified = time();
-            $DB->update_record('local_ncasign_jobs', $job);
         }
+        $job->timemodified = time();
+        $DB->update_record('local_ncasign_jobs', $job);
     }
 
     /**
@@ -275,8 +288,8 @@ class job_manager {
             return null;
         }
 
-        $qrpayload = $this->build_qr_payload((int)$job->id);
-        $signedcontent = $this->build_qr_stamped_pdf($original['content'], $qrpayload, (int)$job->id);
+        $verificationurl = $this->get_verification_url_for_job((int)$job->id);
+        $signedcontent = $this->build_qr_stamped_pdf($original['content'], $verificationurl, (int)$job->id);
         if ($signedcontent === null || $signedcontent === '') {
             return null;
         }
@@ -313,6 +326,10 @@ class job_manager {
             'timemodified' => time(),
         ];
         $fs->create_file_from_string($record, $signedcontent);
+
+        $job->finalhash = hash('sha256', $signedcontent);
+        $job->timemodified = time();
+        $DB->update_record('local_ncasign_jobs', $job);
         return $filename;
     }
 
@@ -620,11 +637,13 @@ class job_manager {
         $from = core_user::get_support_user();
         $mode = $auto ? 'automatic server fallback' : 'manual signer approvals';
         $signedpdflink = $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . (int)$job->id . '&type=signedpdf';
+        $verifylink = $this->get_verification_url_for_job((int)$job->id);
         $subject = 'Your course certificate has been signed';
         $message = "Your certificate is now signed ({$mode}).\n\n" .
             "Course ID: {$job->courseid}\n" .
             "Certificate URL: {$job->certificateurl}\n" .
-            "Signed PDF (with QR block): {$signedpdflink}\n";
+            "Signed PDF (with QR block): {$signedpdflink}\n" .
+            "Public verification page: {$verifylink}\n";
         email_to_user($student, $from, $subject, $message);
     }
 
@@ -641,7 +660,7 @@ class job_manager {
             return true;
         }
 
-        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        $job = $this->ensure_job_verification_metadata($jobid);
         if (!$job) {
             return false;
         }
@@ -701,46 +720,93 @@ class job_manager {
     }
 
     /**
-     * Build QR payload for signed job audit.
+     * Return the public verification URL used in the embedded QR.
      *
      * @param int $jobid
      * @return string
      */
-    private function build_qr_payload(int $jobid): string {
-        global $CFG, $DB;
+    public function get_verification_url_for_job(int $jobid): string {
+        global $CFG;
 
-        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
-        $signers = $DB->get_records('local_ncasign_signers', ['jobid' => $jobid], 'id ASC');
-
-        $signedsigners = [];
-        foreach ($signers as $signer) {
-            if ((string)$signer->status !== self::SIGNER_SIGNED) {
-                continue;
-            }
-            $signedsigners[] = [
-                'email' => (string)$signer->signeremail,
-                'signedat' => (int)($signer->signedat ?? 0),
-                'signedby' => (string)($signer->signedby ?? ''),
-            ];
+        $job = $this->ensure_job_verification_metadata($jobid);
+        if (!$job || empty($job->documentuuid)) {
+            return $CFG->wwwroot;
         }
 
-        $payload = [
-            'source' => 'local_ncasign',
-            'jobid' => $jobid,
-            'courseid' => (int)$job->courseid,
-            'userid' => (int)$job->userid,
-            'status' => (string)$job->status,
-            'manualcompleted' => (int)($job->manualcompleted ?? 0),
-            'certificateurl' => (string)$job->certificateurl,
-            'signedpdf_url' => $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . $jobid . '&type=signedpdf',
-            'signers' => $signedsigners,
-        ];
+        $checksum = $this->get_verification_checksum((string)$job->documentuuid);
+        $url = new \moodle_url('/local/ncasign/verify.php', [
+            'id' => (string)$job->documentuuid,
+            'hash' => $checksum,
+        ]);
+        return $url->out(false);
+    }
 
-        $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($json === false || $json === '') {
-            return 'local_ncasign job=' . $jobid;
+    /**
+     * Resolve a signing job by public document UUID.
+     *
+     * @param string $documentuuid
+     * @return \stdClass|null
+     */
+    public function get_job_by_documentuuid(string $documentuuid): ?\stdClass {
+        global $DB;
+
+        return $DB->get_record('local_ncasign_jobs', ['documentuuid' => $documentuuid]) ?: null;
+    }
+
+    /**
+     * Return the deterministic QR checksum for a document UUID.
+     *
+     * @param string $documentuuid
+     * @return string
+     */
+    public function get_verification_checksum(string $documentuuid): string {
+        return substr(hash('sha256', $documentuuid), 0, 16);
+    }
+
+    /**
+     * Ensure a job has verification metadata populated.
+     *
+     * @param int $jobid
+     * @return \stdClass|null
+     */
+    public function ensure_job_verification_metadata(int $jobid): ?\stdClass {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job) {
+            return null;
         }
-        return $json;
+
+        $updated = false;
+        if (empty($job->documentuuid)) {
+            $job->documentuuid = $this->generate_document_uuid();
+            $updated = true;
+        }
+        if (empty($job->documenttype)) {
+            $job->documenttype = 'certificate';
+            $updated = true;
+        }
+        if (empty($job->documenttitle)) {
+            $course = $DB->get_record('course', ['id' => (int)$job->courseid], 'fullname', IGNORE_MISSING);
+            $job->documenttitle = $course ? $course->fullname : 'Signed document';
+            $updated = true;
+        }
+        $normalisedtype = $this->normalise_document_type((string)$job->documenttype);
+        $inferredtype = $this->infer_document_type((string)$job->documenttitle);
+        if ($normalisedtype !== (string)$job->documenttype) {
+            $job->documenttype = $normalisedtype;
+            $updated = true;
+        } else if ($normalisedtype === 'certificate' && $inferredtype !== 'certificate') {
+            $job->documenttype = $inferredtype;
+            $updated = true;
+        }
+
+        if ($updated) {
+            $job->timemodified = time();
+            $DB->update_record('local_ncasign_jobs', $job);
+        }
+
+        return $job;
     }
 
     /**
@@ -839,6 +905,7 @@ class job_manager {
     private function build_qr_stamped_pdf(string $originalpdf, string $qrpayload, int $jobid): ?string {
         global $CFG;
 
+        $this->maybe_load_plugin_vendor_autoload();
         if (class_exists('\setasign\Fpdi\Tcpdf\Fpdi')) {
             try {
                 $tmpdir = make_request_directory();
@@ -903,7 +970,7 @@ class job_manager {
     private function build_qr_fallback_pdf(int $jobid, string $qrpayload, string $originalsha256): ?string {
         global $CFG, $DB;
 
-        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        $job = $this->ensure_job_verification_metadata($jobid);
         if (!$job) {
             return null;
         }
@@ -916,15 +983,18 @@ class job_manager {
         $pdf->AddPage();
 
         $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Write(0, 'NCA Signed Certificate Artifact', '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'NCA Signed Document Verification', '', 0, 'L', true, 0, false, false, 0);
 
         $pdf->SetFont('helvetica', '', 10);
         $pdf->Ln(2);
+        $pdf->Write(0, 'Document: ' . (string)$job->documenttitle, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Document type: ' . ucfirst((string)$job->documenttype), '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Job ID: ' . (int)$job->id, '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Student User ID: ' . (int)$job->userid, '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Course ID: ' . (int)$job->courseid, '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Signed at: ' . userdate((int)($job->manualcompleted ?? time())), '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Original PDF SHA256: ' . $originalsha256, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Verify URL: ' . $qrpayload, '', 0, 'L', true, 0, false, false, 0);
 
         $style = [
             'border' => 0,
@@ -935,9 +1005,97 @@ class job_manager {
         $pdf->Ln(5);
         $pdf->write2DBarcode($qrpayload, 'QRCODE,H', 15, 70, 45, 45, $style, 'N');
         $pdf->SetXY(65, 73);
-        $pdf->MultiCell(125, 35, "QR contains signing audit payload for this certificate job.\nUse plugin verification tooling to validate CMS signature(s).");
+        $pdf->MultiCell(125, 35, "Scan the QR code or open the verification URL to check document authenticity, signer details, and integrity status.");
 
         return $pdf->Output('', 'S');
+    }
+
+    /**
+     * Load plugin-local composer autoload if present.
+     *
+     * @return void
+     */
+    private function maybe_load_plugin_vendor_autoload(): void {
+        static $loaded = false;
+
+        if ($loaded) {
+            return;
+        }
+
+        $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+        if (is_readable($autoload)) {
+            require_once($autoload);
+        }
+
+        $loaded = true;
+    }
+
+    /**
+     * Generate a random public document UUID.
+     *
+     * @return string
+     */
+    private function generate_document_uuid(): string {
+        $data = random_bytes(16);
+        $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+        $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+
+        $hex = bin2hex($data);
+        return substr($hex, 0, 8) . '-' .
+            substr($hex, 8, 4) . '-' .
+            substr($hex, 12, 4) . '-' .
+            substr($hex, 16, 4) . '-' .
+            substr($hex, 20, 12);
+    }
+
+    /**
+     * Normalise document type into supported public values.
+     *
+     * @param string $type
+     * @return string
+     */
+    private function normalise_document_type(string $type): string {
+        $type = \core_text::strtolower(trim($type));
+        if ($type === '') {
+            return 'certificate';
+        }
+
+        if (preg_match('/protocol|protocols|protokol/u', $type)) {
+            return 'protocol';
+        }
+        if (preg_match('/credential|licen[cs]e|card|udostov/u', $type)) {
+            return 'credential';
+        }
+        if (preg_match('/certificate|cert|sertif/u', $type)) {
+            return 'certificate';
+        }
+
+        return in_array($type, ['certificate', 'protocol', 'credential'], true) ? $type : 'certificate';
+    }
+
+    /**
+     * Infer document type from one or more human-readable labels.
+     *
+     * @param string ...$texts
+     * @return string
+     */
+    private function infer_document_type(string ...$texts): string {
+        $haystack = \core_text::strtolower(trim(implode(' ', $texts)));
+        if ($haystack === '') {
+            return 'certificate';
+        }
+
+        if (preg_match('/protocol|protocols|protokol/u', $haystack)) {
+            return 'protocol';
+        }
+        if (preg_match('/credential|licen[cs]e|card|udostov/u', $haystack)) {
+            return 'credential';
+        }
+        if (preg_match('/certificate|cert|sertif/u', $haystack)) {
+            return 'certificate';
+        }
+
+        return 'certificate';
     }
 
     /**
@@ -955,3 +1113,5 @@ class job_manager {
         return $token;
     }
 }
+
+

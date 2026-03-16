@@ -31,6 +31,8 @@ class observer {
      * @return void
      */
     public static function course_completed(\core\event\course_completed $event): void {
+        global $DB;
+
         if (!(int)get_config('local_ncasign', 'enabled')) {
             return;
         }
@@ -45,7 +47,16 @@ class observer {
         $context = \context_course::instance($courseid);
         $signers = $manager->get_signers_from_configured_roles($context);
         $certurl = $manager->build_certificate_url($courseid, $userid);
-        $manager->create_job($userid, $courseid, $certurl, $signers);
+        $course = $DB->get_record('course', ['id' => $courseid], 'fullname', IGNORE_MISSING);
+        $manager->create_job(
+            $userid,
+            $courseid,
+            $certurl,
+            $signers,
+            null,
+            'certificate',
+            $course ? (string)$course->fullname : ''
+        );
     }
 
     /**
@@ -97,9 +108,9 @@ class observer {
             $certurl = $manager->build_certificate_url($courseid, $userid);
         }
 
-        $jobid = $manager->create_job($userid, $courseid, $certurl, $signers);
-
         $issueid = (int)($event->objectid ?? 0);
+        $documenttitle = self::resolve_customcert_document_title($issueid, $cmid, $courseid);
+        $jobid = $manager->create_job($userid, $courseid, $certurl, $signers, null, 'certificate', $documenttitle);
         $attached = false;
 
         $generated = self::generate_customcert_pdf_from_issue($issueid, $userid);
@@ -153,6 +164,41 @@ class observer {
         }
 
         return 0;
+    }
+
+    /**
+     * Resolve human-readable document title from customcert issue/module.
+     *
+     * @param int $issueid
+     * @param int $cmid
+     * @param int $courseid
+     * @return string
+     */
+    private static function resolve_customcert_document_title(int $issueid, int $cmid, int $courseid): string {
+        global $DB;
+        error_log('local_ncasign: resolving document title for issueid=' . $issueid . ', cmid=' . $cmid . ', courseid=' . $courseid);
+        if ($issueid > 0) {
+            $sql = "SELECT c.name
+                      FROM {customcert_issues} ci
+                      JOIN {customcert} c ON c.id = ci.customcertid
+                     WHERE ci.id = :issueid";
+            $name = $DB->get_field_sql($sql, ['issueid' => $issueid]);
+            if (is_string($name) && trim($name) !== '') {
+                return trim($name);
+            }
+        }
+
+        if ($cmid > 0) {
+            $cm = get_coursemodule_from_id('customcert', $cmid, $courseid, false, 'id,instance', IGNORE_MISSING);
+            if ($cm) {
+                $name = $DB->get_field('customcert', 'name', ['id' => (int)$cm->instance], IGNORE_MISSING);
+                if (is_string($name) && trim($name) !== '') {
+                    return trim($name);
+                }
+            }
+        }
+
+        return '';
     }
 
     /**

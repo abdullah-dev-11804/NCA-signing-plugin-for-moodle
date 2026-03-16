@@ -30,6 +30,8 @@ $PAGE->set_heading(get_string('createdemojob', 'local_ncasign'));
 $userid = optional_param('userid', 0, PARAM_INT);
 $courseid = optional_param('courseid', 0, PARAM_INT);
 $signeremails = optional_param('signeremails', '', PARAM_RAW_TRIMMED);
+$documenttitle = optional_param('documenttitle', '', PARAM_TEXT);
+$documenttype = optional_param('documenttype', 'certificate', PARAM_ALPHA);
 
 if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
     $manager = new \local_ncasign\local\job_manager();
@@ -49,7 +51,15 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
     }
 
     if ($userid > 0 && $courseid > 0) {
-        $jobid = $manager->create_job($userid, $courseid, $certurl, $signers);
+        $jobid = $manager->create_job(
+            $userid,
+            $courseid,
+            $certurl,
+            $signers,
+            null,
+            $documenttype,
+            $documenttitle
+        );
         if (!empty($_FILES['certificatepdf']['tmp_name']) && is_uploaded_file($_FILES['certificatepdf']['tmp_name'])) {
             $pdfcontent = file_get_contents($_FILES['certificatepdf']['tmp_name']);
             if ($pdfcontent !== false && $pdfcontent !== '') {
@@ -86,6 +96,33 @@ echo html_writer::empty_tag('input', [
     'value' => $courseid ?: '',
     'required' => 'required',
 ]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('documenttitle', 'local_ncasign'), 'id_documenttitle');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'documenttitle',
+    'id' => 'id_documenttitle',
+    'value' => s($documenttitle),
+    'size' => 90,
+    'placeholder' => 'Engineer Protocol / Worker Certificate',
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('documenttype', 'local_ncasign'), 'id_documenttype');
+echo html_writer::select(
+    [
+        'certificate' => 'Certificate',
+        'protocol' => 'Protocol',
+        'credential' => 'Credential',
+    ],
+    'documenttype',
+    $documenttype,
+    false,
+    ['id' => 'id_documenttype']
+);
 echo html_writer::end_div();
 
 echo html_writer::start_div('form-group');
