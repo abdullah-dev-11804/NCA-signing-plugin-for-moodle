@@ -24,6 +24,8 @@ defined('MOODLE_INTERNAL') || die();
 class document_generator {
     /** @var string */
     public const DOC_ENGINEER_PROTOCOL = 'engineer_protocol';
+    /** @var string|null */
+    private $resolvedfontfamily = null;
 
     /**
      * Generate a draft document.
@@ -165,11 +167,11 @@ class document_generator {
         int $completiondate
     ): void {
         $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetFont('dejavusans', 'B', 10);
+        $this->set_document_font($pdf, 'B', 10);
         $pdf->SetXY(392, 33);
         $pdf->Cell(92, 12, $protocolnumber, 0, 0, 'L');
 
-        $pdf->SetFont('dejavusans', '', 10);
+        $this->set_document_font($pdf, '', 10);
         $pdf->SetXY(92, 106);
         $pdf->Cell(120, 12, userdate($completiondate, '%d.%m.%Y'), 0, 0, 'L');
 
@@ -203,7 +205,7 @@ class document_generator {
         string $align,
         int $fontsize
     ): void {
-        $pdf->SetFont('dejavusans', '', $fontsize);
+        $this->set_document_font($pdf, '', $fontsize);
         $pdf->SetXY($x, $y);
         $pdf->MultiCell($width, $height / 2, $text, 0, $align, false, 1, $x, $y, true, 0, false, true, $height, 'M');
     }
@@ -304,5 +306,32 @@ class document_generator {
         }
 
         return $parts ? implode(' ', $parts) : 'Student';
+    }
+
+    /**
+     * Set a working font available in this TCPDF installation.
+     *
+     * @param \setasign\Fpdi\Tcpdf\Fpdi $pdf
+     * @param string $style
+     * @param float $size
+     * @return void
+     */
+    private function set_document_font(\setasign\Fpdi\Tcpdf\Fpdi $pdf, string $style, float $size): void {
+        if ($this->resolvedfontfamily !== null) {
+            $pdf->SetFont($this->resolvedfontfamily, $style, $size);
+            return;
+        }
+
+        foreach (['freesans', 'dejavusans', 'helvetica'] as $candidate) {
+            try {
+                $pdf->SetFont($candidate, $style, $size);
+                $this->resolvedfontfamily = $candidate;
+                return;
+            } catch (\Throwable $e) {
+                continue;
+            }
+        }
+
+        throw new \RuntimeException('No usable TCPDF font found. Tried: freesans, dejavusans, helvetica.');
     }
 }
