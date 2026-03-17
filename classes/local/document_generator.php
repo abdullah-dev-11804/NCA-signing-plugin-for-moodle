@@ -87,7 +87,7 @@ class document_generator {
         ], 'Higher');
         $conclusion = $options['conclusion'] ?? 'Passed';
 
-        $pdf = new \setasign\Fpdi\Tcpdf\Fpdi('P', 'pt');
+        $pdf = new safe_fpdi('P', 'pt');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetAutoPageBreak(false, 0);
@@ -95,28 +95,43 @@ class document_generator {
         $pdf->SetAuthor('local_ncasign');
         $pdf->SetTitle('Industrial Safety Protocol (Engineer)');
 
-        $pagecount = $pdf->setSourceFile($templatepath);
-        for ($pageno = 1; $pageno <= $pagecount; $pageno++) {
-            $templateid = $pdf->importPage($pageno);
-            $size = $pdf->getTemplateSize($templateid);
-            $width = (float)($size['width'] ?? $size['w'] ?? 595.0);
-            $height = (float)($size['height'] ?? $size['h'] ?? 842.0);
-            $orientation = ($width > $height) ? 'L' : 'P';
+        $generationexception = null;
+        ob_start();
+        try {
+            $pagecount = $pdf->setSourceFile($templatepath);
+            for ($pageno = 1; $pageno <= $pagecount; $pageno++) {
+                $templateid = $pdf->importPage($pageno);
+                $size = $pdf->getTemplateSize($templateid);
+                $width = (float)($size['width'] ?? $size['w'] ?? 595.0);
+                $height = (float)($size['height'] ?? $size['h'] ?? 842.0);
+                $orientation = ($width > $height) ? 'L' : 'P';
 
-            $pdf->AddPage($orientation, [$width, $height]);
-            $pdf->useTemplate($templateid, 0, 0, $width, $height, true);
+                $pdf->AddPage($orientation, [$width, $height]);
+                $pdf->useTemplate($templateid, 0, 0, $width, $height, true);
 
-            if ($pageno === 1) {
-                $this->overlay_engineer_protocol_page(
-                    $pdf,
-                    $this->format_person_name($user),
-                    $occupation,
-                    $education,
-                    $conclusion,
-                    $protocolnumber,
-                    $completiondate
-                );
+                if ($pageno === 1) {
+                    $this->overlay_engineer_protocol_page(
+                        $pdf,
+                        $this->format_person_name($user),
+                        $occupation,
+                        $education,
+                        $conclusion,
+                        $protocolnumber,
+                        $completiondate
+                    );
+                }
             }
+        } catch (\Throwable $e) {
+            $generationexception = $e;
+        } finally {
+            $unexpectedoutput = trim((string)ob_get_clean());
+            if ($unexpectedoutput !== '' && !$generationexception) {
+                throw new \RuntimeException('Unexpected PDF library output: ' . trim(strip_tags($unexpectedoutput)));
+            }
+        }
+
+        if ($generationexception) {
+            throw $generationexception;
         }
 
         return [
@@ -211,6 +226,7 @@ class document_generator {
         if (is_readable($autoload)) {
             require_once($autoload);
         }
+        require_once(__DIR__ . '/safe_fpdi.php');
 
         $loaded = true;
     }
