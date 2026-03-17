@@ -93,6 +93,9 @@ class document_generator {
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
         $pdf->SetAutoPageBreak(false, 0);
+        $pdf->SetMargins(0, 0, 0, true);
+        $pdf->SetHeaderMargin(0);
+        $pdf->SetFooterMargin(0);
         $pdf->SetCreator('local_ncasign');
         $pdf->SetAuthor('local_ncasign');
         $pdf->SetTitle('Industrial Safety Protocol (Engineer)');
@@ -167,19 +170,27 @@ class document_generator {
         int $completiondate
     ): void {
         $pdf->SetTextColor(0, 0, 0);
-        $this->set_document_font($pdf, 'B', 10);
-        $pdf->SetXY(392, 33);
-        $pdf->Cell(92, 12, $protocolnumber, 0, 0, 'L');
+        $displaynumber = preg_replace('/^PB-/i', '', $protocolnumber) ?: $protocolnumber;
+        $this->set_document_font($pdf, 'B', 7.5);
+        $pdf->SetXY(438, 35);
+        $pdf->Cell(74, 10, $displaynumber, 0, 0, 'L');
 
-        $this->set_document_font($pdf, '', 10);
-        $pdf->SetXY(92, 106);
-        $pdf->Cell(120, 12, userdate($completiondate, '%d.%m.%Y'), 0, 0, 'L');
+        $day = userdate($completiondate, '%d');
+        $month = userdate($completiondate, '%m');
+        $year = userdate($completiondate, '%Y');
+        $this->set_document_font($pdf, '', 8.5);
+        $pdf->SetXY(79, 108);
+        $pdf->Cell(18, 10, $day, 0, 0, 'C');
+        $pdf->SetXY(118, 108);
+        $pdf->Cell(18, 10, $month, 0, 0, 'C');
+        $pdf->SetXY(146, 108);
+        $pdf->Cell(34, 10, $year, 0, 0, 'C');
 
-        $this->write_cell_text($pdf, 62, 615, 18, 18, '1', 'C', 9);
-        $this->write_cell_text($pdf, 89, 615, 152, 28, $fullname, 'L', 9);
-        $this->write_cell_text($pdf, 270, 615, 56, 28, $occupation, 'C', 9);
-        $this->write_cell_text($pdf, 357, 615, 72, 28, $education, 'C', 9);
-        $this->write_cell_text($pdf, 441, 615, 116, 28, $conclusion, 'C', 9);
+        $this->write_cell_text($pdf, 62, 617, 18, 14, '1', 'C', 8);
+        $this->write_cell_text($pdf, 89, 617, 152, 14, $fullname, 'L', 8);
+        $this->write_cell_text($pdf, 270, 617, 56, 14, $occupation, 'C', 8);
+        $this->write_cell_text($pdf, 357, 617, 72, 14, $education, 'C', 8);
+        $this->write_cell_text($pdf, 441, 617, 116, 14, $conclusion, 'C', 8);
     }
 
     /**

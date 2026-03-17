@@ -23,6 +23,24 @@ defined('MOODLE_INTERNAL') || die();
  */
 class safe_fpdi extends \setasign\Fpdi\Tcpdf\Fpdi {
     /**
+     * Suppress TCPDF header rendering.
+     *
+     * @return void
+     */
+    public function Header() {
+        // Intentionally empty.
+    }
+
+    /**
+     * Suppress TCPDF footer rendering.
+     *
+     * @return void
+     */
+    public function Footer() {
+        // Intentionally empty.
+    }
+
+    /**
      * Convert TCPDF fatal output into an exception that callers can catch.
      *
      * @param string $msg
