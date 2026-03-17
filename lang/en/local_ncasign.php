@@ -24,6 +24,8 @@ $string['autosignenabled'] = 'Enable auto-sign fallback';
 $string['autosignnote'] = 'Auto-sign note';
 $string['notifyroleids'] = 'Notify role IDs (comma separated)';
 $string['certurltemplate'] = 'Certificate URL template';
+$string['engineerprotocoltemplatepath'] = 'Engineer protocol template PDF path';
+$string['engineerprotocoltemplatepath_desc'] = 'Absolute server path to the engineer protocol PDF template used by the local FPDI/TCPDF generator.';
 
 $string['taskprocessjobs'] = 'Process overdue NCA sign jobs';
 
@@ -52,6 +54,7 @@ $string['invalidtoken'] = 'Invalid or expired signing token.';
 $string['alreadysigned'] = 'This request has already been signed.';
 $string['invalidpayload'] = 'Invalid signing payload received.';
 $string['emptysignature'] = 'Empty signature received from NCALayer.';
+$string['draftpdf'] = 'Draft PDF';
 $string['verifytitle'] = 'Document verification';
 $string['verifyinvalidlink'] = 'Invalid verification link.';
 $string['verifynotfound'] = 'The requested document could not be found.';

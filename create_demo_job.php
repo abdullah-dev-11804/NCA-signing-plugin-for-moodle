@@ -58,7 +58,8 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
             $signers,
             null,
             $documenttype,
-            $documenttitle
+            $documenttitle,
+            false
         );
         if (!empty($_FILES['certificatepdf']['tmp_name']) && is_uploaded_file($_FILES['certificatepdf']['tmp_name'])) {
             $pdfcontent = file_get_contents($_FILES['certificatepdf']['tmp_name']);
@@ -66,7 +67,27 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
                 $pdffilename = $_FILES['certificatepdf']['name'] ?? "certificate_{$jobid}.pdf";
                 $manager->attach_certificate_binary_to_job($jobid, $pdffilename, $pdfcontent, 'manual_upload');
             }
+        } else if ($documenttype === 'protocol') {
+            try {
+                $generator = new \local_ncasign\local\document_generator();
+                $draft = $generator->generate_draft(
+                    $userid,
+                    $courseid,
+                    \local_ncasign\local\document_generator::DOC_ENGINEER_PROTOCOL
+                );
+                $storage = new \local_ncasign\local\document_storage();
+                $storedpath = $storage->store_pending_draft($jobid, (string)$draft['filename'], (string)$draft['content']);
+                $manager->attach_certificate_binary_to_job(
+                    $jobid,
+                    (string)$draft['filename'],
+                    (string)$draft['content'],
+                    'local_generated_draft:' . $storedpath
+                );
+            } catch (\Throwable $e) {
+                error_log('local_ncasign: demo draft generation failed: ' . $e->getMessage());
+            }
         }
+        $manager->notify_signers_for_job($jobid);
         redirect(new moodle_url('/local/ncasign/index.php'), "Demo job created: {$jobid}", 2);
     }
 }

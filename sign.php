@@ -48,7 +48,13 @@ echo html_writer::start_tag('ul');
 echo html_writer::tag('li', 'Signer email: ' . s($signer->signeremail));
 echo html_writer::tag('li', 'Student user ID: ' . (int)$job->userid);
 echo html_writer::tag('li', 'Course ID: ' . (int)$job->courseid);
-echo html_writer::tag('li', 'Certificate URL: ' . s((string)$job->certificateurl));
+echo html_writer::tag('li', 'Document: ' . s((string)$job->documenttitle));
+echo html_writer::tag('li', 'Document type: ' . s(ucfirst((string)$job->documenttype)));
+if ($manager->has_job_original_pdf((int)$job->id)) {
+    $drafturl = new moodle_url('/local/ncasign/draft.php', ['token' => $token]);
+    echo html_writer::tag('li', get_string('draftpdf', 'local_ncasign') . ': ' . html_writer::link($drafturl, 'Open draft PDF'));
+}
+echo html_writer::tag('li', 'Stored source: ' . s((string)$job->certificateurl));
 echo html_writer::tag('li', 'Manual deadline: ' . userdate((int)$job->manualdeadline));
 echo html_writer::end_tag('ul');
 

@@ -19,6 +19,8 @@ namespace local_ncasign;
 defined('MOODLE_INTERNAL') || die();
 
 use local_ncasign\local\job_manager;
+use local_ncasign\local\document_generator;
+use local_ncasign\local\document_storage;
 
 /**
  * Plugin event observers.
@@ -31,8 +33,6 @@ class observer {
      * @return void
      */
     public static function course_completed(\core\event\course_completed $event): void {
-        global $DB;
-
         if (!(int)get_config('local_ncasign', 'enabled')) {
             return;
         }
@@ -46,17 +46,40 @@ class observer {
         $manager = new job_manager();
         $context = \context_course::instance($courseid);
         $signers = $manager->get_signers_from_configured_roles($context);
-        $certurl = $manager->build_certificate_url($courseid, $userid);
-        $course = $DB->get_record('course', ['id' => $courseid], 'fullname', IGNORE_MISSING);
-        $manager->create_job(
+        $generator = new document_generator();
+
+        try {
+            $draft = $generator->generate_draft($userid, $courseid, document_generator::DOC_ENGINEER_PROTOCOL);
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: failed to generate draft on course completion: ' . $e->getMessage());
+            return;
+        }
+
+        $jobid = $manager->create_job(
             $userid,
             $courseid,
-            $certurl,
+            '',
             $signers,
             null,
-            'certificate',
-            $course ? (string)$course->fullname : ''
+            (string)($draft['documenttype'] ?? 'protocol'),
+            (string)($draft['documenttitle'] ?? 'Industrial Safety Protocol (Engineer)'),
+            false
         );
+
+        try {
+            $storage = new document_storage();
+            $storedpath = $storage->store_pending_draft($jobid, (string)$draft['filename'], (string)$draft['content']);
+            $manager->attach_certificate_binary_to_job(
+                $jobid,
+                (string)$draft['filename'],
+                (string)$draft['content'],
+                'local_generated_draft:' . $storedpath
+            );
+            $manager->notify_signers_for_job($jobid);
+        } catch (\Throwable $e) {
+            self::delete_job($jobid);
+            error_log('local_ncasign: failed to persist generated draft for job ' . $jobid . ': ' . $e->getMessage());
+        }
     }
 
     /**
@@ -176,7 +199,7 @@ class observer {
      */
     private static function resolve_customcert_document_title(int $issueid, int $cmid, int $courseid): string {
         global $DB;
-        error_log('local_ncasign: resolving document title for issueid=' . $issueid . ', cmid=' . $cmid . ', courseid=' . $courseid);
+
         if ($issueid > 0) {
             $sql = "SELECT c.name
                       FROM {customcert_issues} ci
@@ -332,5 +355,18 @@ class observer {
         }
 
         return null;
+    }
+
+    /**
+     * Delete an un-notified job after draft generation/storage failure.
+     *
+     * @param int $jobid
+     * @return void
+     */
+    private static function delete_job(int $jobid): void {
+        global $DB;
+
+        $DB->delete_records('local_ncasign_signers', ['jobid' => $jobid]);
+        $DB->delete_records('local_ncasign_jobs', ['id' => $jobid]);
     }
 }

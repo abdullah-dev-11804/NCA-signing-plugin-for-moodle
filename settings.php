@@ -68,5 +68,13 @@ if ($hassiteconfig) {
         PARAM_RAW_TRIMMED
     ));
 
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/engineerprotocoltemplatepath',
+        get_string('engineerprotocoltemplatepath', 'local_ncasign'),
+        get_string('engineerprotocoltemplatepath_desc', 'local_ncasign'),
+        '',
+        PARAM_RAW_TRIMMED
+    ));
+
     $ADMIN->add('localplugins', $settings);
 }

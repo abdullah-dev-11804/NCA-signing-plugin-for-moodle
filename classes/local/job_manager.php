@@ -67,7 +67,8 @@ class job_manager {
         array $signers,
         ?int $manualwindowhours = null,
         string $documenttype = 'certificate',
-        string $documenttitle = ''
+        string $documenttitle = '',
+        bool $sendnotifications = true
     ): int {
         global $DB;
 
@@ -113,8 +114,10 @@ class job_manager {
                 'signmeta' => null,
             ];
             $DB->insert_record('local_ncasign_signers', $record);
+        }
 
-            $this->send_signer_email($record, $job, $signer['name'] ?? '');
+        if ($sendnotifications) {
+            $this->notify_signers_for_job($jobid);
         }
 
         return (int)$jobid;
@@ -226,6 +229,16 @@ class job_manager {
             'sha256' => hash('sha256', $content),
             'filesize' => $file->get_filesize(),
         ];
+    }
+
+    /**
+     * Get the original stored file object for a job.
+     *
+     * @param int $jobid
+     * @return \stored_file|null
+     */
+    public function get_job_original_file(int $jobid): ?\stored_file {
+        return $this->get_latest_file_from_area(self::FILEAREA_ORIGINALPDF, $jobid);
     }
 
     /**
@@ -398,6 +411,33 @@ class job_manager {
         }
         $job = $DB->get_record('local_ncasign_jobs', ['id' => $signer->jobid], '*', MUST_EXIST);
         return ['signer' => $signer, 'job' => $job];
+    }
+
+    /**
+     * Send email notifications to all signers on a job.
+     *
+     * @param int $jobid
+     * @return void
+     */
+    public function notify_signers_for_job(int $jobid): void {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job) {
+            return;
+        }
+
+        $signers = $DB->get_records('local_ncasign_signers', ['jobid' => $jobid], 'id ASC');
+        foreach ($signers as $signer) {
+            $name = (string)$signer->signeremail;
+            if (!empty($signer->signerid)) {
+                $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname', IGNORE_MISSING);
+                if ($user) {
+                    $name = fullname($user);
+                }
+            }
+            $this->send_signer_email($signer, $job, $name);
+        }
     }
 
     /**
@@ -595,13 +635,23 @@ class job_manager {
         }
 
         $link = $CFG->wwwroot . '/local/ncasign/sign.php?token=' . urlencode($signer->token);
+        $draftlink = $CFG->wwwroot . '/local/ncasign/draft.php?token=' . urlencode($signer->token);
         $deadline = userdate($job->manualdeadline);
-        $subject = 'Signature required: course certificate';
+        $documenttitle = trim((string)($job->documenttitle ?? ''));
+        if ($documenttitle === '') {
+            $documenttitle = 'Course document';
+        }
+        $subject = 'Signature required: ' . $documenttitle;
         $message = "Hello {$name},\n\n" .
-            "A certificate needs your signature.\n" .
+            "A document needs your signature.\n" .
+            "Document: {$documenttitle}\n" .
+            "Document type: " . ucfirst((string)$job->documenttype) . "\n" .
             "Student user ID: {$job->userid}\n" .
-            "Course ID: {$job->courseid}\n" .
-            "Certificate URL: {$job->certificateurl}\n\n" .
+            "Course ID: {$job->courseid}\n";
+        if ($this->has_job_original_pdf((int)$job->id)) {
+            $message .= "Draft PDF: {$draftlink}\n";
+        }
+        $message .= "Stored source: {$job->certificateurl}\n\n" .
             "Sign link: {$link}\n" .
             "Deadline: {$deadline}\n\n" .
             "If no manual action is taken, it will be auto-signed by server fallback (demo).";
@@ -638,8 +688,9 @@ class job_manager {
         $mode = $auto ? 'automatic server fallback' : 'manual signer approvals';
         $signedpdflink = $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . (int)$job->id . '&type=signedpdf';
         $verifylink = $this->get_verification_url_for_job((int)$job->id);
-        $subject = 'Your course certificate has been signed';
-        $message = "Your certificate is now signed ({$mode}).\n\n" .
+        $subject = 'Your course document has been signed';
+        $message = "Your document is now signed ({$mode}).\n\n" .
+            "Document: " . (string)$job->documenttitle . "\n" .
             "Course ID: {$job->courseid}\n" .
             "Certificate URL: {$job->certificateurl}\n" .
             "Signed PDF (with QR block): {$signedpdflink}\n" .

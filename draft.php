@@ -14,10 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-defined('MOODLE_INTERNAL') || die();
+require_once(__DIR__ . '/../../config.php');
 
-$plugin->component = 'local_ncasign';
-$plugin->version = 2026031700;
-$plugin->requires = 2022041900;
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+$token = required_param('token', PARAM_ALPHANUMEXT);
+$manager = new \local_ncasign\local\job_manager();
+$row = $manager->get_signer_by_token($token);
+
+if (!$row) {
+    throw new moodle_exception('invalidtoken', 'local_ncasign');
+}
+
+$file = $manager->get_job_original_file((int)$row['job']->id);
+if (!$file) {
+    throw new moodle_exception('filenotfound');
+}
+
+send_stored_file($file, 0, 0, true);
