@@ -109,7 +109,7 @@ class document_generator {
             if ($pageno === 1) {
                 $this->overlay_engineer_protocol_page(
                     $pdf,
-                    fullname($user),
+                    $this->format_person_name($user),
                     $occupation,
                     $education,
                     $conclusion,
@@ -267,5 +267,26 @@ class document_generator {
         }
 
         return $default;
+    }
+
+    /**
+     * Build a safe display name without calling fullname() on partial records.
+     *
+     * @param \stdClass $user
+     * @return string
+     */
+    private function format_person_name(\stdClass $user): string {
+        $parts = [];
+        foreach (['firstname', 'middlename', 'lastname'] as $field) {
+            if (!empty($user->{$field})) {
+                $parts[] = trim((string)$user->{$field});
+            }
+        }
+
+        if (!$parts && !empty($user->alternatename)) {
+            $parts[] = trim((string)$user->alternatename);
+        }
+
+        return $parts ? implode(' ', $parts) : 'Student';
     }
 }

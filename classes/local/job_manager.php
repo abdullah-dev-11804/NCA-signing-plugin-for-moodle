@@ -431,9 +431,9 @@ class job_manager {
         foreach ($signers as $signer) {
             $name = (string)$signer->signeremail;
             if (!empty($signer->signerid)) {
-                $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname', IGNORE_MISSING);
+                $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname,middlename,alternatename', IGNORE_MISSING);
                 if ($user) {
-                    $name = fullname($user);
+                    $name = $this->format_person_name($user);
                 }
             }
             $this->send_signer_email($signer, $job, $name);
@@ -612,7 +612,7 @@ class job_manager {
                 $result[] = [
                     'id' => (int)$u->id,
                     'email' => (string)$u->email,
-                    'name' => fullname($u),
+                    'name' => $this->format_person_name($u),
                 ];
             }
         }
@@ -1147,6 +1147,27 @@ class job_manager {
         }
 
         return 'certificate';
+    }
+
+    /**
+     * Build a safe display name without calling fullname() on partial records.
+     *
+     * @param \stdClass $user
+     * @return string
+     */
+    private function format_person_name(\stdClass $user): string {
+        $parts = [];
+        foreach (['firstname', 'middlename', 'lastname'] as $field) {
+            if (!empty($user->{$field})) {
+                $parts[] = trim((string)$user->{$field});
+            }
+        }
+
+        if (!$parts && !empty($user->alternatename)) {
+            $parts[] = trim((string)$user->alternatename);
+        }
+
+        return $parts ? implode(' ', $parts) : 'User';
     }
 
     /**

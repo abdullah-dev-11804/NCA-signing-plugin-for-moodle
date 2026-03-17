@@ -52,7 +52,7 @@ if (!$job) {
 }
 
 $course = $DB->get_record('course', ['id' => (int)$job->courseid], 'id,fullname', IGNORE_MISSING);
-$student = $DB->get_record('user', ['id' => (int)$job->userid], 'id,firstname,lastname', IGNORE_MISSING);
+$student = $DB->get_record('user', ['id' => (int)$job->userid], 'id,firstname,lastname,middlename,alternatename', IGNORE_MISSING);
 $coursecontext = context_course::instance((int)$job->courseid, IGNORE_MISSING);
 
 $completiondate = (int)$DB->get_field('course_completions', 'timecompleted', [
@@ -113,7 +113,7 @@ echo html_writer::tag('h3', get_string('verifydocumentinfo', 'local_ncasign'));
 echo html_writer::table(local_ncasign_build_verify_table($documentrows));
 
 $userrows = [
-    get_string('verifyfullname', 'local_ncasign') => $student ? s(fullname($student)) : '-',
+    get_string('verifyfullname', 'local_ncasign') => $student ? s(local_ncasign_safe_fullname($student)) : '-',
     get_string('verifycompletiondate', 'local_ncasign') => $completiondate ? userdate($completiondate) : '-',
 ];
 echo html_writer::tag('h3', get_string('verifyuserinfo', 'local_ncasign'));
@@ -138,9 +138,9 @@ if (!$signers) {
         $position = 'Commission member';
 
         if (!empty($signer->signerid)) {
-            $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname,email', IGNORE_MISSING);
+            $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname,middlename,alternatename,email', IGNORE_MISSING);
             if ($user) {
-                $signername = fullname($user);
+                $signername = local_ncasign_safe_fullname($user);
             }
 
             if ($coursecontext) {
@@ -199,4 +199,25 @@ function local_ncasign_build_verify_table(array $rows): html_table {
     }
 
     return $table;
+}
+
+/**
+ * Build a safe display name without calling fullname() on partial records.
+ *
+ * @param stdClass $user
+ * @return string
+ */
+function local_ncasign_safe_fullname(stdClass $user): string {
+    $parts = [];
+    foreach (['firstname', 'middlename', 'lastname'] as $field) {
+        if (!empty($user->{$field})) {
+            $parts[] = trim((string)$user->{$field});
+        }
+    }
+
+    if (!$parts && !empty($user->alternatename)) {
+        $parts[] = trim((string)$user->alternatename);
+    }
+
+    return $parts ? implode(' ', $parts) : '-';
 }
