@@ -37,15 +37,24 @@ if (!$row) {
 
 $signer = $row['signer'];
 $job = $row['job'];
+$activesigner = $manager->get_active_pending_signer((int)$job->id);
+$isactive = ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING)
+    && $activesigner
+    && ((int)$activesigner->id === (int)$signer->id);
 
 if ($signer->status !== \local_ncasign\local\job_manager::SIGNER_PENDING) {
     echo $OUTPUT->notification(get_string('alreadysigned', 'local_ncasign'), \core\output\notification::NOTIFY_INFO);
+} else if (!$isactive) {
+    echo $OUTPUT->notification(get_string('signernotactive', 'local_ncasign'), \core\output\notification::NOTIFY_WARNING);
 }
 
 echo html_writer::tag('p', get_string('signinstructions', 'local_ncasign'));
 echo html_writer::tag('p', get_string('ncarunninghint', 'local_ncasign'));
 echo html_writer::start_tag('ul');
 echo html_writer::tag('li', 'Signer email: ' . s($signer->signeremail));
+echo html_writer::tag('li', 'Signer name: ' . s((string)($signer->signername ?? $signer->signeremail)));
+echo html_writer::tag('li', 'Signer position: ' . s((string)($signer->signerposition ?? 'Commission member')));
+echo html_writer::tag('li', 'Signer order: ' . (int)$signer->signorder . ' of ' . max(1, count($manager->get_signer_records((int)$job->id))));
 echo html_writer::tag('li', 'Student user ID: ' . (int)$job->userid);
 echo html_writer::tag('li', 'Course ID: ' . (int)$job->courseid);
 echo html_writer::tag('li', 'Document: ' . s((string)$job->documenttitle));
@@ -54,11 +63,15 @@ if ($manager->has_job_original_pdf((int)$job->id)) {
     $drafturl = new moodle_url('/local/ncasign/draft.php', ['token' => $token]);
     echo html_writer::tag('li', get_string('draftpdf', 'local_ncasign') . ': ' . html_writer::link($drafturl, 'Open draft PDF'));
 }
+if ($manager->has_job_signed_pdf((int)$job->id)) {
+    $signedurl = new moodle_url('/local/ncasign/draft.php', ['token' => $token, 'type' => 'signedpdf']);
+    echo html_writer::tag('li', get_string('currentsignedpdf', 'local_ncasign') . ': ' . html_writer::link($signedurl, 'Open current signed PDF'));
+}
 echo html_writer::tag('li', 'Stored source: ' . s((string)$job->certificateurl));
 echo html_writer::tag('li', 'Manual deadline: ' . userdate((int)$job->manualdeadline));
 echo html_writer::end_tag('ul');
 
-if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
+if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isactive) {
     $payloadmode = 'job_metadata';
     $payloadmeta = [];
     $certificate = $manager->get_job_certificate_binary((int)$job->id);

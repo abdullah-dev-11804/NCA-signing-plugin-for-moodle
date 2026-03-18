@@ -96,6 +96,7 @@ class job_manager {
         ];
         $jobid = $DB->insert_record('local_ncasign_jobs', $job);
 
+        $signorder = 1;
         foreach ($signers as $signer) {
             if (empty($signer['email'])) {
                 continue;
@@ -105,15 +106,20 @@ class job_manager {
                 'jobid' => $jobid,
                 'signerid' => $signer['id'] ?? null,
                 'signeremail' => trim($signer['email']),
+                'signername' => trim((string)($signer['name'] ?? $signer['email'])),
+                'signerposition' => trim((string)($signer['position'] ?? ('Commission member ' . $signorder))),
+                'signorder' => $signorder,
                 'token' => $token,
                 'status' => self::SIGNER_PENDING,
                 'timecreated' => $now,
                 'timemodified' => $now,
+                'notifiedat' => null,
                 'signedat' => null,
                 'signedby' => null,
                 'signmeta' => null,
             ];
             $DB->insert_record('local_ncasign_signers', $record);
+            $signorder++;
         }
 
         if ($sendnotifications) {
@@ -427,17 +433,15 @@ class job_manager {
             return;
         }
 
-        $signers = $DB->get_records('local_ncasign_signers', ['jobid' => $jobid], 'id ASC');
-        foreach ($signers as $signer) {
-            $name = (string)$signer->signeremail;
-            if (!empty($signer->signerid)) {
-                $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname,middlename,alternatename', IGNORE_MISSING);
-                if ($user) {
-                    $name = $this->format_person_name($user);
-                }
-            }
-            $this->send_signer_email($signer, $job, $name);
+        $signer = $this->get_active_pending_signer($jobid);
+        if (!$signer || !empty($signer->notifiedat)) {
+            return;
         }
+
+        $this->send_signer_email($signer, $job, (string)($signer->signername ?? $signer->signeremail));
+        $signer->notifiedat = time();
+        $signer->timemodified = time();
+        $DB->update_record('local_ncasign_signers', $signer);
     }
 
     /**
@@ -461,6 +465,9 @@ class job_manager {
         if ($signer->status === self::SIGNER_SIGNED) {
             return true;
         }
+        if (!$this->is_signer_active($signer)) {
+            return false;
+        }
 
         $now = time();
         $signer->status = self::SIGNER_SIGNED;
@@ -469,6 +476,18 @@ class job_manager {
         $signer->signmeta = json_encode($meta);
         $signer->timemodified = $now;
         $DB->update_record('local_ncasign_signers', $signer);
+
+        try {
+            $this->ensure_original_pdf_for_job((int)$signer->jobid);
+            $this->generate_signed_pdf_artifact((int)$signer->jobid);
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: failed to refresh signed PDF artifact after signer update: ' . $e->getMessage());
+        }
+
+        if ($this->has_pending_signers((int)$signer->jobid)) {
+            $this->notify_signers_for_job((int)$signer->jobid);
+            return true;
+        }
 
         $this->complete_job_if_fully_signed((int)$signer->jobid);
         return true;
@@ -556,6 +575,12 @@ class job_manager {
             $job->autosignnote = get_config('local_ncasign', 'autosignnote');
             $job->timemodified = $now;
             $DB->update_record('local_ncasign_jobs', $job);
+            try {
+                $this->ensure_original_pdf_for_job((int)$job->id);
+                $this->generate_signed_pdf_artifact((int)$job->id);
+            } catch (\Throwable $e) {
+                error_log('local_ncasign: failed to generate auto-sign PDF artifact for job ' . (int)$job->id . ': ' . $e->getMessage());
+            }
             $this->send_student_completion_email($job, true);
             $count++;
         }
@@ -584,39 +609,121 @@ class job_manager {
     }
 
     /**
-     * Generate signers from role ids in course context.
+     * Return ordered signer records for a job.
+     *
+     * @param int $jobid
+     * @return array<int, \stdClass>
+     */
+    public function get_signer_records(int $jobid): array {
+        global $DB;
+
+        return array_values($DB->get_records('local_ncasign_signers', ['jobid' => $jobid], 'signorder ASC, id ASC'));
+    }
+
+    /**
+     * Return the current active pending signer.
+     *
+     * @param int $jobid
+     * @return \stdClass|null
+     */
+    public function get_active_pending_signer(int $jobid): ?\stdClass {
+        foreach ($this->get_signer_records($jobid) as $signer) {
+            if ($signer->status === self::SIGNER_PENDING) {
+                return $signer;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether a signer record is the currently active signer.
+     *
+     * @param \stdClass $signer
+     * @return bool
+     */
+    public function is_signer_active(\stdClass $signer): bool {
+        $active = $this->get_active_pending_signer((int)$signer->jobid);
+        return $active && (int)$active->id === (int)$signer->id;
+    }
+
+    /**
+     * Whether a job still has pending signers.
+     *
+     * @param int $jobid
+     * @return bool
+     */
+    public function has_pending_signers(int $jobid): bool {
+        return $this->get_active_pending_signer($jobid) !== null;
+    }
+
+    /**
+     * Build QR/signature block metadata for completed signers.
+     *
+     * @param int $jobid
+     * @return array<int, array<string, string>>
+     */
+    private function get_completed_signer_blocks(int $jobid): array {
+        $verifyurl = $this->get_verification_url_for_job($jobid);
+        $blocks = [];
+        foreach ($this->get_signer_records($jobid) as $signer) {
+            if ($signer->status !== self::SIGNER_SIGNED) {
+                continue;
+            }
+
+            $blocks[] = [
+                'label' => trim((string)($signer->signername ?? 'Signer ' . (int)$signer->signorder)),
+                'payload' => $verifyurl . '&signer=' . (int)$signer->signorder,
+                'signedat' => !empty($signer->signedat) ? userdate((int)$signer->signedat) : '',
+            ];
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * Return the ordered system-wide signer list from plugin settings.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function get_system_configured_signers(): array {
+        global $DB;
+
+        $signers = [];
+        for ($i = 1; $i <= 3; $i++) {
+            $email = trim((string)get_config('local_ncasign', 'signer' . $i . 'email'));
+            if ($email === '' || !validate_email($email)) {
+                continue;
+            }
+
+            $user = $DB->get_record('user', [
+                'email' => $email,
+                'deleted' => 0,
+                'suspended' => 0,
+            ], 'id,firstname,lastname,middlename,alternatename,email', IGNORE_MISSING);
+            $configuredname = trim((string)get_config('local_ncasign', 'signer' . $i . 'name'));
+            $configuredposition = trim((string)get_config('local_ncasign', 'signer' . $i . 'position'));
+
+            $signers[] = [
+                'id' => $user ? (int)$user->id : null,
+                'email' => $email,
+                'name' => $configuredname !== '' ? $configuredname : ($user ? $this->format_person_name($user) : $email),
+                'position' => $configuredposition !== '' ? $configuredposition : ('Commission member ' . $i),
+            ];
+        }
+
+        return $signers;
+    }
+
+    /**
+     * Legacy wrapper kept for older code paths.
      *
      * @param \context_course $context
      * @return array
      */
     public function get_signers_from_configured_roles(\context_course $context): array {
-        $raw = trim((string)get_config('local_ncasign', 'notifyroleids'));
-        if ($raw === '') {
-            return [];
-        }
-
-        $roleids = array_filter(array_map('intval', explode(',', $raw)));
-        if (!$roleids) {
-            return [];
-        }
-
-        $seen = [];
-        $result = [];
-        foreach ($roleids as $roleid) {
-            $users = get_role_users($roleid, $context, false, 'u.id,u.firstname,u.lastname,u.email');
-            foreach ($users as $u) {
-                if (empty($u->email) || isset($seen[$u->id])) {
-                    continue;
-                }
-                $seen[$u->id] = true;
-                $result[] = [
-                    'id' => (int)$u->id,
-                    'email' => (string)$u->email,
-                    'name' => $this->format_person_name($u),
-                ];
-            }
-        }
-        return $result;
+        unset($context);
+        return $this->get_system_configured_signers();
     }
 
     /**
@@ -636,25 +743,32 @@ class job_manager {
 
         $link = $CFG->wwwroot . '/local/ncasign/sign.php?token=' . urlencode($signer->token);
         $draftlink = $CFG->wwwroot . '/local/ncasign/draft.php?token=' . urlencode($signer->token);
+        $progresslink = $CFG->wwwroot . '/local/ncasign/draft.php?token=' . urlencode($signer->token) . '&type=signedpdf';
         $deadline = userdate($job->manualdeadline);
         $documenttitle = trim((string)($job->documenttitle ?? ''));
         if ($documenttitle === '') {
             $documenttitle = 'Course document';
         }
-        $subject = 'Signature required: ' . $documenttitle;
+        $totalcount = max(1, count($this->get_signer_records((int)$job->id)));
+        $subject = 'Signature required (' . (int)$signer->signorder . ' of ' . $totalcount . '): ' . $documenttitle;
         $message = "Hello {$name},\n\n" .
-            "A document needs your signature.\n" .
+            "A document is ready for your signature in the commission sequence.\n" .
+            "Signing order: " . (int)$signer->signorder . " of {$totalcount}\n" .
             "Document: {$documenttitle}\n" .
             "Document type: " . ucfirst((string)$job->documenttype) . "\n" .
             "Student user ID: {$job->userid}\n" .
-            "Course ID: {$job->courseid}\n";
+            "Course ID: {$job->courseid}\n" .
+            "Position: " . (string)($signer->signerposition ?? 'Commission member') . "\n";
         if ($this->has_job_original_pdf((int)$job->id)) {
             $message .= "Draft PDF: {$draftlink}\n";
+        }
+        if ($this->has_job_signed_pdf((int)$job->id)) {
+            $message .= "Current signed PDF progress: {$progresslink}\n";
         }
         $message .= "Stored source: {$job->certificateurl}\n\n" .
             "Sign link: {$link}\n" .
             "Deadline: {$deadline}\n\n" .
-            "If no manual action is taken, it will be auto-signed by server fallback (demo).";
+            "If no manual action is taken, the configured server fallback will be used if enabled.";
 
         $to = (object)[
             'id' => -1,
@@ -693,7 +807,7 @@ class job_manager {
             "Document: " . (string)$job->documenttitle . "\n" .
             "Course ID: {$job->courseid}\n" .
             "Certificate URL: {$job->certificateurl}\n" .
-            "Signed PDF (with QR block): {$signedpdflink}\n" .
+            "Signed PDF (with signer QR blocks): {$signedpdflink}\n" .
             "Public verification page: {$verifylink}\n";
         email_to_user($student, $from, $subject, $message);
     }
@@ -957,6 +1071,7 @@ class job_manager {
         global $CFG;
 
         $this->maybe_load_plugin_vendor_autoload();
+        $completedsigners = $this->get_completed_signer_blocks($jobid);
         if (class_exists('\setasign\Fpdi\Tcpdf\Fpdi')) {
             try {
                 $tmpdir = make_request_directory();
@@ -990,15 +1105,47 @@ class job_manager {
                     $pdf->AddPage($orientation, [$w, $h]);
                     $pdf->useTemplate($templateid, 0, 0, $w, $h, true);
 
-                    $qrsize = min(26.0, max(18.0, min($w, $h) * 0.12));
                     $margin = 6.0;
-                    $x = max($margin, $w - $qrsize - $margin);
-                    $y = max($margin, $h - $qrsize - $margin);
+                    $availableblocks = $completedsigners ?: [[
+                        'label' => 'Verification',
+                        'payload' => $qrpayload,
+                        'signedat' => '',
+                    ]];
+                    $blockcount = min(3, count($availableblocks));
+                    $blockwidth = min(40.0, max(26.0, ($w - (($blockcount + 1) * $margin)) / max(1, $blockcount)));
+                    $qrsize = min(18.0, max(12.0, $blockwidth * 0.45));
+                    $blockheight = max(18.0, $qrsize + 10.0);
+                    $y = max($margin, $h - $blockheight - $margin);
 
-                    $pdf->write2DBarcode($qrpayload, 'QRCODE,H', $x, $y, $qrsize, $qrsize, $style, 'N');
-                    $pdf->SetFont('helvetica', '', 6);
-                    $pdf->SetXY(max($margin, $x - 28), max($margin, $y - 4));
-                    $pdf->Cell(28, 3, 'NCA signed', 0, 0, 'R', false, '', 0, false, 'T', 'M');
+                    for ($i = 0; $i < $blockcount; $i++) {
+                        $block = $availableblocks[$i];
+                        $x = $margin + ($i * ($blockwidth + $margin));
+                        $pdf->write2DBarcode((string)$block['payload'], 'QRCODE,H', $x, $y + 4, $qrsize, $qrsize, $style, 'N');
+                        $pdf->SetFont('helvetica', 'B', 6);
+                        $pdf->SetXY($x + $qrsize + 2, $y + 3);
+                        $pdf->MultiCell(
+                            max(8.0, $blockwidth - $qrsize - 2),
+                            4,
+                            (string)$block['label'],
+                            0,
+                            'L',
+                            false,
+                            1
+                        );
+                        if (!empty($block['signedat'])) {
+                            $pdf->SetFont('helvetica', '', 5);
+                            $pdf->SetX($x + $qrsize + 2);
+                            $pdf->MultiCell(
+                                max(8.0, $blockwidth - $qrsize - 2),
+                                3,
+                                (string)$block['signedat'],
+                                0,
+                                'L',
+                                false,
+                                1
+                            );
+                        }
+                    }
                 }
 
                 return $pdf->Output('', 'S');
@@ -1053,10 +1200,30 @@ class job_manager {
             'fgcolor' => [0, 0, 0],
             'bgcolor' => false,
         ];
+        $completedsigners = $this->get_completed_signer_blocks($jobid);
+        $blocks = $completedsigners ?: [[
+            'label' => 'Verification',
+            'payload' => $qrpayload,
+            'signedat' => '',
+        ]];
         $pdf->Ln(5);
-        $pdf->write2DBarcode($qrpayload, 'QRCODE,H', 15, 70, 45, 45, $style, 'N');
-        $pdf->SetXY(65, 73);
-        $pdf->MultiCell(125, 35, "Scan the QR code or open the verification URL to check document authenticity, signer details, and integrity status.");
+        $startx = 15;
+        $starty = 70;
+        $blockwidth = 58;
+        $blockheight = 45;
+        foreach (array_slice($blocks, 0, 3) as $index => $block) {
+            $blockx = $startx + ($index * 62);
+            $pdf->write2DBarcode((string)$block['payload'], 'QRCODE,H', $blockx, $starty, 22, 22, $style, 'N');
+            $pdf->SetXY($blockx + 24, $starty);
+            $pdf->SetFont('helvetica', 'B', 8);
+            $pdf->MultiCell($blockwidth - 24, 4, (string)$block['label'], 0, 'L', false, 1);
+            $pdf->SetX($blockx + 24);
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->MultiCell($blockwidth - 24, 4, (string)($block['signedat'] ?: 'Pending verification'), 0, 'L', false, 1);
+        }
+        $pdf->SetXY(15, 120);
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->MultiCell(180, 20, "Scan any QR code or open the verification URL to check document authenticity, signer details, and integrity status.");
 
         return $pdf->Output('', 'S');
     }

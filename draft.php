@@ -17,6 +17,7 @@
 require_once(__DIR__ . '/../../config.php');
 
 $token = required_param('token', PARAM_ALPHANUMEXT);
+$type = optional_param('type', 'original', PARAM_ALPHA);
 $manager = new \local_ncasign\local\job_manager();
 $row = $manager->get_signer_by_token($token);
 
@@ -24,7 +25,26 @@ if (!$row) {
     throw new moodle_exception('invalidtoken', 'local_ncasign');
 }
 
-$file = $manager->get_job_original_file((int)$row['job']->id);
+$jobid = (int)$row['job']->id;
+$file = null;
+if ($type === 'signedpdf') {
+    $context = context_system::instance();
+    $fs = get_file_storage();
+    $files = $fs->get_area_files(
+        $context->id,
+        'local_ncasign',
+        \local_ncasign\local\job_manager::FILEAREA_SIGNEDPDF,
+        $jobid,
+        'id DESC',
+        false
+    );
+    if ($files) {
+        $file = reset($files);
+    }
+} else {
+    $file = $manager->get_job_original_file($jobid);
+}
+
 if (!$file) {
     throw new moodle_exception('filenotfound');
 }

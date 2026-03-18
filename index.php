@@ -93,7 +93,7 @@ function local_ncasign_render_artifacts(int $jobid): string {
             'jobid' => $jobid,
             'type' => 'signedpdf',
         ]);
-        $links[] = html_writer::link($signedpdflink, 'Signed PDF (QR)');
+        $links[] = html_writer::link($signedpdflink, 'Signed PDF (QR blocks)');
     }
 
     $verifylink = $manager->get_verification_url_for_job($jobid);

@@ -45,9 +45,8 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
                 $signers[] = ['email' => $email, 'name' => $email];
             }
         }
-    } else if ($courseid > 0) {
-        $coursecontext = context_course::instance($courseid);
-        $signers = $manager->get_signers_from_configured_roles($coursecontext);
+    } else {
+        $signers = $manager->get_system_configured_signers();
     }
 
     if ($userid > 0 && $courseid > 0) {
@@ -156,7 +155,7 @@ echo html_writer::empty_tag('input', [
     'size' => 90,
     'placeholder' => 'approver1@example.com,approver2@example.com',
 ]);
-echo html_writer::tag('p', 'Leave empty to use configured role IDs in this course.');
+echo html_writer::tag('p', 'Leave empty to use the configured system-wide signers.');
 echo html_writer::end_div();
 
 echo html_writer::start_div('form-group');

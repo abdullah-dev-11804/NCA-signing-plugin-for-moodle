@@ -14,15 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-$string['pluginname'] = 'NCA Signing (demo)';
+$string['pluginname'] = 'NCA Signing';
 $string['ncasign:managejobs'] = 'Manage NCA signing jobs';
 
-$string['settingsheader'] = 'Demo NCA signing workflow';
+$string['settingsheader'] = 'NCA signing workflow';
 $string['enabled'] = 'Enable plugin';
 $string['manualwindowhours'] = 'Manual signing window (hours)';
 $string['autosignenabled'] = 'Enable auto-sign fallback';
 $string['autosignnote'] = 'Auto-sign note';
-$string['notifyroleids'] = 'Notify role IDs (comma separated)';
+$string['signersheading'] = 'Commission signers';
+$string['signersheading_desc'] = 'Configure the three system-wide signers in the order they must sign. Only the current signer in sequence receives the email.';
+$string['signeremailsetting'] = 'Signer {$a} email';
+$string['signernamesetting'] = 'Signer {$a} display name';
+$string['signerpositionsetting'] = 'Signer {$a} position';
 $string['certurltemplate'] = 'Certificate URL template';
 $string['engineerprotocoltemplatepath'] = 'Engineer protocol template PDF path';
 $string['engineerprotocoltemplatepath_desc'] = 'Absolute server path to the engineer protocol PDF template used by the local FPDI/TCPDF generator.';
@@ -52,9 +56,11 @@ $string['signwithnca'] = 'Sign with NCALayer';
 $string['signedok'] = 'Signature recorded successfully.';
 $string['invalidtoken'] = 'Invalid or expired signing token.';
 $string['alreadysigned'] = 'This request has already been signed.';
+$string['signernotactive'] = 'This signing link is not active yet. A previous signer still needs to sign first.';
 $string['invalidpayload'] = 'Invalid signing payload received.';
 $string['emptysignature'] = 'Empty signature received from NCALayer.';
 $string['draftpdf'] = 'Draft PDF';
+$string['currentsignedpdf'] = 'Current signed PDF';
 $string['verifytitle'] = 'Document verification';
 $string['verifyinvalidlink'] = 'Invalid verification link.';
 $string['verifynotfound'] = 'The requested document could not be found.';

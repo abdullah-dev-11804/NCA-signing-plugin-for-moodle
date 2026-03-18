@@ -44,6 +44,9 @@ if ($signer->status !== \local_ncasign\local\job_manager::SIGNER_PENDING) {
         2
     );
 }
+if (!$manager->is_signer_active($signer)) {
+    throw new moodle_exception('signernotactive', 'local_ncasign');
+}
 
 if (trim($cmssignature) === '') {
     throw new moodle_exception('emptysignature', 'local_ncasign');
@@ -78,6 +81,9 @@ $signaturefilename = $manager->store_signer_cms_signature((int)$job->id, (int)$s
 
 $meta = [
     'mode' => 'ncalayer_real_cms',
+    'signer_order' => (int)$signer->signorder,
+    'signer_name' => (string)($signer->signername ?? $signer->signeremail),
+    'signer_position' => (string)($signer->signerposition ?? ''),
     'payload_mode' => $payloadmode,
     'storage' => $storageused,
     'module' => $ncamodule,
@@ -93,7 +99,9 @@ $meta = [
     'server_received_at' => time(),
 ];
 
-$manager->mark_signer_signed($token, 'ncalayer_real', $meta);
+if (!$manager->mark_signer_signed($token, 'ncalayer_real', $meta)) {
+    throw new moodle_exception('signernotactive', 'local_ncasign');
+}
 
 redirect(
     new moodle_url('/local/ncasign/sign.php', ['token' => $token]),

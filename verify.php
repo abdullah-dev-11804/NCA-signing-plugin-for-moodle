@@ -119,7 +119,7 @@ $userrows = [
 echo html_writer::tag('h3', get_string('verifyuserinfo', 'local_ncasign'));
 echo html_writer::table(local_ncasign_build_verify_table($userrows));
 
-$signers = $DB->get_records('local_ncasign_signers', ['jobid' => (int)$job->id], 'id ASC');
+$signers = $DB->get_records('local_ncasign_signers', ['jobid' => (int)$job->id], 'signorder ASC, id ASC');
 echo html_writer::tag('h3', get_string('verifysignatures', 'local_ncasign'));
 if (!$signers) {
     echo html_writer::div(get_string('verifynosigners', 'local_ncasign'));
@@ -134,33 +134,18 @@ if (!$signers) {
     ];
 
     foreach ($signers as $index => $signer) {
-        $signername = trim((string)$signer->signeremail);
-        $position = 'Commission member';
+        $signername = trim((string)($signer->signername ?? $signer->signeremail));
+        $position = trim((string)($signer->signerposition ?? ('Commission member ' . ((int)$signer->signorder ?: ($index + 1)))));
 
         if (!empty($signer->signerid)) {
             $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname,middlename,alternatename,email', IGNORE_MISSING);
             if ($user) {
                 $signername = local_ncasign_safe_fullname($user);
             }
-
-            if ($coursecontext) {
-                $roles = get_user_roles($coursecontext, (int)$signer->signerid, false);
-                $rolenames = [];
-                foreach ($roles as $roleassignment) {
-                    if (!empty($roleassignment->shortname)) {
-                        $rolenames[$roleassignment->shortname] = role_get_name($roleassignment, $coursecontext);
-                    } else if (!empty($roleassignment->name)) {
-                        $rolenames[$roleassignment->name] = $roleassignment->name;
-                    }
-                }
-                if ($rolenames) {
-                    $position = implode(', ', array_values($rolenames));
-                }
-            }
         }
 
         $table->data[] = [
-            (int)$index + 1,
+            (int)($signer->signorder ?: ($index + 1)),
             s($signername),
             s($position),
             s((string)$signer->status),

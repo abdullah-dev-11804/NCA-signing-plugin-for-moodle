@@ -44,8 +44,11 @@ class observer {
         }
 
         $manager = new job_manager();
-        $context = \context_course::instance($courseid);
-        $signers = $manager->get_signers_from_configured_roles($context);
+        $signers = $manager->get_system_configured_signers();
+        if (!$signers) {
+            error_log('local_ncasign: no system signers configured; skipping job creation for course ' . $courseid . ', user ' . $userid);
+            return;
+        }
         $generator = new document_generator();
 
         ob_start();

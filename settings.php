@@ -50,15 +50,40 @@ if ($hassiteconfig) {
         'local_ncasign/autosignnote',
         get_string('autosignnote', 'local_ncasign'),
         '',
-        'Auto-signed by server fallback (demo mode).'
+        'Auto-signed by server fallback.'
     ));
 
-    $settings->add(new admin_setting_configtext(
-        'local_ncasign/notifyroleids',
-        get_string('notifyroleids', 'local_ncasign'),
-        '',
-        ''
+    $settings->add(new admin_setting_heading(
+        'local_ncasign/signersheading',
+        get_string('signersheading', 'local_ncasign'),
+        get_string('signersheading_desc', 'local_ncasign')
     ));
+
+    for ($i = 1; $i <= 3; $i++) {
+        $settings->add(new admin_setting_configtext(
+            'local_ncasign/signer' . $i . 'email',
+            get_string('signeremailsetting', 'local_ncasign', $i),
+            '',
+            '',
+            PARAM_EMAIL
+        ));
+
+        $settings->add(new admin_setting_configtext(
+            'local_ncasign/signer' . $i . 'name',
+            get_string('signernamesetting', 'local_ncasign', $i),
+            '',
+            '',
+            PARAM_TEXT
+        ));
+
+        $settings->add(new admin_setting_configtext(
+            'local_ncasign/signer' . $i . 'position',
+            get_string('signerpositionsetting', 'local_ncasign', $i),
+            '',
+            'Commission member ' . $i,
+            PARAM_TEXT
+        ));
+    }
 
     $settings->add(new admin_setting_configtext(
         'local_ncasign/certurltemplate',

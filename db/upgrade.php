@@ -58,5 +58,54 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026031600, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026031900) {
+        $table = new xmldb_table('local_ncasign_signers');
+
+        $field = new xmldb_field('signername', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'signeremail');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('signerposition', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'signername');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('signorder', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '1', 'signerposition');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('notifiedat', XMLDB_TYPE_INT, '10', null, null, null, null, 'timemodified');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $signers = $DB->get_records('local_ncasign_signers', null, 'jobid ASC, id ASC');
+        $orderbyjob = [];
+        foreach ($signers as $signer) {
+            $jobid = (int)$signer->jobid;
+            if (!isset($orderbyjob[$jobid])) {
+                $orderbyjob[$jobid] = 1;
+            }
+
+            if (empty($signer->signername)) {
+                $signer->signername = !empty($signer->signeremail) ? (string)$signer->signeremail : null;
+            }
+            if (empty($signer->signerposition)) {
+                $signer->signerposition = 'Commission member ' . $orderbyjob[$jobid];
+            }
+            $signer->signorder = $orderbyjob[$jobid];
+            if (!empty($signer->status) && $signer->status !== 'pending' && empty($signer->notifiedat)) {
+                $signer->notifiedat = (int)($signer->signedat ?? $signer->timecreated ?? time());
+            }
+
+            $DB->update_record('local_ncasign_signers', $signer);
+            $orderbyjob[$jobid]++;
+        }
+
+        upgrade_plugin_savepoint(true, 2026031900, 'local', 'ncasign');
+    }
+
     return true;
 }

@@ -38,6 +38,7 @@ Options:
 --userid=INT       Student user id (required)
 --courseid=INT     Course id (required)
 --emails=CSV       Optional signer emails, comma separated
+                  If omitted, configured system-wide signers are used
 -h, --help         Print this help
 ";
     cli_writeln($help);
@@ -58,8 +59,7 @@ foreach ($emails as $email) {
 }
 
 if (!$signers) {
-    $context = context_course::instance($courseid);
-    $signers = $manager->get_signers_from_configured_roles($context);
+    $signers = $manager->get_system_configured_signers();
 }
 
 $jobid = $manager->create_job($userid, $courseid, $certurl, $signers);
