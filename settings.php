@@ -61,5 +61,39 @@ if ($hassiteconfig) {
         PARAM_RAW_TRIMMED
     ));
 
+    $settings->add(new admin_setting_heading(
+        'local_ncasign/kalkanheader',
+        get_string('kalkanheader', 'local_ncasign'),
+        ''
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/kalkantrustpath',
+        get_string('kalkantrustpath', 'local_ncasign'),
+        get_string('kalkantrustpath_desc', 'local_ncasign'),
+        '',
+        PARAM_RAW_TRIMMED
+    ));
+
+    $settings->add(new admin_setting_configselect(
+        'local_ncasign/kalkanvalidationmode',
+        get_string('kalkanvalidationmode', 'local_ncasign'),
+        get_string('kalkanvalidationmode_desc', 'local_ncasign'),
+        'ocspcrl',
+        [
+            'ocsp' => get_string('kalkanvalidationmode_ocsp', 'local_ncasign'),
+            'crl' => get_string('kalkanvalidationmode_crl', 'local_ncasign'),
+            'ocspcrl' => get_string('kalkanvalidationmode_ocspcrl', 'local_ncasign'),
+        ]
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/kalkantsaurl',
+        get_string('kalkantsaurl', 'local_ncasign'),
+        get_string('kalkantsaurl_desc', 'local_ncasign'),
+        'http://test.pki.gov.kz/tsp/',
+        PARAM_RAW_TRIMMED
+    ));
+
     $ADMIN->add('localplugins', $settings);
 }

@@ -160,5 +160,65 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026032400, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026032500) {
+        $table = new xmldb_table('local_ncasign_jobs');
+
+        $field = new xmldb_field('drafthash', XMLDB_TYPE_CHAR, '64', null, null, null, null, 'documenttitle');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('local_ncasign_template_signers');
+
+        $field = new xmldb_field('expectediin', XMLDB_TYPE_CHAR, '12', null, null, null, null, 'signerposition');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('local_ncasign_signers');
+
+        $fields = [
+            new xmldb_field('expectediin', XMLDB_TYPE_CHAR, '12', null, null, null, null, 'signerposition'),
+            new xmldb_field('rawcms', XMLDB_TYPE_TEXT, null, null, null, null, null, 'signedby'),
+            new xmldb_field('signercertificate', XMLDB_TYPE_TEXT, null, null, null, null, null, 'rawcms'),
+            new xmldb_field('signeriin', XMLDB_TYPE_CHAR, '12', null, null, null, null, 'signercertificate'),
+            new xmldb_field('ocspresponse', XMLDB_TYPE_TEXT, null, null, null, null, null, 'signeriin'),
+            new xmldb_field('signingmethod', XMLDB_TYPE_CHAR, '100', null, null, null, null, 'ocspresponse'),
+            new xmldb_field('verificationstatus', XMLDB_TYPE_CHAR, '20', null, null, null, null, 'signingmethod'),
+            new xmldb_field('verificationinfo', XMLDB_TYPE_TEXT, null, null, null, null, null, 'verificationstatus'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+
+        $sql = "SELECT s.id, s.jobid, s.signeremail, s.signorder, j.drafthash, ts.expectediin
+                  FROM {local_ncasign_signers} s
+                  LEFT JOIN {local_ncasign_jobs} j ON j.id = s.jobid
+                  LEFT JOIN {local_ncasign_template_signers} ts
+                    ON ts.templateid = j.templateprofileid
+                   AND ts.signorder = s.signorder";
+        $records = $DB->get_records_sql($sql);
+        foreach ($records as $record) {
+            $update = (object)[
+                'id' => (int)$record->id,
+                'expectediin' => !empty($record->expectediin) ? preg_replace('/\D+/', '', (string)$record->expectediin) : null,
+            ];
+            $DB->update_record('local_ncasign_signers', $update);
+        }
+
+        $jobs = $DB->get_records('local_ncasign_jobs');
+        foreach ($jobs as $job) {
+            if (!empty($job->drafthash)) {
+                continue;
+            }
+            $job->drafthash = null;
+            $DB->update_record('local_ncasign_jobs', $job);
+        }
+
+        upgrade_plugin_savepoint(true, 2026032500, 'local', 'ncasign');
+    }
+
     return true;
 }

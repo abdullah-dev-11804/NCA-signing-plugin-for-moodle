@@ -167,7 +167,7 @@ echo html_writer::tag('textarea', s($signersraw), [
     'id' => 'id_signersraw',
     'rows' => 6,
     'cols' => 100,
-    'placeholder' => "signer1@example.com|Signer One|Commission Chair\nsigner2@example.com|Signer Two|Commission Member",
+    'placeholder' => "signer1@example.com|Signer One|Commission Chair|123456789012\nsigner2@example.com|Signer Two|Commission Member|123456789013",
 ]);
 echo html_writer::tag('p', get_string('templatesigners_desc', 'local_ncasign'));
 echo html_writer::end_div();
@@ -200,7 +200,7 @@ echo $OUTPUT->footer();
 /**
  * Parse signer textarea lines into structured signers.
  *
- * Format per line: email|name|position
+ * Format per line: email|name|position|expectediin
  *
  * @param string $raw
  * @return array<int, array<string, string>>
@@ -218,6 +218,7 @@ function local_ncasign_parse_template_signers(string $raw): array {
             'email' => $parts[0] ?? '',
             'name' => $parts[1] ?? '',
             'position' => $parts[2] ?? '',
+            'expectediin' => preg_replace('/\D+/', '', (string)($parts[3] ?? '')),
         ];
     }
 
@@ -237,6 +238,7 @@ function local_ncasign_template_signers_to_text(array $signers): string {
             trim((string)($signer['email'] ?? '')),
             trim((string)($signer['name'] ?? '')),
             trim((string)($signer['position'] ?? '')),
+            preg_replace('/\D+/', '', (string)($signer['expectediin'] ?? '')),
         ]);
     }
 

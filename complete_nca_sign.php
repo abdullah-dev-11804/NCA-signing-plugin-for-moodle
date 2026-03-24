@@ -63,27 +63,28 @@ if ($payloadbytes === false) {
 }
 
 $payloadsha256 = hash('sha256', $payloadbytes);
-if ($payloadmode === 'job_metadata') {
-    $payload = json_decode($payloadbytes, true);
-    if (!is_array($payload) || (($payload['token'] ?? '') !== $token)) {
-        throw new moodle_exception('invalidpayload', 'local_ncasign');
-    }
-} else if ($payloadmode === 'certificate_pdf') {
-    $certificate = $manager->get_job_certificate_binary((int)$job->id);
-    if (!$certificate || $certificate['sha256'] !== $payloadsha256) {
+if ($payloadmode === 'certificate_pdf' || $payloadmode === 'document_pdf') {
+    $document = $manager->get_job_signing_payload_binary((int)$job->id);
+    if (!$document || $document['sha256'] !== $payloadsha256) {
         throw new moodle_exception('invalidpayload', 'local_ncasign');
     }
 } else {
     throw new moodle_exception('invalidpayload', 'local_ncasign');
 }
 
+$signingmethod = 'ncalayer_basics_detached_cms_tsa_requested';
+$verificationservice = new \local_ncasign\local\kalkan_crypt_service();
+$expectediin = preg_replace('/\D+/', '', (string)($signer->expectediin ?? ''));
+$verification = $verificationservice->verify_detached_cms($payloadbytes, $cmssignature, $expectediin);
 $signaturefilename = $manager->store_signer_cms_signature((int)$job->id, (int)$signer->id, $cmssignature);
 
 $meta = [
-    'mode' => 'ncalayer_real_cms',
+    'mode' => 'ncalayer_real_cms_detached_verified',
     'signer_order' => (int)$signer->signorder,
     'signer_name' => (string)($signer->signername ?? $signer->signeremail),
     'signer_position' => (string)($signer->signerposition ?? ''),
+    'expected_iin' => $expectediin,
+    'verified_signer_iin' => (string)($verification['signeriin'] ?? ''),
     'payload_mode' => $payloadmode,
     'storage' => $storageused,
     'module' => $ncamodule,
@@ -96,10 +97,27 @@ $meta = [
     'cms_length' => core_text::strlen($cmssignature),
     'cms_preview' => core_text::substr($cmssignature, 0, 120),
     'signature_filename' => $signaturefilename,
+    'verification_info' => $verification['verifyinfo'] ?? '',
+    'certificate_info' => $verification['certificateinfo'] ?? [],
+    'certificate_validation' => $verification['validation'] ?? [],
+    'signing_time' => $verification['signingtime'] ?? null,
     'server_received_at' => time(),
 ];
 
-if (!$manager->mark_signer_signed($token, 'ncalayer_real', $meta)) {
+if (!$manager->mark_signer_signed($token, 'ncalayer_real', $meta, [
+    'rawcms' => $verification['cms_base64'] ?? trim($cmssignature),
+    'signercertificate' => $verification['certificate'] ?? null,
+    'signeriin' => $verification['signeriin'] ?? null,
+    'ocspresponse' => $verification['validation']['ocspresponse'] ?? null,
+    'signingmethod' => $signingmethod,
+    'verificationstatus' => 'verified',
+    'verificationinfo' => json_encode([
+        'verifyinfo' => $verification['verifyinfo'] ?? '',
+        'certificateinfo' => $verification['certificateinfo'] ?? [],
+        'validation' => $verification['validation'] ?? [],
+        'signingtime' => $verification['signingtime'] ?? null,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+])) {
     throw new moodle_exception('signernotactive', 'local_ncasign');
 }
 

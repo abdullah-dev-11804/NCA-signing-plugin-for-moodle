@@ -88,6 +88,7 @@ class job_manager {
             'documentuuid' => $this->generate_document_uuid(),
             'documenttype' => $this->normalise_document_type($documenttype),
             'documenttitle' => trim($documenttitle) !== '' ? trim($documenttitle) : null,
+            'drafthash' => null,
             'finalhash' => null,
             'certificateurl' => $certificateurl,
             'status' => self::JOB_PENDING,
@@ -110,6 +111,7 @@ class job_manager {
                 'signeremail' => trim($signer['email']),
                 'signername' => trim((string)($signer['name'] ?? $signer['email'])),
                 'signerposition' => trim((string)($signer['position'] ?? ('Commission member ' . $signorder))),
+                'expectediin' => ($expectediin = preg_replace('/\D+/', '', (string)($signer['expectediin'] ?? ''))) !== '' ? $expectediin : null,
                 'signorder' => $signorder,
                 'token' => $token,
                 'status' => self::SIGNER_PENDING,
@@ -118,6 +120,13 @@ class job_manager {
                 'notifiedat' => null,
                 'signedat' => null,
                 'signedby' => null,
+                'rawcms' => null,
+                'signercertificate' => null,
+                'signeriin' => null,
+                'ocspresponse' => null,
+                'signingmethod' => null,
+                'verificationstatus' => null,
+                'verificationinfo' => null,
                 'signmeta' => null,
             ];
             $DB->insert_record('local_ncasign_signers', $record);
@@ -199,6 +208,7 @@ class job_manager {
         if (empty($job->documenttype) || $job->documenttype === 'certificate') {
             $job->documenttype = $this->infer_document_type((string)$job->documenttitle, (string)$filename);
         }
+        $job->drafthash = hash('sha256', $content);
         $job->finalhash = null;
         if (strpos((string)$job->certificateurl, 'stored://') !== 0) {
             $job->certificateurl = "stored://local_ncasign/" . self::FILEAREA_ORIGINALPDF . "/{$jobid}/{$filename}";
@@ -237,6 +247,29 @@ class job_manager {
             'sha256' => hash('sha256', $content),
             'filesize' => $file->get_filesize(),
         ];
+    }
+
+    /**
+     * Return the currently signable PDF bytes for a job.
+     *
+     * If signer progress PDF exists, later signers sign that version.
+     * Otherwise the original draft/original PDF is used.
+     *
+     * @param int $jobid
+     * @return array|null
+     */
+    public function get_job_signing_payload_binary(int $jobid): ?array {
+        $signed = $this->get_job_signed_pdf_binary($jobid);
+        if ($signed) {
+            $signed['sourcearea'] = self::FILEAREA_SIGNEDPDF;
+            return $signed;
+        }
+
+        $original = $this->get_job_certificate_binary($jobid);
+        if ($original) {
+            $original['sourcearea'] = self::FILEAREA_ORIGINALPDF;
+        }
+        return $original;
     }
 
     /**
@@ -348,7 +381,10 @@ class job_manager {
         ];
         $fs->create_file_from_string($record, $signedcontent);
 
-        $job->finalhash = hash('sha256', $signedcontent);
+        $job->finalhash = null;
+        if (!$this->has_pending_signers($jobid) || $job->status !== self::JOB_PENDING) {
+            $job->finalhash = hash('sha256', $signedcontent);
+        }
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
         return $filename;
@@ -454,7 +490,7 @@ class job_manager {
      * @param array $meta
      * @return bool
      */
-    public function mark_signer_signed(string $token, string $signedby = 'manual', array $meta = []): bool {
+    public function mark_signer_signed(string $token, string $signedby = 'manual', array $meta = [], array $evidence = []): bool {
         global $DB;
 
         $row = $this->get_signer_by_token($token);
@@ -475,6 +511,27 @@ class job_manager {
         $signer->status = self::SIGNER_SIGNED;
         $signer->signedat = $now;
         $signer->signedby = $signedby;
+        if (array_key_exists('rawcms', $evidence)) {
+            $signer->rawcms = $evidence['rawcms'];
+        }
+        if (array_key_exists('signercertificate', $evidence)) {
+            $signer->signercertificate = $evidence['signercertificate'];
+        }
+        if (array_key_exists('signeriin', $evidence)) {
+            $signer->signeriin = $evidence['signeriin'];
+        }
+        if (array_key_exists('ocspresponse', $evidence)) {
+            $signer->ocspresponse = $evidence['ocspresponse'];
+        }
+        if (array_key_exists('signingmethod', $evidence)) {
+            $signer->signingmethod = $evidence['signingmethod'];
+        }
+        if (array_key_exists('verificationstatus', $evidence)) {
+            $signer->verificationstatus = $evidence['verificationstatus'];
+        }
+        if (array_key_exists('verificationinfo', $evidence)) {
+            $signer->verificationinfo = $evidence['verificationinfo'];
+        }
         $signer->signmeta = json_encode($meta);
         $signer->timemodified = $now;
         $DB->update_record('local_ncasign_signers', $signer);

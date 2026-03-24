@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/ncasign/db" VERSION="2026032400" COMMENT="XMLDB file for local_ncasign"
+<XMLDB PATH="local/ncasign/db" VERSION="2026032500" COMMENT="XMLDB file for local_ncasign"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -15,6 +15,7 @@
         <FIELD NAME="documentuuid" TYPE="char" LENGTH="36" NOTNULL="false"/>
         <FIELD NAME="documenttype" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="certificate"/>
         <FIELD NAME="documenttitle" TYPE="char" LENGTH="255" NOTNULL="false"/>
+        <FIELD NAME="drafthash" TYPE="char" LENGTH="64" NOTNULL="false"/>
         <FIELD NAME="finalhash" TYPE="char" LENGTH="64" NOTNULL="false"/>
         <FIELD NAME="certificateurl" TYPE="text" NOTNULL="false"/>
         <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="pending_manual"/>
@@ -75,6 +76,7 @@
         <FIELD NAME="signeremail" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT=""/>
         <FIELD NAME="signername" TYPE="char" LENGTH="255" NOTNULL="false"/>
         <FIELD NAME="signerposition" TYPE="char" LENGTH="255" NOTNULL="false"/>
+        <FIELD NAME="expectediin" TYPE="char" LENGTH="12" NOTNULL="false"/>
         <FIELD NAME="signorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="1"/>
       </FIELDS>
       <KEYS>
@@ -93,6 +95,7 @@
         <FIELD NAME="signeremail" TYPE="char" LENGTH="255" NOTNULL="true" DEFAULT=""/>
         <FIELD NAME="signername" TYPE="char" LENGTH="255" NOTNULL="false"/>
         <FIELD NAME="signerposition" TYPE="char" LENGTH="255" NOTNULL="false"/>
+        <FIELD NAME="expectediin" TYPE="char" LENGTH="12" NOTNULL="false"/>
         <FIELD NAME="signorder" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="1"/>
         <FIELD NAME="token" TYPE="char" LENGTH="64" NOTNULL="true" DEFAULT=""/>
         <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="pending"/>
@@ -101,6 +104,13 @@
         <FIELD NAME="notifiedat" TYPE="int" LENGTH="10" NOTNULL="false"/>
         <FIELD NAME="signedat" TYPE="int" LENGTH="10" NOTNULL="false"/>
         <FIELD NAME="signedby" TYPE="char" LENGTH="255" NOTNULL="false"/>
+        <FIELD NAME="rawcms" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="signercertificate" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="signeriin" TYPE="char" LENGTH="12" NOTNULL="false"/>
+        <FIELD NAME="ocspresponse" TYPE="text" NOTNULL="false"/>
+        <FIELD NAME="signingmethod" TYPE="char" LENGTH="100" NOTNULL="false"/>
+        <FIELD NAME="verificationstatus" TYPE="char" LENGTH="20" NOTNULL="false"/>
+        <FIELD NAME="verificationinfo" TYPE="text" NOTNULL="false"/>
         <FIELD NAME="signmeta" TYPE="text" NOTNULL="false"/>
       </FIELDS>
       <KEYS>

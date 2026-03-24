@@ -127,6 +127,7 @@ class template_manager {
                 'email' => $email,
                 'name' => trim((string)($record->signername ?? '')) !== '' ? trim((string)$record->signername) : $email,
                 'position' => trim((string)($record->signerposition ?? '')) !== '' ? trim((string)$record->signerposition) : ('Commission member ' . (int)$record->signorder),
+                'expectediin' => preg_replace('/\D+/', '', (string)($record->expectediin ?? '')),
             ];
         }
 
@@ -279,6 +280,7 @@ class template_manager {
                 'signeremail' => $email,
                 'signername' => trim((string)($signer['name'] ?? '')) ?: null,
                 'signerposition' => trim((string)($signer['position'] ?? '')) ?: null,
+                'expectediin' => ($expectediin = preg_replace('/\D+/', '', (string)($signer['expectediin'] ?? ''))) !== '' ? $expectediin : null,
                 'signorder' => $order,
             ]);
             $order++;

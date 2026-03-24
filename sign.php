@@ -72,29 +72,17 @@ echo html_writer::tag('li', 'Manual deadline: ' . userdate((int)$job->manualdead
 echo html_writer::end_tag('ul');
 
 if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isactive) {
-    $payloadmode = 'job_metadata';
+    $payloadmode = 'document_pdf';
     $payloadmeta = [];
-    $certificate = $manager->get_job_certificate_binary((int)$job->id);
-    if ($certificate) {
-        $payloadmode = 'certificate_pdf';
-        $payloadb64 = base64_encode($certificate['content']);
+    $signingpayload = $manager->get_job_signing_payload_binary((int)$job->id);
+    if ($signingpayload) {
+        $payloadb64 = base64_encode($signingpayload['content']);
         $payloadmeta = [
-            'filename' => $certificate['filename'],
-            'sha256' => $certificate['sha256'],
-            'filesize' => $certificate['filesize'],
+            'filename' => $signingpayload['filename'],
+            'sha256' => $signingpayload['sha256'],
+            'filesize' => $signingpayload['filesize'],
+            'sourcearea' => $signingpayload['sourcearea'] ?? '',
         ];
-    } else {
-        $payload = [
-            'token' => $token,
-            'jobid' => (int)$job->id,
-            'userid' => (int)$job->userid,
-            'courseid' => (int)$job->courseid,
-            'certificateurl' => (string)$job->certificateurl,
-            'signedat_request' => time(),
-        ];
-        $payloadjson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $payloadb64 = base64_encode($payloadjson);
-        $payloadmeta = ['sha256' => hash('sha256', $payloadjson)];
     }
     $payloadmetajson = json_encode($payloadmeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -122,36 +110,33 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
     echo html_writer::start_tag('div', ['id' => 'nca-status', 'style' => 'margin-bottom:10px;color:#555;']);
     echo html_writer::end_tag('div');
 
-    if ($payloadmode === 'certificate_pdf') {
+    if ($signingpayload) {
         echo html_writer::tag(
             'div',
-            'Signing mode: actual certificate PDF bytes (' . s($certificate['filename']) . ', SHA256 ' . s($certificate['sha256']) . ')',
+            'Signing mode: actual document PDF bytes (' . s($signingpayload['filename']) . ', SHA256 ' . s($signingpayload['sha256']) . ', source ' . s((string)($payloadmeta['sourcearea'] ?? '')) . ')',
             ['style' => 'margin-bottom:10px;color:#0a5a0a;']
         );
     } else {
-        echo html_writer::tag(
-            'div',
-            'Signing mode: metadata fallback (no certificate PDF attached to this job yet).',
-            ['style' => 'margin-bottom:10px;color:#8a6d3b;']
-        );
+        echo $OUTPUT->notification(get_string('nodocumentpayload', 'local_ncasign'), \core\output\notification::NOTIFY_ERROR);
     }
 
-    echo html_writer::start_tag('form', [
-        'method' => 'post',
-        'action' => (new moodle_url('/local/ncasign/complete_nca_sign.php'))->out(false),
-        'id' => 'nca-sign-form',
-    ]);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'token', 'value' => s($token)]);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadb64', 'id' => 'payloadb64', 'value' => s($payloadb64)]);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadmode', 'id' => 'payloadmode', 'value' => s($payloadmode)]);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadmeta', 'id' => 'payloadmeta', 'value' => s($payloadmetajson)]);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'cmssignature', 'id' => 'cmssignature', 'value' => '']);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'storageused', 'id' => 'storageused', 'value' => '']);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamodule', 'id' => 'ncamodule', 'value' => '']);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamessage', 'id' => 'ncamessage', 'value' => '']);
-    echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncaresponsecode', 'id' => 'ncaresponsecode', 'value' => '']);
-    echo html_writer::empty_tag('input', ['type' => 'button', 'value' => get_string('signwithnca', 'local_ncasign'), 'id' => 'signnca', 'class' => 'btn btn-primary']);
-    echo html_writer::end_tag('form');
+    if ($signingpayload) {
+        echo html_writer::start_tag('form', [
+            'method' => 'post',
+            'action' => (new moodle_url('/local/ncasign/complete_nca_sign.php'))->out(false),
+            'id' => 'nca-sign-form',
+        ]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'token', 'value' => s($token)]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadb64', 'id' => 'payloadb64', 'value' => s($payloadb64)]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadmode', 'id' => 'payloadmode', 'value' => s($payloadmode)]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'payloadmeta', 'id' => 'payloadmeta', 'value' => s($payloadmetajson)]);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'cmssignature', 'id' => 'cmssignature', 'value' => '']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'storageused', 'id' => 'storageused', 'value' => '']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamodule', 'id' => 'ncamodule', 'value' => '']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncamessage', 'id' => 'ncamessage', 'value' => '']);
+        echo html_writer::empty_tag('input', ['type' => 'hidden', 'name' => 'ncaresponsecode', 'id' => 'ncaresponsecode', 'value' => '']);
+        echo html_writer::empty_tag('input', ['type' => 'button', 'value' => get_string('signwithnca', 'local_ncasign'), 'id' => 'signnca', 'class' => 'btn btn-primary']);
+        echo html_writer::end_tag('form');
 
     $js = <<<JS
 (function() {
@@ -196,7 +181,14 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
             if (pendingCallback) {
                 const cb = pendingCallback;
                 pendingCallback = null;
-                cb(result);
+                cb({
+                    raw: result,
+                    code: result.code,
+                    message: result.message,
+                    responseObject: result.responseObject,
+                    status: result.status,
+                    result: result.result
+                });
             }
         };
     }
@@ -283,30 +275,51 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
         const storage = storageEl.value || 'PKCS12';
         const payloadb64 = document.getElementById('payloadb64').value;
 
-        callWithModuleFallback('createCMSSignatureFromBase64', [storage, 'SIGNATURE', payloadb64, true], function(resp) {
-            const result = resp.result || {};
-            document.getElementById('ncaresponsecode').value = String(result.code || '');
-            document.getElementById('ncamessage').value = safeString(result.message || result);
-            document.getElementById('storageused').value = storage;
-            document.getElementById('ncamodule').value = resp.module || '';
+        sendRequest({
+            module: 'kz.gov.pki.knca.basics',
+            method: 'sign',
+            args: {
+                allowedStorages: [storage],
+                format: 'cms',
+                data: payloadb64,
+                signingParams: {
+                    encapsulate: false,
+                    digested: false,
+                    tsaProfile: {}
+                },
+                signerParams: {
+                    extKeyUsageOids: ['1.2.398.3.3.4.1.2.2']
+                },
+                locale: 'ru'
+            }
+        }, function(result) {
+            const raw = result.raw || {};
+            const cms = raw.result || result.result || raw.responseObject || result.responseObject || '';
+            const isOk = (String(raw.status || result.status).toLowerCase() === 'ok') || String(result.code) === '200';
 
-            if (!resp.ok || !result.responseObject) {
+            document.getElementById('ncaresponsecode').value = String(result.code || raw.status || '');
+            document.getElementById('ncamessage').value = safeString(result.message || raw.message || raw);
+            document.getElementById('storageused').value = storage;
+            document.getElementById('ncamodule').value = 'kz.gov.pki.knca.basics';
+
+            if (!isOk || !cms) {
                 signBtn.disabled = false;
                 setStatus(
-                    'Signing failed: code=' + safeString(result.code) + ', detail=' + safeString(result.message || result),
+                    'Signing failed: detail=' + safeString(result.message || raw.message || raw),
                     true
                 );
                 return;
             }
 
-            document.getElementById('cmssignature').value = result.responseObject;
-            setStatus('Signature created via module "' + resp.module + '". Sending to server...', false);
+            document.getElementById('cmssignature').value = cms;
+            setStatus('Detached CMS created via module "kz.gov.pki.knca.basics". Sending to server for verification...', false);
             document.getElementById('nca-sign-form').submit();
         });
     });
 })();
 JS;
-    $PAGE->requires->js_init_code($js);
+        $PAGE->requires->js_init_code($js);
+    }
 }
 
 echo $OUTPUT->footer();
