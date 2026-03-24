@@ -29,6 +29,10 @@ $PAGE->set_heading(get_string('jobs', 'local_ncasign'));
 
 echo $OUTPUT->header();
 echo $OUTPUT->single_button(
+    new moodle_url('/local/ncasign/templates.php'),
+    get_string('templateprofiles', 'local_ncasign')
+);
+echo $OUTPUT->single_button(
     new moodle_url('/local/ncasign/create_demo_job.php'),
     get_string('createdemojob', 'local_ncasign')
 );

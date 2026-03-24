@@ -68,7 +68,8 @@ class job_manager {
         ?int $manualwindowhours = null,
         string $documenttype = 'certificate',
         string $documenttitle = '',
-        bool $sendnotifications = true
+        bool $sendnotifications = true,
+        ?int $templateprofileid = null
     ): int {
         global $DB;
 
@@ -83,6 +84,7 @@ class job_manager {
             'timemodified' => $now,
             'userid' => $userid,
             'courseid' => $courseid,
+            'templateprofileid' => $templateprofileid,
             'documentuuid' => $this->generate_document_uuid(),
             'documenttype' => $this->normalise_document_type($documenttype),
             'documenttitle' => trim($documenttitle) !== '' ? trim($documenttitle) : null,

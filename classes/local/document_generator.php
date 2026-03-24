@@ -42,11 +42,36 @@ class document_generator {
         string $doctype = self::DOC_ENGINEER_PROTOCOL,
         array $options = []
     ): array {
-        if ($doctype !== self::DOC_ENGINEER_PROTOCOL) {
-            throw new \RuntimeException('Unsupported document type: ' . $doctype);
+        return $this->generate_draft_from_profile($userid, $courseid, [
+            'renderer' => $doctype,
+            'documenttype' => 'protocol',
+            'documenttitle' => 'Industrial Safety Protocol (Engineer)',
+            'templatepath' => '',
+            'layoutconfig' => [],
+        ], $options);
+    }
+
+    /**
+     * Generate a draft from a resolved template profile.
+     *
+     * @param int $userid
+     * @param int $courseid
+     * @param array<string, mixed> $profile
+     * @param array $options
+     * @return array
+     */
+    public function generate_draft_from_profile(
+        int $userid,
+        int $courseid,
+        array $profile,
+        array $options = []
+    ): array {
+        $renderer = (string)($profile['renderer'] ?? self::DOC_ENGINEER_PROTOCOL);
+        if ($renderer !== self::DOC_ENGINEER_PROTOCOL) {
+            throw new \RuntimeException('Unsupported template renderer: ' . $renderer);
         }
 
-        return $this->generate_engineer_protocol($userid, $courseid, $options);
+        return $this->generate_engineer_protocol($userid, $courseid, $options, $profile);
     }
 
     /**
@@ -57,10 +82,10 @@ class document_generator {
      * @param array $options
      * @return array
      */
-    private function generate_engineer_protocol(int $userid, int $courseid, array $options): array {
+    private function generate_engineer_protocol(int $userid, int $courseid, array $options, array $profile = []): array {
         global $DB;
 
-        $templatepath = $this->get_engineer_protocol_template_path();
+        $templatepath = $this->get_engineer_protocol_template_path($profile);
         $this->load_pdf_dependencies();
 
         if (!class_exists('\setasign\Fpdi\Tcpdf\Fpdi')) {
@@ -142,8 +167,8 @@ class document_generator {
         return [
             'filename' => 'engineer_protocol_' . $courseid . '_' . $userid . '.pdf',
             'content' => $pdf->Output('', 'S'),
-            'documenttype' => 'protocol',
-            'documenttitle' => 'Industrial Safety Protocol (Engineer)',
+            'documenttype' => (string)($profile['documenttype'] ?? 'protocol'),
+            'documenttitle' => (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (Engineer)'),
             'protocolnumber' => $protocolnumber,
         ];
     }
@@ -249,8 +274,11 @@ class document_generator {
      *
      * @return string
      */
-    private function get_engineer_protocol_template_path(): string {
-        $path = trim((string)get_config('local_ncasign', 'engineerprotocoltemplatepath'));
+    private function get_engineer_protocol_template_path(array $profile = []): string {
+        $path = trim((string)($profile['templatepath'] ?? ''));
+        if ($path === '') {
+            $path = trim((string)get_config('local_ncasign', 'engineerprotocoltemplatepath'));
+        }
         if ($path === '' || !is_readable($path)) {
             throw new \RuntimeException('Engineer protocol template PDF path is not configured or not readable.');
         }

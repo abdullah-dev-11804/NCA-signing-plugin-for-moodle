@@ -21,6 +21,7 @@ defined('MOODLE_INTERNAL') || die();
 use local_ncasign\local\job_manager;
 use local_ncasign\local\document_generator;
 use local_ncasign\local\document_storage;
+use local_ncasign\local\template_manager;
 
 /**
  * Plugin event observers.
@@ -44,46 +45,59 @@ class observer {
         }
 
         $manager = new job_manager();
-        $signers = $manager->get_system_configured_signers();
-        if (!$signers) {
-            error_log('local_ncasign: no system signers configured; skipping job creation for course ' . $courseid . ', user ' . $userid);
+        $templatemanager = new template_manager();
+        $profiles = $templatemanager->get_course_template_profiles($courseid);
+        if (!$profiles) {
+            error_log('local_ncasign: no mapped template profiles found for course ' . $courseid . ', user ' . $userid);
             return;
         }
         $generator = new document_generator();
 
         ob_start();
         try {
-            try {
-                $draft = $generator->generate_draft($userid, $courseid, document_generator::DOC_ENGINEER_PROTOCOL);
-            } catch (\Throwable $e) {
-                error_log('local_ncasign: failed to generate draft on course completion: ' . $e->getMessage());
-                return;
-            }
+            foreach ($profiles as $profile) {
+                $signers = $profile['signers'] ?? [];
+                if (!$signers) {
+                    error_log('local_ncasign: template profile has no configured signers; skipping profile ' . (string)($profile['name'] ?? 'unknown'));
+                    continue;
+                }
 
-            $jobid = $manager->create_job(
-                $userid,
-                $courseid,
-                '',
-                $signers,
-                null,
-                (string)($draft['documenttype'] ?? 'protocol'),
-                (string)($draft['documenttitle'] ?? 'Industrial Safety Protocol (Engineer)'),
-                false
-            );
+                try {
+                    $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile);
+                } catch (\Throwable $e) {
+                    error_log(
+                        'local_ncasign: failed to generate draft on course completion for profile ' .
+                        (string)($profile['name'] ?? 'unknown') . ': ' . $e->getMessage()
+                    );
+                    continue;
+                }
 
-            try {
-                $storage = new document_storage();
-                $storedpath = $storage->store_pending_draft($jobid, (string)$draft['filename'], (string)$draft['content']);
-                $manager->attach_certificate_binary_to_job(
-                    $jobid,
-                    (string)$draft['filename'],
-                    (string)$draft['content'],
-                    'local_generated_draft:' . $storedpath
+                $jobid = $manager->create_job(
+                    $userid,
+                    $courseid,
+                    '',
+                    $signers,
+                    null,
+                    (string)($draft['documenttype'] ?? ($profile['documenttype'] ?? 'protocol')),
+                    (string)($draft['documenttitle'] ?? ($profile['documenttitle'] ?? 'Course document')),
+                    false,
+                    !empty($profile['id']) ? (int)$profile['id'] : null
                 );
-                $manager->notify_signers_for_job($jobid);
-            } catch (\Throwable $e) {
-                self::delete_job($jobid);
-                error_log('local_ncasign: failed to persist generated draft for job ' . $jobid . ': ' . $e->getMessage());
+
+                try {
+                    $storage = new document_storage();
+                    $storedpath = $storage->store_pending_draft($jobid, (string)$draft['filename'], (string)$draft['content']);
+                    $manager->attach_certificate_binary_to_job(
+                        $jobid,
+                        (string)$draft['filename'],
+                        (string)$draft['content'],
+                        'local_generated_draft:' . $storedpath
+                    );
+                    $manager->notify_signers_for_job($jobid);
+                } catch (\Throwable $e) {
+                    self::delete_job($jobid);
+                    error_log('local_ncasign: failed to persist generated draft for job ' . $jobid . ': ' . $e->getMessage());
+                }
             }
         } finally {
             $unexpectedoutput = trim((string)ob_get_clean());

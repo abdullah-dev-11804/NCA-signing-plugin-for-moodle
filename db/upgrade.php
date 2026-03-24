@@ -71,12 +71,12 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
             $dbman->add_field($table, $field);
         }
 
-        $field = new xmldb_field('signorder', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '1', 'signerposition');
+        $field = new xmldb_field('signorder', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '1', 'signerposition');
         if (!$dbman->field_exists($table, $field)) {
             $dbman->add_field($table, $field);
         }
 
-        $field = new xmldb_field('notifiedat', XMLDB_TYPE_INT, '10', null, null, null, null, 'timemodified');
+        $field = new xmldb_field('notifiedat', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'timemodified');
         if (!$dbman->field_exists($table, $field)) {
             $dbman->add_field($table, $field);
         }
@@ -105,6 +105,59 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         }
 
         upgrade_plugin_savepoint(true, 2026031900, 'local', 'ncasign');
+    }
+
+    if ($oldversion < 2026032400) {
+        $table = new xmldb_table('local_ncasign_jobs');
+        $field = new xmldb_field('templateprofileid', XMLDB_TYPE_INT, '10', null, null, null, null, 'courseid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $table = new xmldb_table('local_ncasign_templates');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('timecreated', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('timemodified', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('renderer', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('documenttype', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, 'certificate');
+            $table->add_field('documenttitle', XMLDB_TYPE_CHAR, '255', null, null, null, null);
+            $table->add_field('templatepath', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $table->add_field('layoutconfig', XMLDB_TYPE_TEXT, null, null, null, null, null);
+            $table->add_field('active', XMLDB_TYPE_INT, '1', null, XMLDB_NOTNULL, null, '1');
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_index('active_idx', XMLDB_INDEX_NOTUNIQUE, ['active']);
+            $dbman->create_table($table);
+        }
+
+        $table = new xmldb_table('local_ncasign_template_courses');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('templateid', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('courseid', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_index('templateid_idx', XMLDB_INDEX_NOTUNIQUE, ['templateid']);
+            $table->add_index('courseid_idx', XMLDB_INDEX_NOTUNIQUE, ['courseid']);
+            $table->add_index('template_course_uix', XMLDB_INDEX_UNIQUE, ['templateid', 'courseid']);
+            $dbman->create_table($table);
+        }
+
+        $table = new xmldb_table('local_ncasign_template_signers');
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('templateid', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('signeremail', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('signername', XMLDB_TYPE_CHAR, '255', null, null, null, null);
+            $table->add_field('signerposition', XMLDB_TYPE_CHAR, '255', null, null, null, null);
+            $table->add_field('signorder', XMLDB_TYPE_INT, '10', null, XMLDB_NOTNULL, null, '1');
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_index('templateid_idx', XMLDB_INDEX_NOTUNIQUE, ['templateid']);
+            $table->add_index('template_signorder_uix', XMLDB_INDEX_UNIQUE, ['templateid', 'signorder']);
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026032400, 'local', 'ncasign');
     }
 
     return true;
