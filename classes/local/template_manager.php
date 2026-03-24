@@ -59,9 +59,6 @@ class template_manager {
     /**
      * Return all active template profiles mapped to a course.
      *
-     * Falls back to the current legacy/global configuration when no explicit
-     * mappings are present yet, so existing installs keep working.
-     *
      * @param int $courseid
      * @return array<int, array<string, mixed>>
      */
@@ -79,16 +76,12 @@ class template_manager {
             'active' => 1,
         ]);
 
-        if ($records) {
-            $profiles = [];
-            foreach ($records as $record) {
-                $profiles[] = $this->hydrate_profile($record);
-            }
-            return $profiles;
+        $profiles = [];
+        foreach ($records as $record) {
+            $profiles[] = $this->hydrate_profile($record);
         }
 
-        $legacy = $this->get_legacy_default_profile();
-        return $legacy ? [$legacy] : [];
+        return $profiles;
     }
 
     /**
@@ -203,30 +196,6 @@ class template_manager {
         $DB->delete_records('local_ncasign_template_signers', ['templateid' => $templateid]);
         $DB->delete_records('local_ncasign_template_courses', ['templateid' => $templateid]);
         $DB->delete_records('local_ncasign_templates', ['id' => $templateid]);
-    }
-
-    /**
-     * Legacy fallback profile based on current single-template settings.
-     *
-     * @return array<string, mixed>|null
-     */
-    public function get_legacy_default_profile(): ?array {
-        $templatepath = trim((string)get_config('local_ncasign', 'engineerprotocoltemplatepath'));
-        $signers = (new job_manager())->get_system_configured_signers();
-        if ($templatepath === '' || !$signers) {
-            return null;
-        }
-
-        return [
-            'id' => 0,
-            'name' => 'Legacy Engineer Protocol',
-            'renderer' => document_generator::DOC_ENGINEER_PROTOCOL,
-            'documenttype' => 'protocol',
-            'documenttitle' => 'Industrial Safety Protocol (Engineer)',
-            'templatepath' => $templatepath,
-            'layoutconfig' => [],
-            'signers' => $signers,
-        ];
     }
 
     /**

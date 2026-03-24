@@ -276,9 +276,6 @@ class document_generator {
      */
     private function get_engineer_protocol_template_path(array $profile = []): string {
         $path = trim((string)($profile['templatepath'] ?? ''));
-        if ($path === '') {
-            $path = trim((string)get_config('local_ncasign', 'engineerprotocoltemplatepath'));
-        }
         if ($path === '' || !is_readable($path)) {
             throw new \RuntimeException('Engineer protocol template PDF path is not configured or not readable.');
         }

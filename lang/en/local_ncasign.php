@@ -22,14 +22,7 @@ $string['enabled'] = 'Enable plugin';
 $string['manualwindowhours'] = 'Manual signing window (hours)';
 $string['autosignenabled'] = 'Enable auto-sign fallback';
 $string['autosignnote'] = 'Auto-sign note';
-$string['signersheading'] = 'Commission signers';
-$string['signersheading_desc'] = 'Configure the three system-wide signers in the order they must sign. Only the current signer in sequence receives the email.';
-$string['signeremailsetting'] = 'Signer {$a} email';
-$string['signernamesetting'] = 'Signer {$a} display name';
-$string['signerpositionsetting'] = 'Signer {$a} position';
 $string['certurltemplate'] = 'Certificate URL template';
-$string['engineerprotocoltemplatepath'] = 'Engineer protocol template PDF path';
-$string['engineerprotocoltemplatepath_desc'] = 'Absolute server path to the engineer protocol PDF template used by the local FPDI/TCPDF generator.';
 
 $string['taskprocessjobs'] = 'Process overdue NCA sign jobs';
 
@@ -40,7 +33,6 @@ $string['templateprofileadd'] = 'Add template profile';
 $string['templateprofileedit'] = 'Edit template profile';
 $string['templateprofilesback'] = 'Back to template profiles';
 $string['templateprofilesempty'] = 'No template profiles have been configured yet.';
-$string['templateprofileslegacyfallback'] = 'Until explicit profiles are configured, the plugin falls back to the legacy single-template settings.';
 $string['templateprofilenotice_saved'] = 'Template profile saved.';
 $string['templateprofilenotice_deleted'] = 'Template profile deleted.';
 $string['templaterenderer'] = 'Template renderer';

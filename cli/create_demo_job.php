@@ -38,7 +38,7 @@ Options:
 --userid=INT       Student user id (required)
 --courseid=INT     Course id (required)
 --emails=CSV       Optional signer emails, comma separated
-                  If omitted, configured system-wide signers are used
+                  If omitted, signers from the first mapped template profile are used
 -h, --help         Print this help
 ";
     cli_writeln($help);
@@ -50,6 +50,7 @@ $courseid = (int)$options['courseid'];
 $emails = array_filter(array_map('trim', explode(',', (string)$options['emails'])));
 
 $manager = new \local_ncasign\local\job_manager();
+$templatemanager = new \local_ncasign\local\template_manager();
 $certurl = $manager->build_certificate_url($courseid, $userid);
 $signers = [];
 foreach ($emails as $email) {
@@ -59,7 +60,10 @@ foreach ($emails as $email) {
 }
 
 if (!$signers) {
-    $signers = $manager->get_system_configured_signers();
+    $profiles = $templatemanager->get_course_template_profiles($courseid);
+    if ($profiles) {
+        $signers = $profiles[0]['signers'] ?? [];
+    }
 }
 
 $jobid = $manager->create_job($userid, $courseid, $certurl, $signers);

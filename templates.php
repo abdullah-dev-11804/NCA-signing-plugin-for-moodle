@@ -43,7 +43,6 @@ echo $OUTPUT->single_button(
 
 if (!$profiles) {
     echo $OUTPUT->notification(get_string('templateprofilesempty', 'local_ncasign'), \core\output\notification::NOTIFY_INFO);
-    echo html_writer::tag('p', get_string('templateprofileslegacyfallback', 'local_ncasign'));
     echo $OUTPUT->footer();
     exit;
 }

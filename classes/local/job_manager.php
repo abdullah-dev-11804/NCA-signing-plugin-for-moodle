@@ -684,48 +684,18 @@ class job_manager {
     }
 
     /**
-     * Return the ordered system-wide signer list from plugin settings.
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    public function get_system_configured_signers(): array {
-        global $DB;
-
-        $signers = [];
-        for ($i = 1; $i <= 3; $i++) {
-            $email = trim((string)get_config('local_ncasign', 'signer' . $i . 'email'));
-            if ($email === '' || !validate_email($email)) {
-                continue;
-            }
-
-            $user = $DB->get_record('user', [
-                'email' => $email,
-                'deleted' => 0,
-                'suspended' => 0,
-            ], 'id,firstname,lastname,middlename,alternatename,email', IGNORE_MISSING);
-            $configuredname = trim((string)get_config('local_ncasign', 'signer' . $i . 'name'));
-            $configuredposition = trim((string)get_config('local_ncasign', 'signer' . $i . 'position'));
-
-            $signers[] = [
-                'id' => $user ? (int)$user->id : null,
-                'email' => $email,
-                'name' => $configuredname !== '' ? $configuredname : ($user ? $this->format_person_name($user) : $email),
-                'position' => $configuredposition !== '' ? $configuredposition : ('Commission member ' . $i),
-            ];
-        }
-
-        return $signers;
-    }
-
-    /**
-     * Legacy wrapper kept for older code paths.
+     * Resolve signers from the first mapped template profile for a course.
      *
      * @param \context_course $context
      * @return array
      */
     public function get_signers_from_configured_roles(\context_course $context): array {
-        unset($context);
-        return $this->get_system_configured_signers();
+        $profiles = (new template_manager())->get_course_template_profiles((int)$context->instanceid);
+        if (!$profiles) {
+            return [];
+        }
+
+        return $profiles[0]['signers'] ?? [];
     }
 
     /**

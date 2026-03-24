@@ -35,7 +35,10 @@ $documenttype = optional_param('documenttype', 'certificate', PARAM_ALPHA);
 
 if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
     $manager = new \local_ncasign\local\job_manager();
+    $templatemanager = new \local_ncasign\local\template_manager();
     $certurl = $manager->build_certificate_url($courseid, $userid);
+    $profiles = $courseid > 0 ? $templatemanager->get_course_template_profiles($courseid) : [];
+    $selectedprofile = $profiles ? reset($profiles) : null;
 
     $signers = [];
     if (trim($signeremails) !== '') {
@@ -45,8 +48,8 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
                 $signers[] = ['email' => $email, 'name' => $email];
             }
         }
-    } else {
-        $signers = $manager->get_system_configured_signers();
+    } else if ($selectedprofile) {
+        $signers = $selectedprofile['signers'] ?? [];
     }
 
     if ($userid > 0 && $courseid > 0) {
@@ -66,13 +69,13 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
                 $pdffilename = $_FILES['certificatepdf']['name'] ?? "certificate_{$jobid}.pdf";
                 $manager->attach_certificate_binary_to_job($jobid, $pdffilename, $pdfcontent, 'manual_upload');
             }
-        } else if ($documenttype === 'protocol') {
+        } else if ($documenttype === 'protocol' && $selectedprofile) {
             try {
                 $generator = new \local_ncasign\local\document_generator();
-                $draft = $generator->generate_draft(
+                $draft = $generator->generate_draft_from_profile(
                     $userid,
                     $courseid,
-                    \local_ncasign\local\document_generator::DOC_ENGINEER_PROTOCOL
+                    $selectedprofile
                 );
                 $storage = new \local_ncasign\local\document_storage();
                 $storedpath = $storage->store_pending_draft($jobid, (string)$draft['filename'], (string)$draft['content']);
@@ -155,7 +158,7 @@ echo html_writer::empty_tag('input', [
     'size' => 90,
     'placeholder' => 'approver1@example.com,approver2@example.com',
 ]);
-echo html_writer::tag('p', 'Leave empty to use the configured system-wide signers.');
+echo html_writer::tag('p', 'Leave empty to use the signer sequence from the first template profile mapped to this course.');
 echo html_writer::end_div();
 
 echo html_writer::start_div('form-group');
