@@ -33,10 +33,10 @@ It does **not** cover:
 - Sequential three-signer manual workflow
 - Tokenized signer links
 - NCALayer desktop signing on signer workstations
-- Server-side detached CMS verification through KalkanCrypt
+- Server-side detached CMS verification through NCANode
 - Signer certificate extraction and expected-IIN matching
 - Stored signature artifacts per signer
-- Stored signer certificate, signer IIN, verification info, and OCSP evidence when returned by Kalkan
+- Stored signer certificate, signer IIN, verification info, and revocation evidence returned by NCANode
 - Signed PDF artifact generation
 - Public verification page
 - Hash-based integrity check of the stored signed artifact
@@ -75,8 +75,8 @@ The current build should **not** be represented as the final legally hardened pr
 cd /path/to/moodle/local/ncasign
 composer require setasign/fpdi-tcpdf:^2.3 --no-dev
 ```
-6. KalkanCrypt PHP extension installed on the Moodle server for server-side CMS verification
-7. RK/NCA trust path available on the server and configured in plugin settings
+6. NCANode running and reachable from the Moodle server
+7. NCANode base URL configured in plugin settings
 
 ## Deployment steps
 
@@ -93,9 +93,10 @@ composer require setasign/fpdi-tcpdf:^2.3 --no-dev
 4. Confirm the protocol PDF template exists on the server in a readable location.
 5. Configure server-side verification settings:
    - `Site administration -> Plugins -> Local plugins -> NCA Signing`
-   - set `Kalkan trust path`
-   - set `Certificate validation mode`
-   - set `TSA URL` if required by your environment
+   - set `NCANode base URL`
+   - set `NCANode request timeout`
+   - set `Check OCSP in NCANode`
+   - set `Check CRL in NCANode`
 
 ## Template profile setup
 
@@ -133,7 +134,7 @@ composer require setasign/fpdi-tcpdf:^2.3 --no-dev
 
 - Signers must have NCALayer running on their own machine before opening the signing page.
 - The signing request now uses `kz.gov.pki.knca.basics` with detached CMS signing and requests TSA embedding on the NCALayer side.
-- The server now verifies each received CMS through KalkanCrypt before advancing the signer workflow.
+- The server now verifies each received CMS through NCANode before advancing the signer workflow.
 - The plugin now uses **template-profile signers**, not the removed global signer settings.
 - The plugin now uses **template-profile PDF paths**, not the removed global template path setting.
 

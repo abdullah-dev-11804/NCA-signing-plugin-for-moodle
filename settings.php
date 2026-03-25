@@ -62,37 +62,39 @@ if ($hassiteconfig) {
     ));
 
     $settings->add(new admin_setting_heading(
-        'local_ncasign/kalkanheader',
-        get_string('kalkanheader', 'local_ncasign'),
+        'local_ncasign/ncanodeheader',
+        get_string('ncanodeheader', 'local_ncasign'),
         ''
     ));
 
     $settings->add(new admin_setting_configtext(
-        'local_ncasign/kalkantrustpath',
-        get_string('kalkantrustpath', 'local_ncasign'),
-        get_string('kalkantrustpath_desc', 'local_ncasign'),
-        '',
+        'local_ncasign/ncanodebaseurl',
+        get_string('ncanodebaseurl', 'local_ncasign'),
+        get_string('ncanodebaseurl_desc', 'local_ncasign'),
+        'http://127.0.0.1:14579',
         PARAM_RAW_TRIMMED
-    ));
-
-    $settings->add(new admin_setting_configselect(
-        'local_ncasign/kalkanvalidationmode',
-        get_string('kalkanvalidationmode', 'local_ncasign'),
-        get_string('kalkanvalidationmode_desc', 'local_ncasign'),
-        'ocspcrl',
-        [
-            'ocsp' => get_string('kalkanvalidationmode_ocsp', 'local_ncasign'),
-            'crl' => get_string('kalkanvalidationmode_crl', 'local_ncasign'),
-            'ocspcrl' => get_string('kalkanvalidationmode_ocspcrl', 'local_ncasign'),
-        ]
     ));
 
     $settings->add(new admin_setting_configtext(
-        'local_ncasign/kalkantsaurl',
-        get_string('kalkantsaurl', 'local_ncasign'),
-        get_string('kalkantsaurl_desc', 'local_ncasign'),
-        'http://test.pki.gov.kz/tsp/',
-        PARAM_RAW_TRIMMED
+        'local_ncasign/ncanodetimeout',
+        get_string('ncanodetimeout', 'local_ncasign'),
+        get_string('ncanodetimeout_desc', 'local_ncasign'),
+        20,
+        PARAM_INT
+    ));
+
+    $settings->add(new admin_setting_configcheckbox(
+        'local_ncasign/ncanodecheckocsp',
+        get_string('ncanodecheckocsp', 'local_ncasign'),
+        get_string('ncanodecheckocsp_desc', 'local_ncasign'),
+        1
+    ));
+
+    $settings->add(new admin_setting_configcheckbox(
+        'local_ncasign/ncanodecheckcrl',
+        get_string('ncanodecheckcrl', 'local_ncasign'),
+        get_string('ncanodecheckcrl_desc', 'local_ncasign'),
+        1
     ));
 
     $ADMIN->add('localplugins', $settings);

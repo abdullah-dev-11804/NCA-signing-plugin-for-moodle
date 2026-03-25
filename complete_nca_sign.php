@@ -72,10 +72,10 @@ if ($payloadmode === 'certificate_pdf' || $payloadmode === 'document_pdf') {
     throw new moodle_exception('invalidpayload', 'local_ncasign');
 }
 
-$signingmethod = 'ncalayer_basics_detached_cms_tsa_requested';
-$verificationservice = new \local_ncasign\local\kalkan_crypt_service();
+$signingmethod = 'ncalayer_basics_detached_cms_tsa_requested+ncanode_verify';
+$verificationservice = \local_ncasign\local\signature_backend_factory::create();
 $expectediin = preg_replace('/\D+/', '', (string)($signer->expectediin ?? ''));
-$verification = $verificationservice->verify_detached_cms($payloadbytes, $cmssignature, $expectediin);
+$verification = $verificationservice->verify_detached_cms($cmssignature, $payloadbytes, $expectediin);
 $signaturefilename = $manager->store_signer_cms_signature((int)$job->id, (int)$signer->id, $cmssignature);
 
 $meta = [
@@ -108,7 +108,9 @@ if (!$manager->mark_signer_signed($token, 'ncalayer_real', $meta, [
     'rawcms' => $verification['cms_base64'] ?? trim($cmssignature),
     'signercertificate' => $verification['certificate'] ?? null,
     'signeriin' => $verification['signeriin'] ?? null,
-    'ocspresponse' => $verification['validation']['ocspresponse'] ?? null,
+    'ocspresponse' => !empty($verification['validation']['revocations'])
+        ? json_encode($verification['validation']['revocations'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        : null,
     'signingmethod' => $signingmethod,
     'verificationstatus' => 'verified',
     'verificationinfo' => json_encode([

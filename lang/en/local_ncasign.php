@@ -23,16 +23,15 @@ $string['manualwindowhours'] = 'Manual signing window (hours)';
 $string['autosignenabled'] = 'Enable auto-sign fallback';
 $string['autosignnote'] = 'Auto-sign note';
 $string['certurltemplate'] = 'Certificate URL template';
-$string['kalkanheader'] = 'Server-side CMS verification';
-$string['kalkantrustpath'] = 'Kalkan trust path';
-$string['kalkantrustpath_desc'] = 'Absolute server path to the RK/NCA trust store or validation bundle used by KalkanCrypt.';
-$string['kalkanvalidationmode'] = 'Certificate validation mode';
-$string['kalkanvalidationmode_desc'] = 'OCSP is preferred. CRL fallback can be enabled if OCSP is unavailable in the environment.';
-$string['kalkanvalidationmode_ocsp'] = 'OCSP';
-$string['kalkanvalidationmode_crl'] = 'CRL';
-$string['kalkanvalidationmode_ocspcrl'] = 'OCSP then CRL fallback';
-$string['kalkantsaurl'] = 'TSA URL';
-$string['kalkantsaurl_desc'] = 'Timestamping service URL used by the server-side Kalkan stack when applicable.';
+$string['ncanodeheader'] = 'NCANode verification backend';
+$string['ncanodebaseurl'] = 'NCANode base URL';
+$string['ncanodebaseurl_desc'] = 'Base URL for the NCANode REST service, for example http://127.0.0.1:14579.';
+$string['ncanodetimeout'] = 'NCANode request timeout (seconds)';
+$string['ncanodetimeout_desc'] = 'HTTP timeout for NCANode verification requests.';
+$string['ncanodecheckocsp'] = 'Check OCSP in NCANode';
+$string['ncanodecheckocsp_desc'] = 'Send OCSP revocation checking in the NCANode verification request.';
+$string['ncanodecheckcrl'] = 'Check CRL in NCANode';
+$string['ncanodecheckcrl_desc'] = 'Send CRL revocation checking in the NCANode verification request.';
 
 $string['taskprocessjobs'] = 'Process overdue NCA sign jobs';
 

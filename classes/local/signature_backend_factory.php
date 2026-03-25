@@ -14,10 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_ncasign\local;
+
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'local_ncasign';
-$plugin->version = 2026032600;
-$plugin->requires = 2022041900;
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+/**
+ * Signature backend factory.
+ */
+class signature_backend_factory {
+    /**
+     * Create the active signature backend.
+     *
+     * @return signature_backend_interface
+     */
+    public static function create(): signature_backend_interface {
+        return new ncanode_signature_backend();
+    }
+}

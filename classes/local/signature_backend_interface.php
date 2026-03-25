@@ -14,10 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_ncasign\local;
+
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'local_ncasign';
-$plugin->version = 2026032600;
-$plugin->requires = 2022041900;
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+/**
+ * Interface for signature verification backends.
+ */
+interface signature_backend_interface {
+    /**
+     * Verify detached CMS against raw document bytes.
+     *
+     * @param string $cmsb64
+     * @param string $documentbytes
+     * @param string|null $expectediin
+     * @return array<string, mixed>
+     */
+    public function verify_detached_cms(string $cmsb64, string $documentbytes, ?string $expectediin = null): array;
+}
