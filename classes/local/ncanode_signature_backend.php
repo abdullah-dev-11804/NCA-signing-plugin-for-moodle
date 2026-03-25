@@ -46,10 +46,18 @@ class ncanode_signature_backend implements signature_backend_interface {
         }
 
         $response = $this->post_json('/cms/verify', $payload);
-        if ((int)($response['status'] ?? 0) !== 200) {
-            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', (string)($response['message'] ?? 'NCANode returned a non-success status.'));
+        $status = $response['status'] ?? null;
+        $statusok = $status === null || $status === true || (is_numeric($status) && (int)$status === 200);
+        if (!$statusok) {
+            throw new \moodle_exception(
+                'verificationfailed',
+                'local_ncasign',
+                '',
+                'NCANode returned a non-success status: ' . json_encode($status, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            );
         }
-        if (empty($response['valid'])) {
+
+        if (array_key_exists('valid', $response) && !$response['valid']) {
             throw new \moodle_exception('verificationfailed', 'local_ncasign', '', (string)($response['message'] ?? 'NCANode marked the CMS as invalid.'));
         }
 
