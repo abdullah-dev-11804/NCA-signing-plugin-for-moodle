@@ -97,5 +97,13 @@ if ($hassiteconfig) {
         1
     ));
 
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/ncalayerekus',
+        get_string('ncalayerekus', 'local_ncasign'),
+        get_string('ncalayerekus_desc', 'local_ncasign'),
+        '',
+        PARAM_RAW_TRIMMED
+    ));
+
     $ADMIN->add('localplugins', $settings);
 }

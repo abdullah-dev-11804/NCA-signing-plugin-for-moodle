@@ -72,6 +72,13 @@ echo html_writer::tag('li', 'Manual deadline: ' . userdate((int)$job->manualdead
 echo html_writer::end_tag('ul');
 
 if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isactive) {
+    $ncalayerekuraw = trim((string)get_config('local_ncasign', 'ncalayerekus'));
+    $ncalayerekuoids = [];
+    if ($ncalayerekuraw !== '') {
+        $ncalayerekuoids = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', $ncalayerekuraw))));
+    }
+    $ncalayerekuoidsjson = json_encode($ncalayerekuoids, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
     $payloadmode = 'document_pdf';
     $payloadmeta = [];
     $signingpayload = $manager->get_job_signing_payload_binary((int)$job->id);
@@ -143,6 +150,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
     let ws = null;
     let pendingCallback = null;
     const modules = ['kz.gov.pki.knca.commonUtils', 'kz.gov.pki.knca.basics'];
+    const signerEkuOids = {$ncalayerekuoidsjson};
     const statusEl = document.getElementById('nca-status');
     const storageEl = document.getElementById('nca-storage');
     const signBtn = document.getElementById('signnca');
@@ -275,23 +283,27 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
         const storage = storageEl.value || 'PKCS12';
         const payloadb64 = document.getElementById('payloadb64').value;
 
+        const signArgs = {
+            allowedStorages: [storage],
+            format: 'cms',
+            data: payloadb64,
+            signingParams: {
+                encapsulate: false,
+                digested: false,
+                tsaProfile: {}
+            },
+            locale: 'ru'
+        };
+        if (Array.isArray(signerEkuOids) && signerEkuOids.length > 0) {
+            signArgs.signerParams = {
+                extKeyUsageOids: signerEkuOids
+            };
+        }
+
         sendRequest({
             module: 'kz.gov.pki.knca.basics',
             method: 'sign',
-            args: {
-                allowedStorages: [storage],
-                format: 'cms',
-                data: payloadb64,
-                signingParams: {
-                    encapsulate: false,
-                    digested: false,
-                    tsaProfile: {}
-                },
-                signerParams: {
-                    extKeyUsageOids: ['1.2.398.3.3.4.1.2.2']
-                },
-                locale: 'ru'
-            }
+            args: signArgs
         }, function(result) {
             const raw = result.raw || {};
             const cms = raw.result || result.result || raw.responseObject || result.responseObject || '';

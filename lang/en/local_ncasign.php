@@ -32,6 +32,8 @@ $string['ncanodecheckocsp'] = 'Check OCSP in NCANode';
 $string['ncanodecheckocsp_desc'] = 'Send OCSP revocation checking in the NCANode verification request.';
 $string['ncanodecheckcrl'] = 'Check CRL in NCANode';
 $string['ncanodecheckcrl_desc'] = 'Send CRL revocation checking in the NCANode verification request.';
+$string['ncalayerekus'] = 'NCALayer signer EKU OIDs';
+$string['ncalayerekus_desc'] = 'Optional comma-separated EKU OIDs used to filter certificates in the NCALayer basics signing dialog. Leave empty for test certificates or mixed key sets.';
 
 $string['taskprocessjobs'] = 'Process overdue NCA sign jobs';
 
