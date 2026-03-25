@@ -293,7 +293,9 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
                 encapsulate: false,
                 digested: false
             },
-            signerParams: {},
+            signerParams: {
+                extKeyUsageOids: []
+            },
             locale: 'ru'
         };
         if (useTsaProfile) {
