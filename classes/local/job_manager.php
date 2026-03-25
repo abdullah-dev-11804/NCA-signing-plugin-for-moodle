@@ -404,6 +404,7 @@ class job_manager {
 
         $filename = "signer_{$signerrecordid}.p7s";
         $cms = trim($cms);
+        $cms = preg_replace('/-----BEGIN CMS-----|-----END CMS-----/u', '', $cms) ?? $cms;
         $cmscompact = preg_replace('/\s+/', '', $cms);
         $binarycms = base64_decode((string)$cmscompact, true);
         if ($binarycms === false || $binarycms === '') {

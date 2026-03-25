@@ -258,6 +258,7 @@ class ncanode_signature_backend implements signature_backend_interface {
      * @return string
      */
     private function normalise_base64(string $value): string {
-        return preg_replace('/\s+/', '', trim($value)) ?? '';
+        $value = preg_replace('/-----BEGIN CMS-----|-----END CMS-----/u', '', trim($value)) ?? '';
+        return preg_replace('/\s+/', '', $value) ?? '';
     }
 }

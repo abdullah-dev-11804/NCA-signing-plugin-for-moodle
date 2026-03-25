@@ -260,6 +260,30 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
         });
     }
 
+    function extractCms(raw, result) {
+        const candidates = [
+            raw && raw.body && raw.body.result,
+            raw && raw.result,
+            result && result.result,
+            raw && raw.responseObject,
+            result && result.responseObject
+        ];
+        for (let i = 0; i < candidates.length; i++) {
+            let value = candidates[i];
+            if (Array.isArray(value)) {
+                value = value.length ? value[0] : '';
+            }
+            if (typeof value === 'string' && value.trim() !== '') {
+                return value
+                    .replace(/-----BEGIN CMS-----/g, '')
+                    .replace(/-----END CMS-----/g, '')
+                    .replace(/\s+/g, '')
+                    .trim();
+            }
+        }
+        return '';
+    }
+
     function callWithModuleFallback(method, args, done) {
         const errors = [];
         function tryModule(index) {
@@ -352,8 +376,11 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
             args: signArgs
         }, function(result) {
             const raw = result.raw || {};
-            const cms = raw.result || result.result || raw.responseObject || result.responseObject || '';
-            const isOk = (String(raw.status || result.status).toLowerCase() === 'ok') || String(result.code) === '200';
+            const cms = extractCms(raw, result);
+            const isOk = (String(raw.status || result.status).toLowerCase() === 'ok')
+                || raw.status === true
+                || result.status === true
+                || String(result.code) === '200';
 
             document.getElementById('ncaresponsecode').value = String(result.code || raw.status || '');
             document.getElementById('ncamessage').value = safeString(result.message || raw.message || raw);

@@ -52,6 +52,11 @@ if (trim($cmssignature) === '') {
     throw new moodle_exception('emptysignature', 'local_ncasign');
 }
 
+$cmssignature = preg_replace('/-----BEGIN CMS-----|-----END CMS-----|\s+/u', '', trim($cmssignature)) ?? '';
+if ($cmssignature === '') {
+    throw new moodle_exception('emptysignature', 'local_ncasign');
+}
+
 $decodedmeta = json_decode($payloadmeta, true);
 if (!is_array($decodedmeta)) {
     $decodedmeta = [];
