@@ -78,6 +78,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
         $ncalayerekuoids = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', $ncalayerekuraw))));
     }
     $ncalayerekuoidsjson = json_encode($ncalayerekuoids, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $ncalayerusetsa = (int)get_config('local_ncasign', 'ncalayerusetsa') ? 'true' : 'false';
 
     $payloadmode = 'document_pdf';
     $payloadmeta = [];
@@ -151,6 +152,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
     let pendingCallback = null;
     const modules = ['kz.gov.pki.knca.commonUtils', 'kz.gov.pki.knca.basics'];
     const signerEkuOids = {$ncalayerekuoidsjson};
+    const useTsaProfile = {$ncalayerusetsa};
     const statusEl = document.getElementById('nca-status');
     const storageEl = document.getElementById('nca-storage');
     const signBtn = document.getElementById('signnca');
@@ -289,11 +291,13 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
             data: payloadb64,
             signingParams: {
                 encapsulate: false,
-                digested: false,
-                tsaProfile: {}
+                digested: false
             },
             locale: 'ru'
         };
+        if (useTsaProfile) {
+            signArgs.signingParams.tsaProfile = {};
+        }
         if (Array.isArray(signerEkuOids) && signerEkuOids.length > 0) {
             signArgs.signerParams = {
                 extKeyUsageOids: signerEkuOids
@@ -317,7 +321,8 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
             if (!isOk || !cms) {
                 signBtn.disabled = false;
                 setStatus(
-                    'Signing failed: detail=' + safeString(result.message || raw.message || raw),
+                    'Signing failed: detail=' + safeString(result.message || raw.message || raw) +
+                    '; raw=' + safeString(raw),
                     true
                 );
                 return;

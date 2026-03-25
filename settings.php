@@ -105,5 +105,12 @@ if ($hassiteconfig) {
         PARAM_RAW_TRIMMED
     ));
 
+    $settings->add(new admin_setting_configcheckbox(
+        'local_ncasign/ncalayerusetsa',
+        get_string('ncalayerusetsa', 'local_ncasign'),
+        get_string('ncalayerusetsa_desc', 'local_ncasign'),
+        0
+    ));
+
     $ADMIN->add('localplugins', $settings);
 }
