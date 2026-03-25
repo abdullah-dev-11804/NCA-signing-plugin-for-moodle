@@ -293,15 +293,14 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
                 encapsulate: false,
                 digested: false
             },
+            signerParams: {},
             locale: 'ru'
         };
         if (useTsaProfile) {
             signArgs.signingParams.tsaProfile = {};
         }
         if (Array.isArray(signerEkuOids) && signerEkuOids.length > 0) {
-            signArgs.signerParams = {
-                extKeyUsageOids: signerEkuOids
-            };
+            signArgs.signerParams.extKeyUsageOids = signerEkuOids;
         }
 
         sendRequest({
