@@ -33,7 +33,7 @@ $string['ncanodecheckocsp_desc'] = 'Send OCSP revocation checking in the NCANode
 $string['ncanodecheckcrl'] = 'Check CRL in NCANode';
 $string['ncanodecheckcrl_desc'] = 'Send CRL revocation checking in the NCANode verification request.';
 $string['ncalayerekus'] = 'NCALayer signer EKU OIDs';
-$string['ncalayerekus_desc'] = 'Optional comma-separated EKU OIDs used to filter certificates in the NCALayer basics signing dialog. Leave empty for test certificates or mixed key sets.';
+$string['ncalayerekus_desc'] = 'Optional comma-separated EKU OIDs used to filter certificates in the NCALayer basics signing dialog. Leave empty for test certificates or mixed key sets. When values are provided, the standard signing EKU 1.3.6.1.5.5.7.3.4 is added automatically.';
 $string['ncalayerusetsa'] = 'Request TSA in NCALayer';
 $string['ncalayerusetsa_desc'] = 'When enabled, the NCALayer basics signing request includes tsaProfile: {}. Disable this for troubleshooting or for test environments where timestamping causes client-side signing failures.';
 

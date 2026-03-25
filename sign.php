@@ -76,6 +76,10 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
     $ncalayerekuoids = [];
     if ($ncalayerekuraw !== '') {
         $ncalayerekuoids = array_values(array_filter(array_map('trim', preg_split('/[\s,]+/', $ncalayerekuraw))));
+        $signingeku = '1.3.6.1.5.5.7.3.4';
+        if (!in_array($signingeku, $ncalayerekuoids, true)) {
+            array_unshift($ncalayerekuoids, $signingeku);
+        }
     }
     $ncalayerekuoidsjson = json_encode($ncalayerekuoids, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $ncalayerusetsa = (int)get_config('local_ncasign', 'ncalayerusetsa') ? 'true' : 'false';
@@ -117,6 +121,8 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
 
     echo html_writer::start_tag('div', ['id' => 'nca-status', 'style' => 'margin-bottom:10px;color:#555;']);
     echo html_writer::end_tag('div');
+    echo html_writer::start_tag('div', ['id' => 'nca-bundles', 'style' => 'margin-bottom:10px;color:#555;font-size:0.95em;']);
+    echo html_writer::end_tag('div');
 
     if ($signingpayload) {
         echo html_writer::tag(
@@ -154,6 +160,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
     const signerEkuOids = {$ncalayerekuoidsjson};
     const useTsaProfile = {$ncalayerusetsa};
     const statusEl = document.getElementById('nca-status');
+    const bundleEl = document.getElementById('nca-bundles');
     const storageEl = document.getElementById('nca-storage');
     const signBtn = document.getElementById('signnca');
 
@@ -171,6 +178,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
         ws.onopen = function() {
             setStatus('NCALayer connected.', false);
             onReady();
+            loadBundleInfo();
         };
         ws.onclose = function() {
             if (!statusEl.textContent) {
@@ -219,6 +227,37 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
         } catch (e) {
             return String(v);
         }
+    }
+
+    function renderBundleInfo(bundles) {
+        if (!bundleEl || !bundles || typeof bundles !== 'object') {
+            return;
+        }
+        const keys = [
+            'kz.gov.pki.knca.applet.knca_applet',
+            'kz.gov.pki.api.layer.NCALayerServices',
+            'kz.gov.pki.osgi.layer.websocket'
+        ];
+        const items = [];
+        keys.forEach(function(key) {
+            if (bundles[key]) {
+                items.push(key + ': ' + bundles[key]);
+            }
+        });
+        if (items.length) {
+            bundleEl.textContent = 'NCALayer bundles: ' + items.join(' | ');
+        }
+    }
+
+    function loadBundleInfo() {
+        sendRequest({
+            module: 'kz.gov.pki.ncalayerservices.accessory',
+            method: 'getBundles'
+        }, function(result) {
+            const raw = result.raw || {};
+            const bundles = raw.result || result.result || raw.responseObject || result.responseObject || null;
+            renderBundleInfo(bundles);
+        });
     }
 
     function callWithModuleFallback(method, args, done) {
@@ -290,11 +329,13 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
             format: 'cms',
             data: payloadb64,
             signingParams: {
+                decode: true,
                 encapsulate: false,
                 digested: false
             },
             signerParams: {
-                extKeyUsageOids: []
+                extKeyUsageOids: [],
+                chain: []
             },
             locale: 'ru'
         };
