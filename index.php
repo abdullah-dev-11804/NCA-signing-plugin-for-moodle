@@ -48,6 +48,7 @@ $table->head = [
     get_string('deadline', 'local_ncasign'),
     get_string('manualsigned', 'local_ncasign'),
     get_string('autosigned', 'local_ncasign'),
+    get_string('jobdetails', 'local_ncasign'),
     get_string('artifacts', 'local_ncasign'),
 ];
 
@@ -66,6 +67,7 @@ foreach ($jobs as $job) {
         userdate((int)$job->manualdeadline),
         "{$signedcount}/{$totalcount}",
         $job->autosigned ? userdate((int)$job->autosigned) : '-',
+        html_writer::link(new moodle_url('/local/ncasign/job.php', ['id' => (int)$job->id]), get_string('viewdetails', 'local_ncasign')),
         local_ncasign_render_artifacts((int)$job->id),
     ];
 }
