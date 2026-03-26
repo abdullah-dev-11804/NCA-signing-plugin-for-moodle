@@ -350,7 +350,8 @@ class job_manager {
 
         $context = \context_system::instance();
         $fs = get_file_storage();
-        $filename = "signed_job_{$jobid}.pdf";
+        $isfinal = !$this->has_pending_signers($jobid) || $job->status !== self::JOB_PENDING;
+        $filename = $isfinal ? "signed_final_job_{$jobid}.pdf" : "signed_progress_job_{$jobid}.pdf";
 
         $existing = $fs->get_area_files(
             $context->id,
@@ -374,7 +375,7 @@ class job_manager {
             'userid' => 0,
             'author' => 'local_ncasign',
             'license' => 'allrightsreserved',
-            'source' => 'ncasign_qr_overlay',
+            'source' => $isfinal ? 'ncasign_qr_overlay_final' : 'ncasign_qr_overlay_progress',
             'mimetype' => 'application/pdf',
             'timecreated' => time(),
             'timemodified' => time(),
@@ -382,7 +383,7 @@ class job_manager {
         $fs->create_file_from_string($record, $signedcontent);
 
         $job->finalhash = null;
-        if (!$this->has_pending_signers($jobid) || $job->status !== self::JOB_PENDING) {
+        if ($isfinal) {
             $job->finalhash = hash('sha256', $signedcontent);
         }
         $job->timemodified = time();

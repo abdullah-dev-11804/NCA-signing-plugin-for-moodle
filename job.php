@@ -44,7 +44,7 @@ $summary->data = [
     [get_string('documenttype', 'local_ncasign'), s((string)$job->documenttype)],
     [get_string('courseid', 'local_ncasign'), (int)$job->courseid],
     [get_string('userid', 'local_ncasign'), (int)$job->userid],
-    [get_string('status', 'local_ncasign'), s((string)$job->status)],
+    [get_string('status', 'local_ncasign'), local_ncasign_job_status_badge($job, $signers)],
     [get_string('deadline', 'local_ncasign'), userdate((int)$job->manualdeadline)],
     [get_string('templateprofile', 'local_ncasign'), !empty($job->templateprofileid) ? (int)$job->templateprofileid : '-'],
     [get_string('jobdrafthash', 'local_ncasign'), !empty($job->drafthash) ? s((string)$job->drafthash) : '-'],
@@ -77,11 +77,11 @@ foreach ($signers as $signer) {
         s((string)($signer->signername ?? '')),
         s((string)$signer->signeremail),
         s((string)($signer->signerposition ?? '')),
-        s((string)$signer->status),
+        local_ncasign_signer_status_badge($signer, $signers),
         $signer->expectediin ? s((string)$signer->expectediin) : '-',
         $signer->signeriin ? s((string)$signer->signeriin) : '-',
         !empty($signer->signedat) ? userdate((int)$signer->signedat) : '-',
-        !empty($signer->verificationstatus) ? s((string)$signer->verificationstatus) : '-',
+        local_ncasign_verification_badge($signer),
         !empty($signer->signingmethod) ? s((string)$signer->signingmethod) : '-',
         $details,
     ];
@@ -111,7 +111,9 @@ function local_ncasign_job_render_artifacts(int $jobid): string {
     if ($manager->has_job_signed_pdf($jobid)) {
         $links[] = html_writer::link(
             new moodle_url('/local/ncasign/download_artifact.php', ['jobid' => $jobid, 'type' => 'signedpdf']),
-            'Signed PDF (QR blocks)'
+            !empty($DB->get_field('local_ncasign_jobs', 'finalhash', ['id' => $jobid]))
+                ? get_string('signedpdffinallabel', 'local_ncasign')
+                : get_string('signedpdfprogresslabel', 'local_ncasign')
         );
     }
     $verifylink = $manager->get_verification_url_for_job($jobid);
@@ -148,6 +150,108 @@ function local_ncasign_safe_json_decode($value): array {
     }
     $decoded = json_decode($value, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * Render a compact badge.
+ *
+ * @param string $label
+ * @param string $background
+ * @param string $color
+ * @return string
+ */
+function local_ncasign_job_badge(string $label, string $background, string $color = '#fff'): string {
+    return html_writer::tag('span', s($label), [
+        'style' => 'display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:' .
+            $background . ';color:' . $color . ';white-space:nowrap;',
+    ]);
+}
+
+/**
+ * Render overall job status badge.
+ *
+ * @param stdClass $job
+ * @param array $signers
+ * @return string
+ */
+function local_ncasign_job_status_badge(\stdClass $job, array $signers): string {
+    $total = count($signers);
+    $signed = 0;
+    foreach ($signers as $signer) {
+        if ($signer->status === \local_ncasign\local\job_manager::SIGNER_SIGNED) {
+            $signed++;
+        }
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_COMPLETED_MANUAL) {
+        return local_ncasign_job_badge(get_string('badgecompletedmanual', 'local_ncasign'), '#1f7a1f');
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_COMPLETED_AUTO) {
+        return local_ncasign_job_badge(get_string('badgecompletedauto', 'local_ncasign'), '#6f42c1');
+    }
+    if ($signed > 0 && $signed < $total) {
+        return local_ncasign_job_badge(get_string('badgepartial', 'local_ncasign', "{$signed}/{$total}"), '#0d6efd');
+    }
+    return local_ncasign_job_badge(get_string('badgepending', 'local_ncasign'), '#6c757d');
+}
+
+/**
+ * Render signer workflow badge.
+ *
+ * @param stdClass $signer
+ * @param array $signers
+ * @return string
+ */
+function local_ncasign_signer_status_badge(\stdClass $signer, array $signers): string {
+    if ($signer->status === \local_ncasign\local\job_manager::SIGNER_SIGNED) {
+        return local_ncasign_job_badge(get_string('badgesigned', 'local_ncasign'), '#1f7a1f');
+    }
+    if ($signer->status === \local_ncasign\local\job_manager::SIGNER_SKIPPED) {
+        return local_ncasign_job_badge(get_string('badgeskipped', 'local_ncasign'), '#6f42c1');
+    }
+    foreach ($signers as $candidate) {
+        if ((int)$candidate->signorder < (int)$signer->signorder &&
+                $candidate->status !== \local_ncasign\local\job_manager::SIGNER_SIGNED) {
+            return local_ncasign_job_badge(get_string('badgewaitingprevious', 'local_ncasign'), '#adb5bd', '#212529');
+        }
+    }
+    return local_ncasign_job_badge(get_string('badgeawaitingsignature', 'local_ncasign'), '#ffc107', '#212529');
+}
+
+/**
+ * Render verification badge.
+ *
+ * @param stdClass $signer
+ * @return string
+ */
+function local_ncasign_verification_badge(\stdClass $signer): string {
+    $verification = local_ncasign_safe_json_decode($signer->verificationinfo ?? '');
+    $validation = !empty($verification['validation']) && is_array($verification['validation']) ? $verification['validation'] : [];
+    $revocations = !empty($validation['revocations']) && is_array($validation['revocations']) ? $validation['revocations'] : [];
+
+    foreach ($revocations as $revocation) {
+        if (!is_array($revocation)) {
+            continue;
+        }
+        if (!empty($revocation['revoked'])) {
+            return local_ncasign_job_badge(get_string('badgerevoked', 'local_ncasign'), '#dc3545');
+        }
+        $reason = (string)($revocation['reason'] ?? '');
+        if ($reason !== '' && stripos($reason, 'Cannot find root certificate in NCANode') !== false) {
+            return local_ncasign_job_badge(get_string('badgetrusterror', 'local_ncasign'), '#fd7e14');
+        }
+    }
+
+    if (!empty($signer->verificationstatus) && $signer->verificationstatus === 'verified') {
+        return local_ncasign_job_badge(get_string('badgeverified', 'local_ncasign'), '#198754');
+    }
+    if (!empty($signer->signeriin) && !empty($signer->expectediin) &&
+            preg_replace('/\D+/', '', (string)$signer->signeriin) !== preg_replace('/\D+/', '', (string)$signer->expectediin)) {
+        return local_ncasign_job_badge(get_string('badgeiinmismatch', 'local_ncasign'), '#dc3545');
+    }
+    if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING) {
+        return local_ncasign_job_badge(get_string('badgepending', 'local_ncasign'), '#6c757d');
+    }
+    return '-';
 }
 
 /**

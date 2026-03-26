@@ -63,7 +63,7 @@ foreach ($jobs as $job) {
         (int)$job->id,
         (int)$job->userid,
         (int)$job->courseid,
-        s($job->status),
+        local_ncasign_render_job_status_badge($job, $signedcount, $totalcount),
         userdate((int)$job->manualdeadline),
         "{$signedcount}/{$totalcount}",
         $job->autosigned ? userdate((int)$job->autosigned) : '-',
@@ -99,7 +99,10 @@ function local_ncasign_render_artifacts(int $jobid): string {
             'jobid' => $jobid,
             'type' => 'signedpdf',
         ]);
-        $links[] = html_writer::link($signedpdflink, 'Signed PDF (QR blocks)');
+        $label = !empty($DB->get_field('local_ncasign_jobs', 'finalhash', ['id' => $jobid]))
+            ? get_string('signedpdffinallabel', 'local_ncasign')
+            : get_string('signedpdfprogresslabel', 'local_ncasign');
+        $links[] = html_writer::link($signedpdflink, $label);
     }
 
     $verifylink = $manager->get_verification_url_for_job($jobid);
@@ -125,4 +128,40 @@ function local_ncasign_render_artifacts(int $jobid): string {
     }
 
     return implode(' | ', $links);
+}
+
+/**
+ * Render a compact badge.
+ *
+ * @param string $label
+ * @param string $background
+ * @param string $color
+ * @return string
+ */
+function local_ncasign_badge(string $label, string $background, string $color = '#fff'): string {
+    return html_writer::tag('span', s($label), [
+        'style' => 'display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:' .
+            $background . ';color:' . $color . ';white-space:nowrap;',
+    ]);
+}
+
+/**
+ * Render a job status badge.
+ *
+ * @param stdClass $job
+ * @param int $signedcount
+ * @param int $totalcount
+ * @return string
+ */
+function local_ncasign_render_job_status_badge(\stdClass $job, int $signedcount, int $totalcount): string {
+    if ($job->status === \local_ncasign\local\job_manager::JOB_COMPLETED_MANUAL) {
+        return local_ncasign_badge(get_string('badgecompletedmanual', 'local_ncasign'), '#1f7a1f');
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_COMPLETED_AUTO) {
+        return local_ncasign_badge(get_string('badgecompletedauto', 'local_ncasign'), '#6f42c1');
+    }
+    if ($signedcount > 0 && $signedcount < $totalcount) {
+        return local_ncasign_badge(get_string('badgepartial', 'local_ncasign', "{$signedcount}/{$totalcount}"), '#0d6efd');
+    }
+    return local_ncasign_badge(get_string('badgepending', 'local_ncasign'), '#6c757d');
 }
