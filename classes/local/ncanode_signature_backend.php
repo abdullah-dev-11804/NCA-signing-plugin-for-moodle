@@ -49,23 +49,24 @@ class ncanode_signature_backend implements signature_backend_interface {
         $status = $response['status'] ?? null;
         $statusok = $status === null || $status === true || (is_numeric($status) && (int)$status === 200);
         if (!$statusok) {
+            $reason = $this->build_invalid_reason($response);
             throw new \moodle_exception(
                 'verificationfailed',
                 'local_ncasign',
                 '',
-                'NCANode returned a non-success status: ' . json_encode($status, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-                    . '; response=' . $this->summarise_response($response)
+                $reason . ' response=' . $this->summarise_response($response)
             );
         }
 
         $signer = $this->select_signer($response['signers'] ?? [], $response);
         $certificate = $this->select_certificate($signer['certificates'] ?? [], $response);
         if (array_key_exists('valid', $response) && !$response['valid']) {
+            $reason = $this->build_invalid_reason($response, $signer, $certificate);
             throw new \moodle_exception(
                 'verificationfailed',
                 'local_ncasign',
                 '',
-                'NCANode marked the CMS as invalid. response=' . $this->summarise_response($response, $signer, $certificate)
+                $reason . ' response=' . $this->summarise_response($response, $signer, $certificate)
             );
         }
         $signeriin = preg_replace('/\D+/', '', (string)($certificate['subject']['iin'] ?? ''));
@@ -78,11 +79,16 @@ class ncanode_signature_backend implements signature_backend_interface {
         foreach ($revocations as $revocation) {
             if (!empty($revocation['revoked'])) {
                 $reason = (string)($revocation['reason'] ?? 'revoked');
-                throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'NCANode reported a revoked certificate: ' . $reason);
+                throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'Signer certificate is revoked: ' . $reason);
             }
         }
         if (array_key_exists('valid', $certificate) && !$certificate['valid']) {
-            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'NCANode reported an invalid signer certificate.');
+            throw new \moodle_exception(
+                'verificationfailed',
+                'local_ncasign',
+                '',
+                $this->build_invalid_reason($response, $signer, $certificate) . ' response=' . $this->summarise_response($response, $signer, $certificate)
+            );
         }
 
         return [
@@ -334,5 +340,72 @@ class ncanode_signature_backend implements signature_backend_interface {
             'keys' => array_keys($response),
         ];
         return json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: 'unavailable';
+    }
+
+    /**
+     * Build a human-readable verification failure reason from NCANode payload.
+     *
+     * @param array<string, mixed> $response
+     * @param array<string, mixed> $signer
+     * @param array<string, mixed> $certificate
+     * @return string
+     */
+    private function build_invalid_reason(array $response, array $signer = [], array $certificate = []): string {
+        $subject = (string)($certificate['subject']['dn'] ?? '');
+        $iin = (string)($certificate['subject']['iin'] ?? '');
+        $prefix = 'Signature verification failed.';
+        if ($subject !== '') {
+            $prefix .= ' Signer=' . $subject . '.';
+        } else if ($iin !== '') {
+            $prefix .= ' Signer IIN=' . $iin . '.';
+        }
+
+        $revocations = $certificate['revocations'] ?? [];
+        if (is_array($revocations)) {
+            foreach ($revocations as $revocation) {
+                if (!is_array($revocation)) {
+                    continue;
+                }
+                $by = strtoupper((string)($revocation['by'] ?? ''));
+                $reason = trim((string)($revocation['reason'] ?? ''));
+                if (!empty($revocation['revoked'])) {
+                    return trim($prefix . ' Certificate is revoked' . ($by !== '' ? ' by ' . $by : '') . ($reason !== '' ? ' (' . $reason . ').' : '.'));
+                }
+                if ($reason !== '' && stripos($reason, 'Cannot find root certificate in NCANode') !== false) {
+                    return trim($prefix . ' Trust-chain validation failed for the current CA set (' . $by . ': ' . $reason . ').');
+                }
+                if ($reason !== '' && stripos($reason, 'Try again') !== false) {
+                    return trim($prefix . ' Revocation service did not return a final result (' . $by . ': ' . $reason . ').');
+                }
+            }
+        }
+
+        $notbefore = (string)($certificate['notBefore'] ?? '');
+        $notafter = (string)($certificate['notAfter'] ?? '');
+        $now = time();
+        if ($notbefore !== '') {
+            $ts = strtotime($notbefore);
+            if ($ts !== false && $ts > $now) {
+                return trim($prefix . ' Certificate is not valid yet (starts ' . $notbefore . ').');
+            }
+        }
+        if ($notafter !== '') {
+            $ts = strtotime($notafter);
+            if ($ts !== false && $ts < $now) {
+                return trim($prefix . ' Certificate has expired (' . $notafter . ').');
+            }
+        }
+
+        if (array_key_exists('valid', $certificate) && !$certificate['valid']) {
+            return trim($prefix . ' Signer certificate failed NCANode validation.');
+        }
+        if (array_key_exists('valid', $response) && !$response['valid']) {
+            return trim($prefix . ' Detached CMS does not validate against the provided document bytes.');
+        }
+        if (!empty($response['message']) && is_string($response['message']) && strtoupper($response['message']) !== 'OK') {
+            return trim($prefix . ' ' . $response['message']);
+        }
+
+        return trim($prefix . ' NCANode did not provide a more specific reason.');
     }
 }
