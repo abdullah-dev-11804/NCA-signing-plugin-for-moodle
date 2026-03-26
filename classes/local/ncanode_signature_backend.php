@@ -45,7 +45,7 @@ class ncanode_signature_backend implements signature_backend_interface {
             $payload['revocationCheck'] = $revocationchecks;
         }
 
-        $response = $this->post_json('/cms/verify', $payload);
+        $response = $this->extract_verification_payload($this->post_json('/cms/verify', $payload));
         $status = $response['status'] ?? null;
         $statusok = $status === null || $status === true || (is_numeric($status) && (int)$status === 200);
         if (!$statusok) {
@@ -54,15 +54,21 @@ class ncanode_signature_backend implements signature_backend_interface {
                 'local_ncasign',
                 '',
                 'NCANode returned a non-success status: ' . json_encode($status, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                    . '; response=' . $this->summarise_response($response)
             );
         }
 
         if (array_key_exists('valid', $response) && !$response['valid']) {
-            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', (string)($response['message'] ?? 'NCANode marked the CMS as invalid.'));
+            throw new \moodle_exception(
+                'verificationfailed',
+                'local_ncasign',
+                '',
+                'NCANode marked the CMS as invalid. response=' . $this->summarise_response($response)
+            );
         }
 
-        $signer = $this->select_signer($response['signers'] ?? []);
-        $certificate = $this->select_certificate($signer['certificates'] ?? []);
+        $signer = $this->select_signer($response['signers'] ?? [], $response);
+        $certificate = $this->select_certificate($signer['certificates'] ?? [], $response);
         $signeriin = preg_replace('/\D+/', '', (string)($certificate['subject']['iin'] ?? ''));
         $expectediin = preg_replace('/\D+/', '', (string)($expectediin ?? ''));
         if ($expectediin !== '' && $signeriin !== $expectediin) {
@@ -201,9 +207,14 @@ class ncanode_signature_backend implements signature_backend_interface {
      * @param array<int, mixed> $signers
      * @return array<string, mixed>
      */
-    private function select_signer(array $signers): array {
+    private function select_signer(array $signers, array $response = []): array {
         if (!$signers) {
-            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'NCANode did not return signer information.');
+            throw new \moodle_exception(
+                'verificationfailed',
+                'local_ncasign',
+                '',
+                'NCANode did not return signer information. response=' . $this->summarise_response($response)
+            );
         }
 
         $signer = $signers[0];
@@ -220,9 +231,14 @@ class ncanode_signature_backend implements signature_backend_interface {
      * @param array<int, mixed> $certificates
      * @return array<string, mixed>
      */
-    private function select_certificate(array $certificates): array {
+    private function select_certificate(array $certificates, array $response = []): array {
         if (!$certificates) {
-            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'NCANode did not return certificate information.');
+            throw new \moodle_exception(
+                'verificationfailed',
+                'local_ncasign',
+                '',
+                'NCANode did not return certificate information. response=' . $this->summarise_response($response)
+            );
         }
 
         foreach ($certificates as $certificate) {
@@ -268,5 +284,35 @@ class ncanode_signature_backend implements signature_backend_interface {
     private function normalise_base64(string $value): string {
         $value = preg_replace('/-----BEGIN CMS-----|-----END CMS-----/u', '', trim($value)) ?? '';
         return preg_replace('/\s+/', '', $value) ?? '';
+    }
+
+    /**
+     * Unwrap verification payloads from NCANode variants.
+     *
+     * @param array<string, mixed> $response
+     * @return array<string, mixed>
+     */
+    private function extract_verification_payload(array $response): array {
+        if (!empty($response['body']) && is_array($response['body'])) {
+            return $response['body'];
+        }
+        return $response;
+    }
+
+    /**
+     * Build a compact diagnostic string for NCANode responses.
+     *
+     * @param array<string, mixed> $response
+     * @return string
+     */
+    private function summarise_response(array $response): string {
+        $summary = [
+            'status' => $response['status'] ?? null,
+            'message' => $response['message'] ?? null,
+            'valid' => $response['valid'] ?? null,
+            'signers_count' => !empty($response['signers']) && is_array($response['signers']) ? count($response['signers']) : 0,
+            'keys' => array_keys($response),
+        ];
+        return json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: 'unavailable';
     }
 }
