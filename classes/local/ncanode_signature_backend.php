@@ -58,17 +58,16 @@ class ncanode_signature_backend implements signature_backend_interface {
             );
         }
 
+        $signer = $this->select_signer($response['signers'] ?? [], $response);
+        $certificate = $this->select_certificate($signer['certificates'] ?? [], $response);
         if (array_key_exists('valid', $response) && !$response['valid']) {
             throw new \moodle_exception(
                 'verificationfailed',
                 'local_ncasign',
                 '',
-                'NCANode marked the CMS as invalid. response=' . $this->summarise_response($response)
+                'NCANode marked the CMS as invalid. response=' . $this->summarise_response($response, $signer, $certificate)
             );
         }
-
-        $signer = $this->select_signer($response['signers'] ?? [], $response);
-        $certificate = $this->select_certificate($signer['certificates'] ?? [], $response);
         $signeriin = preg_replace('/\D+/', '', (string)($certificate['subject']['iin'] ?? ''));
         $expectediin = preg_replace('/\D+/', '', (string)($expectediin ?? ''));
         if ($expectediin !== '' && $signeriin !== $expectediin) {
@@ -305,12 +304,33 @@ class ncanode_signature_backend implements signature_backend_interface {
      * @param array<string, mixed> $response
      * @return string
      */
-    private function summarise_response(array $response): string {
+    private function summarise_response(array $response, array $signer = [], array $certificate = []): string {
+        $revocations = [];
+        if (!empty($certificate['revocations']) && is_array($certificate['revocations'])) {
+            foreach ($certificate['revocations'] as $revocation) {
+                if (!is_array($revocation)) {
+                    continue;
+                }
+                $revocations[] = [
+                    'by' => $revocation['by'] ?? null,
+                    'revoked' => $revocation['revoked'] ?? null,
+                    'reason' => $revocation['reason'] ?? null,
+                ];
+            }
+        }
         $summary = [
             'status' => $response['status'] ?? null,
             'message' => $response['message'] ?? null,
             'valid' => $response['valid'] ?? null,
             'signers_count' => !empty($response['signers']) && is_array($response['signers']) ? count($response['signers']) : 0,
+            'signer_has_tsp' => !empty($signer['tsp']),
+            'certificate_valid' => $certificate['valid'] ?? null,
+            'certificate_iin' => $certificate['subject']['iin'] ?? null,
+            'certificate_not_before' => $certificate['notBefore'] ?? null,
+            'certificate_not_after' => $certificate['notAfter'] ?? null,
+            'certificate_key_usage' => $certificate['keyUsage'] ?? null,
+            'certificate_subject_dn' => $certificate['subject']['dn'] ?? null,
+            'revocations' => $revocations,
             'keys' => array_keys($response),
         ];
         return json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: 'unavailable';
