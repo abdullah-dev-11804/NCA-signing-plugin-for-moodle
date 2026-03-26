@@ -47,6 +47,8 @@ $summary->data = [
     [get_string('status', 'local_ncasign'), local_ncasign_job_status_badge($job, $signers)],
     [get_string('deadline', 'local_ncasign'), userdate((int)$job->manualdeadline)],
     [get_string('templateprofile', 'local_ncasign'), !empty($job->templateprofileid) ? (int)$job->templateprofileid : '-'],
+    [get_string('finalizerbackendlabel', 'local_ncasign'), !empty($job->finalizerbackend) ? s((string)$job->finalizerbackend) : '-'],
+    [get_string('signaturemanifestlabel', 'local_ncasign'), local_ncasign_render_manifest_summary($job)],
     [get_string('jobdrafthash', 'local_ncasign'), !empty($job->drafthash) ? s((string)$job->drafthash) : '-'],
     [get_string('jobfinalhash', 'local_ncasign'), !empty($job->finalhash) ? s((string)$job->finalhash) : '-'],
     [get_string('artifacts', 'local_ncasign'), local_ncasign_job_render_artifacts($jobid)],
@@ -317,4 +319,31 @@ function local_ncasign_render_signer_verification_details(\stdClass $signer): st
         return '-';
     }
     return implode('', $items);
+}
+
+/**
+ * Render stored finalization manifest summary.
+ *
+ * @param \stdClass $job
+ * @return string
+ */
+function local_ncasign_render_manifest_summary(\stdClass $job): string {
+    $manifest = local_ncasign_safe_json_decode($job->finalizationmanifest ?? '');
+    if (!$manifest) {
+        return '-';
+    }
+    $slots = !empty($manifest['signature_slots']) && is_array($manifest['signature_slots'])
+        ? count($manifest['signature_slots'])
+        : 0;
+    $parts = [];
+    if (!empty($manifest['reservationmode'])) {
+        $parts[] = 'mode=' . s((string)$manifest['reservationmode']);
+    }
+    if ($slots > 0) {
+        $parts[] = 'slots=' . $slots;
+    }
+    if (!empty($manifest['profile_renderer'])) {
+        $parts[] = 'renderer=' . s((string)$manifest['profile_renderer']);
+    }
+    return $parts ? implode(', ', $parts) : '-';
 }

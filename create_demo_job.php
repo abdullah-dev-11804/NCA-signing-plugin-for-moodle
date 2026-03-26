@@ -83,7 +83,10 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
                     $jobid,
                     (string)$draft['filename'],
                     (string)$draft['content'],
-                    'local_generated_draft:' . $storedpath
+                    'local_generated_draft:' . $storedpath,
+                    !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
+                        ? $draft['finalizationmanifest']
+                        : null
                 );
             } catch (\Throwable $e) {
                 error_log('local_ncasign: demo draft generation failed: ' . $e->getMessage());

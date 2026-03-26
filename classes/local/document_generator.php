@@ -129,6 +129,7 @@ class document_generator {
         ob_start();
         try {
             $pagecount = $pdf->setSourceFile($templatepath);
+            $signaturemanifest = [];
             for ($pageno = 1; $pageno <= $pagecount; $pageno++) {
                 $templateid = $pdf->importPage($pageno);
                 $size = $pdf->getTemplateSize($templateid);
@@ -149,6 +150,7 @@ class document_generator {
                         $protocolnumber,
                         $completiondate
                     );
+                    $signaturemanifest = $this->overlay_reserved_signature_slots($pdf, $width, $height, 1);
                 }
             }
         } catch (\Throwable $e) {
@@ -170,6 +172,12 @@ class document_generator {
             'documenttype' => (string)($profile['documenttype'] ?? 'protocol'),
             'documenttitle' => (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (Engineer)'),
             'protocolnumber' => $protocolnumber,
+            'finalizationmanifest' => [
+                'version' => 1,
+                'reservationmode' => 'visual_signature_slots_only',
+                'profile_renderer' => self::DOC_ENGINEER_PROTOCOL,
+                'signature_slots' => $signaturemanifest,
+            ],
         ];
     }
 
@@ -216,6 +224,58 @@ class document_generator {
         $this->write_cell_text($pdf, 270, 617, 56, 14, $occupation, 'C', 8);
         $this->write_cell_text($pdf, 357, 617, 72, 14, $education, 'C', 8);
         $this->write_cell_text($pdf, 441, 617, 116, 14, $conclusion, 'C', 8);
+    }
+
+    /**
+     * Draw visible reserved signature slots for future PAdES finalization.
+     *
+     * These are visual placeholders plus manifest metadata only. They are not real PDF
+     * signature byte ranges yet; a dedicated PAdES backend still has to consume this manifest
+     * and embed detached CMS into true PDF signature fields.
+     *
+     * @param \setasign\Fpdi\Tcpdf\Fpdi $pdf
+     * @param float $pagewidth
+     * @param float $pageheight
+     * @param int $page
+     * @return array<int,array<string,mixed>>
+     */
+    private function overlay_reserved_signature_slots(
+        \setasign\Fpdi\Tcpdf\Fpdi $pdf,
+        float $pagewidth,
+        float $pageheight,
+        int $page
+    ): array {
+        $slots = [];
+        $margin = 6.0;
+        $count = 3;
+        $slotwidth = min(40.0, max(26.0, ($pagewidth - (($count + 1) * $margin)) / $count));
+        $slotheight = 24.0;
+        $y = max($margin, $pageheight - $slotheight - $margin);
+
+        $pdf->SetDrawColor(150, 150, 150);
+        $pdf->SetTextColor(90, 90, 90);
+        for ($i = 0; $i < $count; $i++) {
+            $x = $margin + ($i * ($slotwidth + $margin));
+            $label = 'Reserved signature slot ' . ($i + 1);
+            $pdf->Rect($x, $y, $slotwidth, $slotheight);
+            $this->set_document_font($pdf, '', 5.5);
+            $pdf->SetXY($x + 2, $y + 2);
+            $pdf->MultiCell($slotwidth - 4, 4, $label, 0, 'C', false, 1);
+            $slots[] = [
+                'name' => 'sig_slot_' . ($i + 1),
+                'page' => $page,
+                'x' => round($x, 2),
+                'y' => round($y, 2),
+                'w' => round($slotwidth, 2),
+                'h' => round($slotheight, 2),
+                'type' => 'visible_placeholder',
+                'reserved_bytes' => null,
+            ];
+        }
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetDrawColor(0, 0, 0);
+
+        return $slots;
     }
 
     /**

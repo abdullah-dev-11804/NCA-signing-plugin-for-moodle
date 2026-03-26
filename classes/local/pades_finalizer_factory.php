@@ -14,10 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_ncasign\local;
+
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'local_ncasign';
-$plugin->version = 2026032700;
-$plugin->requires = 2022041900;
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+/**
+ * Factory for PDF finalization backends.
+ */
+class pades_finalizer_factory {
+    /**
+     * Create active finalizer backend.
+     *
+     * @return pades_finalizer_interface
+     */
+    public static function create(): pades_finalizer_interface {
+        return new artifact_pdf_finalizer();
+    }
+}

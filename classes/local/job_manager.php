@@ -90,6 +90,8 @@ class job_manager {
             'documenttitle' => trim($documenttitle) !== '' ? trim($documenttitle) : null,
             'drafthash' => null,
             'finalhash' => null,
+            'finalizerbackend' => null,
+            'finalizationmanifest' => null,
             'certificateurl' => $certificateurl,
             'status' => self::JOB_PENDING,
             'manualdeadline' => $now + ($manualwindowhours * HOURSECS),
@@ -147,13 +149,15 @@ class job_manager {
      * @param string $filename
      * @param string $content
      * @param string $source
+     * @param array<string,mixed>|null $finalizationmanifest
      * @return void
      */
     public function attach_certificate_binary_to_job(
         int $jobid,
         string $filename,
         string $content,
-        string $source = 'manual'
+        string $source = 'manual',
+        ?array $finalizationmanifest = null
     ): void {
         global $DB;
 
@@ -210,6 +214,9 @@ class job_manager {
         }
         $job->drafthash = hash('sha256', $content);
         $job->finalhash = null;
+        if ($finalizationmanifest !== null) {
+            $job->finalizationmanifest = json_encode($finalizationmanifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
         if (strpos((string)$job->certificateurl, 'stored://') !== 0) {
             $job->certificateurl = "stored://local_ncasign/" . self::FILEAREA_ORIGINALPDF . "/{$jobid}/{$filename}";
         }
@@ -343,15 +350,27 @@ class job_manager {
         }
 
         $verificationurl = $this->get_verification_url_for_job((int)$job->id);
-        $signedcontent = $this->build_qr_stamped_pdf($original['content'], $verificationurl, (int)$job->id);
-        if ($signedcontent === null || $signedcontent === '') {
+        $isfinal = !$this->has_pending_signers($jobid) || $job->status !== self::JOB_PENDING;
+        $finalizer = pades_finalizer_factory::create();
+        $result = $finalizer->finalize([
+            'job' => $job,
+            'originalpdf' => $original['content'],
+            'originalfilename' => $original['filename'],
+            'originalsha256' => hash('sha256', $original['content']),
+            'verifyurl' => $verificationurl,
+            'signers' => $this->get_signer_records($jobid),
+            'completedsignerblocks' => $this->get_completed_signer_blocks($jobid),
+            'manifest' => $this->get_job_finalization_manifest($job),
+            'isfinal' => $isfinal,
+        ]);
+        $signedcontent = (string)($result['content'] ?? '');
+        if ($signedcontent === '') {
             return null;
         }
 
         $context = \context_system::instance();
         $fs = get_file_storage();
-        $isfinal = !$this->has_pending_signers($jobid) || $job->status !== self::JOB_PENDING;
-        $filename = $isfinal ? "signed_final_job_{$jobid}.pdf" : "signed_progress_job_{$jobid}.pdf";
+        $filename = (string)($result['filename'] ?? ($isfinal ? "signed_final_job_{$jobid}.pdf" : "signed_progress_job_{$jobid}.pdf"));
 
         $existing = $fs->get_area_files(
             $context->id,
@@ -375,7 +394,7 @@ class job_manager {
             'userid' => 0,
             'author' => 'local_ncasign',
             'license' => 'allrightsreserved',
-            'source' => $isfinal ? 'ncasign_qr_overlay_final' : 'ncasign_qr_overlay_progress',
+            'source' => (string)($result['source'] ?? ($isfinal ? 'ncasign_qr_overlay_final' : 'ncasign_qr_overlay_progress')),
             'mimetype' => 'application/pdf',
             'timecreated' => time(),
             'timemodified' => time(),
@@ -383,12 +402,25 @@ class job_manager {
         $fs->create_file_from_string($record, $signedcontent);
 
         $job->finalhash = null;
-        if ($isfinal) {
-            $job->finalhash = hash('sha256', $signedcontent);
-        }
+        $job->finalizerbackend = (string)($result['backend'] ?? $finalizer->get_backend_name());
+        $job->finalhash = !empty($result['finalhash']) ? (string)$result['finalhash'] : null;
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
         return $filename;
+    }
+
+    /**
+     * Return decoded job finalization manifest.
+     *
+     * @param \stdClass $job
+     * @return array<string,mixed>
+     */
+    public function get_job_finalization_manifest(\stdClass $job): array {
+        if (empty($job->finalizationmanifest) || !is_string($job->finalizationmanifest)) {
+            return [];
+        }
+        $decoded = json_decode($job->finalizationmanifest, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**
@@ -1099,15 +1131,20 @@ class job_manager {
      * @return string|null
      */
     private function build_qr_stamped_pdf(string $originalpdf, string $qrpayload, int $jobid): ?string {
-        global $CFG;
+        global $CFG, $DB;
 
         $this->maybe_load_plugin_vendor_autoload();
         $completedsigners = $this->get_completed_signer_blocks($jobid);
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job) {
+            return null;
+        }
+        $originalsha256 = hash('sha256', $originalpdf);
         if (class_exists('\setasign\Fpdi\Tcpdf\Fpdi')) {
             try {
                 $tmpdir = make_request_directory();
                 if (!$tmpdir) {
-                    return $this->build_qr_fallback_pdf($jobid, $qrpayload, hash('sha256', $originalpdf));
+                    return $this->build_qr_fallback_pdf($jobid, $qrpayload, $originalsha256);
                 }
 
                 $sourcepath = $tmpdir . DIRECTORY_SEPARATOR . "ncasign_job_{$jobid}_source.pdf";
@@ -1179,13 +1216,15 @@ class job_manager {
                     }
                 }
 
+                $this->append_signing_evidence_page($pdf, $job, $qrpayload, $originalsha256);
+
                 return $pdf->Output('', 'S');
             } catch (\Throwable $e) {
                 error_log('local_ncasign: QR overlay failed, using fallback signed PDF. ' . $e->getMessage());
             }
         }
 
-        return $this->build_qr_fallback_pdf($jobid, $qrpayload, hash('sha256', $originalpdf));
+        return $this->build_qr_fallback_pdf($jobid, $qrpayload, $originalsha256);
     }
 
     /**
@@ -1256,7 +1295,131 @@ class job_manager {
         $pdf->SetFont('helvetica', '', 9);
         $pdf->MultiCell(180, 20, "Scan any QR code or open the verification URL to check document authenticity, signer details, and integrity status.");
 
+        $this->append_signing_evidence_page($pdf, $job, $qrpayload, $originalsha256);
+
         return $pdf->Output('', 'S');
+    }
+
+    /**
+     * Append signer evidence page to current PDF artifact.
+     *
+     * @param \TCPDF $pdf
+     * @param \stdClass $job
+     * @param string $verifyurl
+     * @param string $originalsha256
+     * @return void
+     */
+    private function append_signing_evidence_page(\TCPDF $pdf, \stdClass $job, string $verifyurl, string $originalsha256): void {
+        $signedcount = 0;
+        $totalcount = 0;
+        $signers = $this->get_signer_records((int)$job->id);
+        foreach ($signers as $signer) {
+            $totalcount++;
+            if ($signer->status === self::SIGNER_SIGNED) {
+                $signedcount++;
+            }
+        }
+        $stage = ($job->status === self::JOB_COMPLETED_MANUAL || $job->status === self::JOB_COMPLETED_AUTO || $signedcount === $totalcount)
+            ? 'Final signed artifact'
+            : 'Signed PDF progress';
+
+        $pdf->AddPage();
+        $pdf->SetAutoPageBreak(true, 12);
+        $pdf->SetFont('helvetica', 'B', 14);
+        $pdf->Write(0, 'Signature Evidence', '', 0, 'L', true, 0, false, false, 0);
+        $pdf->SetFont('helvetica', '', 10);
+        $pdf->Write(0, 'Stage: ' . $stage, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Signer progress: ' . $signedcount . '/' . max(1, $totalcount), '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Document: ' . (string)$job->documenttitle, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Document type: ' . ucfirst((string)$job->documenttype), '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Job ID: ' . (int)$job->id, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Original PDF SHA256: ' . $originalsha256, '', 0, 'L', true, 0, false, false, 0);
+        if (!empty($job->drafthash)) {
+            $pdf->Write(0, 'Draft artifact SHA256: ' . (string)$job->drafthash, '', 0, 'L', true, 0, false, false, 0);
+        }
+        if (!empty($job->finalhash)) {
+            $pdf->Write(0, 'Final artifact SHA256: ' . (string)$job->finalhash, '', 0, 'L', true, 0, false, false, 0);
+        }
+        $pdf->Write(0, 'Verify URL: ' . $verifyurl, '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Ln(3);
+
+        foreach ($signers as $signer) {
+            $pdf->SetFont('helvetica', 'B', 11);
+            $pdf->Write(
+                0,
+                'Signer #' . (int)$signer->signorder . ': ' . trim((string)($signer->signername ?? $signer->signeremail)),
+                '',
+                0,
+                'L',
+                true,
+                0,
+                false,
+                false,
+                0
+            );
+            $pdf->SetFont('helvetica', '', 9);
+            $pdf->Write(0, 'Email: ' . (string)$signer->signeremail, '', 0, 'L', true, 0, false, false, 0);
+            $pdf->Write(0, 'Position: ' . (string)($signer->signerposition ?? ''), '', 0, 'L', true, 0, false, false, 0);
+            $pdf->Write(0, 'Workflow status: ' . (string)$signer->status, '', 0, 'L', true, 0, false, false, 0);
+            if (!empty($signer->signedat)) {
+                $pdf->Write(0, 'Signed at: ' . userdate((int)$signer->signedat), '', 0, 'L', true, 0, false, false, 0);
+            }
+            if (!empty($signer->expectediin) || !empty($signer->signeriin)) {
+                $pdf->Write(
+                    0,
+                    'IIN expected/verified: ' . (string)($signer->expectediin ?: '-') . ' / ' . (string)($signer->signeriin ?: '-'),
+                    '',
+                    0,
+                    'L',
+                    true,
+                    0,
+                    false,
+                    false,
+                    0
+                );
+            }
+            if (!empty($signer->verificationstatus)) {
+                $pdf->Write(0, 'Verification status: ' . (string)$signer->verificationstatus, '', 0, 'L', true, 0, false, false, 0);
+            }
+            if (!empty($signer->signingmethod)) {
+                $pdf->Write(0, 'Signing method: ' . (string)$signer->signingmethod, '', 0, 'L', true, 0, false, false, 0);
+            }
+
+            $signmeta = json_decode((string)($signer->signmeta ?? ''), true);
+            if (is_array($signmeta)) {
+                if (!empty($signmeta['payload_sha256'])) {
+                    $pdf->Write(0, 'Payload SHA256: ' . (string)$signmeta['payload_sha256'], '', 0, 'L', true, 0, false, false, 0);
+                }
+                if (!empty($signmeta['cms_sha256'])) {
+                    $pdf->Write(0, 'CMS SHA256: ' . (string)$signmeta['cms_sha256'], '', 0, 'L', true, 0, false, false, 0);
+                }
+            }
+
+            $verification = json_decode((string)($signer->verificationinfo ?? ''), true);
+            if (is_array($verification)) {
+                if (!empty($verification['verifyinfo'])) {
+                    $pdf->Write(0, 'Verifier message: ' . (string)$verification['verifyinfo'], '', 0, 'L', true, 0, false, false, 0);
+                }
+                if (!empty($verification['signingtime'])) {
+                    $pdf->Write(0, 'Verifier signing time: ' . (string)$verification['signingtime'], '', 0, 'L', true, 0, false, false, 0);
+                }
+                if (!empty($verification['certificateinfo']['subject']['dn'])) {
+                    $pdf->Write(
+                        0,
+                        'Certificate subject: ' . (string)$verification['certificateinfo']['subject']['dn'],
+                        '',
+                        0,
+                        'L',
+                        true,
+                        0,
+                        false,
+                        false,
+                        0
+                    );
+                }
+            }
+            $pdf->Ln(2);
+        }
     }
 
     /**

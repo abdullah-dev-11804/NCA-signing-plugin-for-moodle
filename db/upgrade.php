@@ -220,5 +220,21 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026032500, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026032700) {
+        $table = new xmldb_table('local_ncasign_jobs');
+
+        $field = new xmldb_field('finalizerbackend', XMLDB_TYPE_CHAR, '100', null, null, null, null, 'finalhash');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('finalizationmanifest', XMLDB_TYPE_TEXT, null, null, null, null, null, 'finalizerbackend');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026032700, 'local', 'ncasign');
+    }
+
     return true;
 }

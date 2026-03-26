@@ -91,7 +91,10 @@ class observer {
                         $jobid,
                         (string)$draft['filename'],
                         (string)$draft['content'],
-                        'local_generated_draft:' . $storedpath
+                        'local_generated_draft:' . $storedpath,
+                        !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
+                            ? $draft['finalizationmanifest']
+                            : null
                     );
                     $manager->notify_signers_for_job($jobid);
                 } catch (\Throwable $e) {
