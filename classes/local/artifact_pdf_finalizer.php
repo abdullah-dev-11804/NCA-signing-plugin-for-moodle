@@ -116,7 +116,9 @@ class artifact_pdf_finalizer implements pades_finalizer_interface {
                     }
                 }
 
-                $this->append_signing_evidence_page($pdf, $job, $verifyurl, $originalsha256, $signers, $manifest, $isfinal);
+                if (!$isfinal) {
+                    $this->append_signing_evidence_page($pdf, $job, $verifyurl, $originalsha256, $signers, $manifest, $isfinal);
+                }
                 $content = $pdf->Output('', 'S');
 
                 return [
@@ -245,7 +247,9 @@ class artifact_pdf_finalizer implements pades_finalizer_interface {
         $pdf->SetFont('helvetica', '', 9);
         $pdf->MultiCell(180, 20, 'Scan any QR code or open the verification URL to check document authenticity, signer details, and integrity status.');
 
-        $this->append_signing_evidence_page($pdf, $job, $verifyurl, $originalsha256, $signers, $manifest, $isfinal);
+        if (!$isfinal) {
+            $this->append_signing_evidence_page($pdf, $job, $verifyurl, $originalsha256, $signers, $manifest, $isfinal);
+        }
         return $pdf->Output('', 'S');
     }
 
@@ -272,36 +276,15 @@ class artifact_pdf_finalizer implements pades_finalizer_interface {
         $pdf->AddPage();
         $pdf->SetAutoPageBreak(true, 12);
         $pdf->SetFont('helvetica', 'B', 14);
-        $pdf->Write(0, 'Signature Evidence', '', 0, 'L', true, 0, false, false, 0);
+        $pdf->Write(0, 'Signing Progress Summary', '', 0, 'L', true, 0, false, false, 0);
         $pdf->SetFont('helvetica', '', 10);
         $pdf->Write(0, 'Stage: ' . ($isfinal ? 'Final signed artifact' : 'Signed PDF progress'), '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Signer progress: ' . $signedcount . '/' . max(1, count($signers)), '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Document: ' . (string)$job->documenttitle, '', 0, 'L', true, 0, false, false, 0);
         $pdf->Write(0, 'Document type: ' . ucfirst((string)$job->documenttype), '', 0, 'L', true, 0, false, false, 0);
-        $pdf->Write(0, 'Job ID: ' . (int)$job->id, '', 0, 'L', true, 0, false, false, 0);
-        $pdf->Write(0, 'Original PDF SHA256: ' . $originalsha256, '', 0, 'L', true, 0, false, false, 0);
-        if (!empty($job->drafthash)) {
-            $pdf->Write(0, 'Draft artifact SHA256: ' . (string)$job->drafthash, '', 0, 'L', true, 0, false, false, 0);
-        }
-        if (!empty($job->finalhash)) {
-            $pdf->Write(0, 'Previous final artifact SHA256: ' . (string)$job->finalhash, '', 0, 'L', true, 0, false, false, 0);
-        }
         $pdf->Write(0, 'Verify URL: ' . $verifyurl, '', 0, 'L', true, 0, false, false, 0);
-        if (!empty($manifest['reservationmode'])) {
-            $pdf->Write(0, 'Reservation mode: ' . (string)$manifest['reservationmode'], '', 0, 'L', true, 0, false, false, 0);
-        }
         if (!empty($manifest['signature_slots']) && is_array($manifest['signature_slots'])) {
-            $pdf->Write(0, 'Reserved signature slots:', '', 0, 'L', true, 0, false, false, 0);
-            foreach ($manifest['signature_slots'] as $slot) {
-                if (!is_array($slot)) {
-                    continue;
-                }
-                $line = '- ' . (string)($slot['name'] ?? 'slot')
-                    . ' page=' . (string)($slot['page'] ?? '?')
-                    . ' rect=' . (string)($slot['x'] ?? '?') . ',' . (string)($slot['y'] ?? '?')
-                    . ',' . (string)($slot['w'] ?? '?') . ',' . (string)($slot['h'] ?? '?');
-                $pdf->Write(0, $line, '', 0, 'L', true, 0, false, false, 0);
-            }
+            $pdf->Write(0, 'Reserved signature slots: ' . count($manifest['signature_slots']), '', 0, 'L', true, 0, false, false, 0);
         }
         $pdf->Ln(3);
 
@@ -309,7 +292,6 @@ class artifact_pdf_finalizer implements pades_finalizer_interface {
             $pdf->SetFont('helvetica', 'B', 11);
             $pdf->Write(0, 'Signer #' . (int)($signer->signorder ?? 0) . ': ' . trim((string)(($signer->signername ?? '') ?: ($signer->signeremail ?? ''))), '', 0, 'L', true, 0, false, false, 0);
             $pdf->SetFont('helvetica', '', 9);
-            $pdf->Write(0, 'Email: ' . (string)($signer->signeremail ?? ''), '', 0, 'L', true, 0, false, false, 0);
             $pdf->Write(0, 'Position: ' . (string)($signer->signerposition ?? ''), '', 0, 'L', true, 0, false, false, 0);
             $pdf->Write(0, 'Workflow status: ' . (string)($signer->status ?? ''), '', 0, 'L', true, 0, false, false, 0);
             if (!empty($signer->signedat)) {
@@ -321,28 +303,20 @@ class artifact_pdf_finalizer implements pades_finalizer_interface {
             if (!empty($signer->verificationstatus)) {
                 $pdf->Write(0, 'Verification status: ' . (string)$signer->verificationstatus, '', 0, 'L', true, 0, false, false, 0);
             }
-            if (!empty($signer->signingmethod)) {
-                $pdf->Write(0, 'Signing method: ' . (string)$signer->signingmethod, '', 0, 'L', true, 0, false, false, 0);
-            }
-            $signmeta = json_decode((string)($signer->signmeta ?? ''), true);
-            if (is_array($signmeta)) {
-                if (!empty($signmeta['payload_sha256'])) {
-                    $pdf->Write(0, 'Payload SHA256: ' . (string)$signmeta['payload_sha256'], '', 0, 'L', true, 0, false, false, 0);
-                }
-                if (!empty($signmeta['cms_sha256'])) {
-                    $pdf->Write(0, 'CMS SHA256: ' . (string)$signmeta['cms_sha256'], '', 0, 'L', true, 0, false, false, 0);
-                }
-            }
             $verification = json_decode((string)($signer->verificationinfo ?? ''), true);
             if (is_array($verification)) {
-                if (!empty($verification['verifyinfo'])) {
-                    $pdf->Write(0, 'Verifier message: ' . (string)$verification['verifyinfo'], '', 0, 'L', true, 0, false, false, 0);
-                }
                 if (!empty($verification['signingtime'])) {
                     $pdf->Write(0, 'Verifier signing time: ' . (string)$verification['signingtime'], '', 0, 'L', true, 0, false, false, 0);
                 }
-                if (!empty($verification['certificateinfo']['subject']['dn'])) {
-                    $pdf->Write(0, 'Certificate subject: ' . (string)$verification['certificateinfo']['subject']['dn'], '', 0, 'L', true, 0, false, false, 0);
+                if (!empty($verification['validation']['revocations']) && is_array($verification['validation']['revocations'])) {
+                    foreach ($verification['validation']['revocations'] as $revocation) {
+                        if (!is_array($revocation) || empty($revocation['revoked'])) {
+                            continue;
+                        }
+                        $reason = !empty($revocation['reason']) ? ' (' . (string)$revocation['reason'] . ')' : '';
+                        $pdf->Write(0, 'Revocation: ' . (string)($revocation['by'] ?? 'UNKNOWN') . $reason, '', 0, 'L', true, 0, false, false, 0);
+                        break;
+                    }
                 }
             }
             $pdf->Ln(2);

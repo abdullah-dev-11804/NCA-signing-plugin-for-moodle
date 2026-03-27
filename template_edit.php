@@ -224,7 +224,7 @@ function local_ncasign_parse_template_signers(string $raw): array {
 
     return $signers;
 }
-
+''
 /**
  * Convert signer array to textarea format.
  *
