@@ -112,5 +112,38 @@ if ($hassiteconfig) {
         0
     ));
 
+    $settings->add(new admin_setting_heading(
+        'local_ncasign/padesheader',
+        get_string('padesheader', 'local_ncasign'),
+        ''
+    ));
+
+    $settings->add(new admin_setting_configselect(
+        'local_ncasign/padesfinalizerbackend',
+        get_string('padesfinalizerbackend', 'local_ncasign'),
+        get_string('padesfinalizerbackend_desc', 'local_ncasign'),
+        'artifact',
+        [
+            'artifact' => get_string('padesbackendartifact', 'local_ncasign'),
+            'java_sidecar' => get_string('padesbackendjavasidecar', 'local_ncasign'),
+        ]
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/padesembedderbaseurl',
+        get_string('padesembedderbaseurl', 'local_ncasign'),
+        get_string('padesembedderbaseurl_desc', 'local_ncasign'),
+        'http://127.0.0.1:18080',
+        PARAM_RAW_TRIMMED
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/padesembeddertimeout',
+        get_string('padesembeddertimeout', 'local_ncasign'),
+        get_string('padesembeddertimeout_desc', 'local_ncasign'),
+        30,
+        PARAM_INT
+    ));
+
     $ADMIN->add('localplugins', $settings);
 }

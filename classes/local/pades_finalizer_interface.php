@@ -21,6 +21,25 @@ defined('MOODLE_INTERNAL') || die();
 /**
  * Contract for detached CMS -> final PDF finalization backends.
  *
+ * Input context contract for prepare():
+ * - job: \stdClass signing job record
+ * - originalpdf: string current draft/progress PDF bytes
+ * - originalfilename: string
+ * - originalsha256: string SHA-256 of current signable PDF bytes
+ * - manifest: array<string,mixed> reserved signature slot/finalization metadata
+ * - signer: \stdClass active signer record
+ * - signers: array<int,\stdClass> signer job records including raw CMS/evidence
+ *
+ * Output contract for prepare():
+ * - sessionid: string backend prepare session identifier
+ * - fieldname: string signature field/slot to be signed
+ * - signablepayloadb64: string base64 signable payload/digest that the desktop signer must sign
+ * - signablepayloadsha256: string SHA-256 of signablepayloadb64 decoded bytes
+ * - payloadmode: string raw_pdf_bytes|prepared_pdf_digest|prepared_pdf_dtbs
+ * - signingtime: string|null backend-controlled signing time that finalize() must reuse
+ * - backend: string backend name
+ * - evidence: array<string,mixed>
+ *
  * Input context contract for finalize():
  * - job: \stdClass signing job record
  * - originalpdf: string original draft PDF bytes
@@ -56,6 +75,25 @@ interface pades_finalizer_interface {
      * @return bool
      */
     public function supports_embedded_pades(): bool;
+
+    /**
+     * Whether backend supports a two-phase prepare/finalize flow for true PDF signatures.
+     *
+     * @return bool
+     */
+    public function supports_prepare_phase(): bool;
+
+    /**
+     * Prepare a specific signer slot and return the exact payload/digest that must be signed.
+     *
+     * A real embedded-PAdES backend generally cannot use "raw current PDF bytes" as the signable
+     * payload. It must first prepare a PDF revision/signature field and then return the prepared
+     * digest or DTBS bytes to the desktop signer.
+     *
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public function prepare(array $context): array;
 
     /**
      * Finalize current signing stage into a PDF artifact.

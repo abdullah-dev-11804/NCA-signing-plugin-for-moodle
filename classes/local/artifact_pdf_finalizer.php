@@ -43,6 +43,23 @@ class artifact_pdf_finalizer implements pades_finalizer_interface {
     /**
      * @inheritDoc
      */
+    public function supports_prepare_phase(): bool {
+        return false;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function prepare(array $context): array {
+        throw new \coding_exception(
+            'artifact_pdf_finalizer does not support a PAdES prepare/finalize flow. ' .
+            'Use java_sidecar finalizer with an external PDF-signing backend.'
+        );
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function finalize(array $context): array {
         global $CFG;
 
@@ -148,6 +165,7 @@ class artifact_pdf_finalizer implements pades_finalizer_interface {
      */
     public function get_required_embedding_capabilities(): array {
         return [
+            'Expose a prepare endpoint that returns the exact PDF signature revision digest/DTBS bytes for a signer slot.',
             'Accept a draft PDF plus reserved signature field/slot manifest for three sequential signatures.',
             'Embed externally produced detached CMS into named PDF signature fields as incremental updates.',
             'Preserve previous signatures while applying later signatures.',

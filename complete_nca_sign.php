@@ -62,22 +62,59 @@ if (!is_array($decodedmeta)) {
     $decodedmeta = [];
 }
 
-$payloadbytes = base64_decode($payloadb64, true);
-if ($payloadbytes === false) {
+$normalisedpayloadb64 = preg_replace('/\s+/', '', trim($payloadb64)) ?? '';
+$payloadbytes = base64_decode($normalisedpayloadb64, true);
+if ($payloadbytes === false || $normalisedpayloadb64 === '') {
+    throw new moodle_exception('invalidpayload', 'local_ncasign');
+}
+
+$document = $manager->get_job_signing_payload_binary((int)$job->id);
+if (!$document) {
     throw new moodle_exception('invalidpayload', 'local_ncasign');
 }
 
 $payloadsha256 = hash('sha256', $payloadbytes);
 if ($payloadmode === 'certificate_pdf' || $payloadmode === 'document_pdf') {
-    $document = $manager->get_job_signing_payload_binary((int)$job->id);
-    if (!$document || $document['sha256'] !== $payloadsha256) {
+    if ($document['sha256'] !== $payloadsha256) {
         throw new moodle_exception('invalidpayload', 'local_ncasign');
     }
+} else if ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs') {
+    $finalizer = \local_ncasign\local\pades_finalizer_factory::create();
+    if (!$finalizer->supports_prepare_phase()) {
+        throw new moodle_exception('invalidpayload', 'local_ncasign');
+    }
+    $prepared = $finalizer->prepare([
+        'job' => $job,
+        'originalpdf' => $document['content'],
+        'originalfilename' => $document['filename'],
+        'originalsha256' => $document['sha256'],
+        'manifest' => $manager->get_job_finalization_manifest($job),
+        'signer' => $signer,
+        'signers' => $manager->get_signer_records((int)$job->id),
+    ]);
+    $expectedpayloadb64 = preg_replace('/\s+/', '', (string)($prepared['signablepayloadb64'] ?? '')) ?? '';
+    if ($expectedpayloadb64 === '' || !hash_equals($expectedpayloadb64, $normalisedpayloadb64)) {
+        throw new moodle_exception('invalidpayload', 'local_ncasign');
+    }
+    $payloadbytes = base64_decode($expectedpayloadb64, true);
+    if ($payloadbytes === false) {
+        throw new moodle_exception('invalidpayload', 'local_ncasign');
+    }
+    $payloadsha256 = hash('sha256', $payloadbytes);
+    $decodedmeta['prepare'] = array_merge((array)($decodedmeta['prepare'] ?? []), [
+        'sessionid' => (string)($prepared['sessionid'] ?? ''),
+        'fieldname' => (string)($prepared['fieldname'] ?? ''),
+        'payloadsha256' => (string)($prepared['signablepayloadsha256'] ?? ''),
+        'signingtime' => (string)($prepared['signingtime'] ?? ''),
+        'backend' => (string)($prepared['backend'] ?? ''),
+    ]);
 } else {
     throw new moodle_exception('invalidpayload', 'local_ncasign');
 }
 
-$signingmethod = 'ncalayer_basics_detached_cms_tsa_requested+ncanode_verify';
+$signingmethod = ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs')
+    ? 'ncalayer_basics_detached_hash_for_pades+ncanode_verify'
+    : 'ncalayer_basics_detached_cms_tsa_requested+ncanode_verify';
 $verificationservice = \local_ncasign\local\signature_backend_factory::create();
 $expectediin = preg_replace('/\D+/', '', (string)($signer->expectediin ?? ''));
 $verification = $verificationservice->verify_detached_cms($cmssignature, $payloadbytes, $expectediin);

@@ -86,6 +86,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
 
     $payloadmode = 'document_pdf';
     $payloadmeta = [];
+    $prepareerror = '';
     $signingpayload = $manager->get_job_signing_payload_binary((int)$job->id);
     if ($signingpayload) {
         $payloadb64 = base64_encode($signingpayload['content']);
@@ -95,6 +96,32 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
             'filesize' => $signingpayload['filesize'],
             'sourcearea' => $signingpayload['sourcearea'] ?? '',
         ];
+
+        $finalizer = \local_ncasign\local\pades_finalizer_factory::create();
+        if ($finalizer->supports_prepare_phase()) {
+            try {
+                $prepared = $finalizer->prepare([
+                    'job' => $job,
+                    'originalpdf' => $signingpayload['content'],
+                    'originalfilename' => $signingpayload['filename'],
+                    'originalsha256' => $signingpayload['sha256'],
+                    'manifest' => $manager->get_job_finalization_manifest($job),
+                    'signer' => $signer,
+                    'signers' => $manager->get_signer_records((int)$job->id),
+                ]);
+                $payloadb64 = (string)($prepared['signablepayloadb64'] ?? '');
+                $payloadmode = (string)($prepared['payloadmode'] ?? 'prepared_pdf_digest');
+                $payloadmeta['prepare'] = [
+                    'sessionid' => (string)($prepared['sessionid'] ?? ''),
+                    'fieldname' => (string)($prepared['fieldname'] ?? ''),
+                    'payloadsha256' => (string)($prepared['signablepayloadsha256'] ?? ''),
+                    'signingtime' => (string)($prepared['signingtime'] ?? ''),
+                    'backend' => (string)($prepared['backend'] ?? ''),
+                ];
+            } catch (\Throwable $e) {
+                $prepareerror = $e->getMessage();
+            }
+        }
     }
     $payloadmetajson = json_encode($payloadmeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -124,10 +151,16 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
     echo html_writer::start_tag('div', ['id' => 'nca-bundles', 'style' => 'margin-bottom:10px;color:#555;font-size:0.95em;']);
     echo html_writer::end_tag('div');
 
-    if ($signingpayload) {
+    if ($prepareerror !== '') {
+        echo $OUTPUT->notification('PAdES prepare failed: ' . s($prepareerror), \core\output\notification::NOTIFY_ERROR);
+    } else if ($signingpayload) {
         echo html_writer::tag(
             'div',
-            'Signing mode: actual document PDF bytes (' . s($signingpayload['filename']) . ', SHA256 ' . s($signingpayload['sha256']) . ', source ' . s((string)($payloadmeta['sourcearea'] ?? '')) . ')',
+            ($payloadmode === 'document_pdf'
+                ? 'Signing mode: actual document PDF bytes'
+                : 'Signing mode: prepared PAdES digest')
+            . ' (' . s($signingpayload['filename']) . ', SHA256 ' . s($signingpayload['sha256']) . ', source '
+            . s((string)($payloadmeta['sourcearea'] ?? '')) . ')',
             ['style' => 'margin-bottom:10px;color:#0a5a0a;']
         );
     } else {
@@ -347,6 +380,8 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
 
         const storage = storageEl.value || 'PKCS12';
         const payloadb64 = document.getElementById('payloadb64').value;
+        const payloadMode = document.getElementById('payloadmode').value || 'document_pdf';
+        const isDigestedPayload = payloadMode.indexOf('digest') !== -1;
 
         const signArgs = {
             allowedStorages: [storage],
@@ -355,7 +390,7 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
             signingParams: {
                 decode: true,
                 encapsulate: false,
-                digested: false
+                digested: isDigestedPayload
             },
             signerParams: {
                 extKeyUsageOids: [],

@@ -1,0 +1,14 @@
+kz\sental\ncasign\pades\api\HealthController.class
+kz\sental\ncasign\pades\service\PlaceholderPadesEmbeddingService.class
+kz\sental\ncasign\pades\service\DssPadesEmbeddingService.class
+kz\sental\ncasign\pades\api\PadesPrepareController.class
+kz\sental\ncasign\pades\model\PadesFinalizeResponse.class
+kz\sental\ncasign\pades\model\PadesPrepareResponse.class
+kz\sental\ncasign\pades\api\PadesFinalizeController.class
+kz\sental\ncasign\pades\model\JobPayload.class
+kz\sental\ncasign\pades\model\SignerPayload.class
+kz\sental\ncasign\pades\model\PadesPrepareRequest.class
+kz\sental\ncasign\pades\PadesSidecarApplication.class
+kz\sental\ncasign\pades\service\DssPadesEmbeddingService$SignatureSlot.class
+kz\sental\ncasign\pades\model\PadesFinalizeRequest.class
+kz\sental\ncasign\pades\service\PadesEmbeddingService.class

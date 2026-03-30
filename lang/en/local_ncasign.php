@@ -36,6 +36,15 @@ $string['ncalayerekus'] = 'NCALayer signer EKU OIDs';
 $string['ncalayerekus_desc'] = 'Optional comma-separated EKU OIDs used to filter certificates in the NCALayer basics signing dialog. Leave empty for test certificates or mixed key sets. When values are provided, the standard signing EKU 1.3.6.1.5.5.7.3.4 is added automatically.';
 $string['ncalayerusetsa'] = 'Request TSA in NCALayer';
 $string['ncalayerusetsa_desc'] = 'When enabled, the NCALayer basics signing request includes tsaProfile: {}. Disable this for troubleshooting or for test environments where timestamping causes client-side signing failures.';
+$string['padesheader'] = 'PAdES finalization backend';
+$string['padesfinalizerbackend'] = 'PAdES finalizer backend';
+$string['padesfinalizerbackend_desc'] = 'Select which backend should finalize PDFs after detached CMS verification. Use the Java sidecar only when the external embedder service is deployed.';
+$string['padesbackendartifact'] = 'Artifact PDF fallback';
+$string['padesbackendjavasidecar'] = 'Java sidecar embedder';
+$string['padesembedderbaseurl'] = 'Java sidecar base URL';
+$string['padesembedderbaseurl_desc'] = 'Base URL for the Java PAdES sidecar service, for example http://127.0.0.1:18080.';
+$string['padesembeddertimeout'] = 'Java sidecar timeout (seconds)';
+$string['padesembeddertimeout_desc'] = 'HTTP timeout for detached CMS to embedded PDF finalization requests.';
 
 $string['taskprocessjobs'] = 'Process overdue NCA sign jobs';
 

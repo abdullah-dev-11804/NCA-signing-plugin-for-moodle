@@ -28,6 +28,10 @@ class pades_finalizer_factory {
      * @return pades_finalizer_interface
      */
     public static function create(): pades_finalizer_interface {
+        $backend = trim((string)get_config('local_ncasign', 'padesfinalizerbackend'));
+        if ($backend === 'java_sidecar') {
+            return new java_sidecar_pades_finalizer();
+        }
         return new artifact_pdf_finalizer();
     }
 }

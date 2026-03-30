@@ -236,5 +236,9 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026032700, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026033000) {
+        upgrade_plugin_savepoint(true, 2026033000, 'local', 'ncasign');
+    }
+
     return true;
 }
