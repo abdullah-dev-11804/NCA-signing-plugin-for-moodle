@@ -48,6 +48,7 @@ $summary->data = [
     [get_string('deadline', 'local_ncasign'), userdate((int)$job->manualdeadline)],
     [get_string('templateprofile', 'local_ncasign'), !empty($job->templateprofileid) ? (int)$job->templateprofileid : '-'],
     [get_string('finalizerbackendlabel', 'local_ncasign'), !empty($job->finalizerbackend) ? s((string)$job->finalizerbackend) : '-'],
+    [get_string('finalizationnotelabel', 'local_ncasign'), !empty($job->autosignnote) ? s((string)$job->autosignnote) : '-'],
     [get_string('signaturemanifestlabel', 'local_ncasign'), local_ncasign_render_manifest_summary($job)],
     [get_string('jobdrafthash', 'local_ncasign'), !empty($job->drafthash) ? s((string)$job->drafthash) : '-'],
     [get_string('jobfinalhash', 'local_ncasign'), !empty($job->finalhash) ? s((string)$job->finalhash) : '-'],
@@ -189,6 +190,9 @@ function local_ncasign_job_status_badge(\stdClass $job, array $signers): string 
     }
     if ($job->status === \local_ncasign\local\job_manager::JOB_COMPLETED_AUTO) {
         return local_ncasign_job_badge(get_string('badgecompletedauto', 'local_ncasign'), '#6f42c1');
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_FINALIZE_FAILED) {
+        return local_ncasign_job_badge(get_string('badgefinalizefailed', 'local_ncasign'), '#dc3545');
     }
     if ($signed > 0 && $signed < $total) {
         return local_ncasign_job_badge(get_string('badgepartial', 'local_ncasign', "{$signed}/{$total}"), '#0d6efd');

@@ -36,6 +36,8 @@ class job_manager {
     public const JOB_COMPLETED_MANUAL = 'completed_manual';
     /** @var string */
     public const JOB_COMPLETED_AUTO = 'completed_auto';
+    /** @var string */
+    public const JOB_FINALIZE_FAILED = 'finalize_failed';
 
     /** @var string */
     public const SIGNER_PENDING = 'pending';
@@ -573,8 +575,10 @@ class job_manager {
         try {
             $this->ensure_original_pdf_for_job((int)$signer->jobid);
             $this->generate_signed_pdf_artifact((int)$signer->jobid);
+            $this->record_finalization_note((int)$signer->jobid, null);
         } catch (\Throwable $e) {
             error_log('local_ncasign: failed to refresh signed PDF artifact after signer update: ' . $e->getMessage());
+            $this->record_finalization_note((int)$signer->jobid, 'Progress/final PDF refresh failed: ' . $e->getMessage());
         }
 
         if ($this->has_pending_signers((int)$signer->jobid)) {
@@ -608,22 +612,52 @@ class job_manager {
             return;
         }
 
-        $job->status = self::JOB_COMPLETED_MANUAL;
-        $job->manualcompleted = time();
-        $job->timemodified = time();
-        $DB->update_record('local_ncasign_jobs', $job);
-
         try {
             $this->ensure_original_pdf_for_job($jobid);
             $this->generate_signed_pdf_artifact($jobid);
-            if (!$this->has_job_signed_pdf($jobid)) {
-                error_log('local_ncasign: signed PDF was not generated for job ' . $jobid);
+            if (!$this->has_job_signed_pdf($jobid) || empty($DB->get_field('local_ncasign_jobs', 'finalhash', ['id' => $jobid]))) {
+                $job->status = self::JOB_FINALIZE_FAILED;
+                $job->timemodified = time();
+                $job->autosignnote = 'Final PDF was not generated after all signers completed.';
+                $DB->update_record('local_ncasign_jobs', $job);
+                error_log('local_ncasign: final signed PDF was not generated for job ' . $jobid);
+                return;
             }
         } catch (\Throwable $e) {
             error_log('local_ncasign: failed to generate signed PDF artifact: ' . $e->getMessage());
+            $job->status = self::JOB_FINALIZE_FAILED;
+            $job->timemodified = time();
+            $job->autosignnote = 'Final PDF generation failed: ' . $e->getMessage();
+            $DB->update_record('local_ncasign_jobs', $job);
+            return;
         }
 
+        $job->status = self::JOB_COMPLETED_MANUAL;
+        $job->manualcompleted = time();
+        $job->autosignnote = null;
+        $job->timemodified = time();
+        $DB->update_record('local_ncasign_jobs', $job);
+
         $this->send_student_completion_email($job, false);
+    }
+
+    /**
+     * Store a job-level finalization note without changing workflow ownership.
+     *
+     * @param int $jobid
+     * @param string|null $message
+     * @return void
+     */
+    private function record_finalization_note(int $jobid, ?string $message): void {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job) {
+            return;
+        }
+        $job->autosignnote = $message;
+        $job->timemodified = time();
+        $DB->update_record('local_ncasign_jobs', $job);
     }
 
     /**

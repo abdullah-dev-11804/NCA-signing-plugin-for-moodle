@@ -72,6 +72,7 @@ $string['badgepending'] = 'Pending';
 $string['badgepartial'] = 'Partially signed ({$a})';
 $string['badgecompletedmanual'] = 'Completed';
 $string['badgecompletedauto'] = 'Completed by auto-sign';
+$string['badgefinalizefailed'] = 'Finalize failed';
 $string['badgesigned'] = 'Signed';
 $string['badgeskipped'] = 'Skipped by auto-sign';
 $string['badgewaitingprevious'] = 'Waiting for previous signer';
@@ -119,6 +120,7 @@ $string['deadline'] = 'Manual deadline';
 $string['manualsigned'] = 'Manual signatures';
 $string['autosigned'] = 'Auto-signed';
 $string['artifacts'] = 'Artifacts';
+$string['finalizationnotelabel'] = 'Finalization note';
 $string['documenttitle'] = 'Document title';
 $string['documenttype'] = 'Document type';
 

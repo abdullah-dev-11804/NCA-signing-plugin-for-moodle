@@ -160,6 +160,9 @@ function local_ncasign_render_job_status_badge(\stdClass $job, int $signedcount,
     if ($job->status === \local_ncasign\local\job_manager::JOB_COMPLETED_AUTO) {
         return local_ncasign_badge(get_string('badgecompletedauto', 'local_ncasign'), '#6f42c1');
     }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_FINALIZE_FAILED) {
+        return local_ncasign_badge(get_string('badgefinalizefailed', 'local_ncasign'), '#dc3545');
+    }
     if ($signedcount > 0 && $signedcount < $totalcount) {
         return local_ncasign_badge(get_string('badgepartial', 'local_ncasign', "{$signedcount}/{$totalcount}"), '#0d6efd');
     }
