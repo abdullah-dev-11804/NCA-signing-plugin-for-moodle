@@ -118,6 +118,17 @@ if ($signer->status === \local_ncasign\local\job_manager::SIGNER_PENDING && $isa
                     'signingtime' => (string)($prepared['signingtime'] ?? ''),
                     'backend' => (string)($prepared['backend'] ?? ''),
                 ];
+                $manager->store_pending_prepare_state((int)$signer->id, [
+                    'sessionid' => (string)($prepared['sessionid'] ?? ''),
+                    'fieldname' => (string)($prepared['fieldname'] ?? ''),
+                    'payloadmode' => $payloadmode,
+                    'signablepayloadb64' => $payloadb64,
+                    'signablepayloadsha256' => (string)($prepared['signablepayloadsha256'] ?? ''),
+                    'signingtime' => (string)($prepared['signingtime'] ?? ''),
+                    'backend' => (string)($prepared['backend'] ?? ''),
+                    'documentsha256' => (string)$signingpayload['sha256'],
+                    'documentfilename' => (string)$signingpayload['filename'],
+                ]);
             } catch (\Throwable $e) {
                 $prepareerror = $e->getMessage();
             }

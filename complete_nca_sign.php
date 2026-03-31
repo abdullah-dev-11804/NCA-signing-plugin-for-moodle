@@ -79,21 +79,16 @@ if ($payloadmode === 'certificate_pdf' || $payloadmode === 'document_pdf') {
         throw new moodle_exception('invalidpayload', 'local_ncasign');
     }
 } else if ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs') {
-    $finalizer = \local_ncasign\local\pades_finalizer_factory::create();
-    if (!$finalizer->supports_prepare_phase()) {
-        throw new moodle_exception('invalidpayload', 'local_ncasign');
-    }
-    $prepared = $finalizer->prepare([
-        'job' => $job,
-        'originalpdf' => $document['content'],
-        'originalfilename' => $document['filename'],
-        'originalsha256' => $document['sha256'],
-        'manifest' => $manager->get_job_finalization_manifest($job),
-        'signer' => $signer,
-        'signers' => $manager->get_signer_records((int)$job->id),
-    ]);
-    $expectedpayloadb64 = preg_replace('/\s+/', '', (string)($prepared['signablepayloadb64'] ?? '')) ?? '';
-    if ($expectedpayloadb64 === '' || !hash_equals($expectedpayloadb64, $normalisedpayloadb64)) {
+    $preparestate = $manager->get_pending_prepare_state($signer);
+    $expectedpayloadb64 = preg_replace('/\s+/', '', (string)($preparestate['signablepayloadb64'] ?? '')) ?? '';
+    $expecteddocsha256 = (string)($preparestate['documentsha256'] ?? '');
+    $expectedpayloadmode = (string)($preparestate['payloadmode'] ?? '');
+    if ($expectedpayloadb64 === ''
+        || $expecteddocsha256 === ''
+        || $expectedpayloadmode === ''
+        || !hash_equals($expectedpayloadb64, $normalisedpayloadb64)
+        || !hash_equals($expecteddocsha256, (string)$document['sha256'])
+        || $expectedpayloadmode !== $payloadmode) {
         throw new moodle_exception('invalidpayload', 'local_ncasign');
     }
     $payloadbytes = base64_decode($expectedpayloadb64, true);
@@ -102,11 +97,11 @@ if ($payloadmode === 'certificate_pdf' || $payloadmode === 'document_pdf') {
     }
     $payloadsha256 = hash('sha256', $payloadbytes);
     $decodedmeta['prepare'] = array_merge((array)($decodedmeta['prepare'] ?? []), [
-        'sessionid' => (string)($prepared['sessionid'] ?? ''),
-        'fieldname' => (string)($prepared['fieldname'] ?? ''),
-        'payloadsha256' => (string)($prepared['signablepayloadsha256'] ?? ''),
-        'signingtime' => (string)($prepared['signingtime'] ?? ''),
-        'backend' => (string)($prepared['backend'] ?? ''),
+        'sessionid' => (string)($preparestate['sessionid'] ?? ''),
+        'fieldname' => (string)($preparestate['fieldname'] ?? ''),
+        'payloadsha256' => (string)($preparestate['signablepayloadsha256'] ?? ''),
+        'signingtime' => (string)($preparestate['signingtime'] ?? ''),
+        'backend' => (string)($preparestate['backend'] ?? ''),
     ]);
 } else {
     throw new moodle_exception('invalidpayload', 'local_ncasign');

@@ -741,6 +741,53 @@ class job_manager {
     }
 
     /**
+     * Persist prepared signing payload state for an active pending signer.
+     *
+     * @param int $signerid
+     * @param array<string,mixed> $state
+     * @return void
+     */
+    public function store_pending_prepare_state(int $signerid, array $state): void {
+        global $DB;
+
+        $signer = $DB->get_record('local_ncasign_signers', ['id' => $signerid], '*', IGNORE_MISSING);
+        if (!$signer || (string)$signer->status !== self::SIGNER_PENDING) {
+            return;
+        }
+
+        $meta = [];
+        if (!empty($signer->signmeta) && is_string($signer->signmeta)) {
+            $decoded = json_decode($signer->signmeta, true);
+            if (is_array($decoded)) {
+                $meta = $decoded;
+            }
+        }
+
+        $meta['prepare_state'] = $state;
+        $signer->signmeta = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $signer->timemodified = time();
+        $DB->update_record('local_ncasign_signers', $signer);
+    }
+
+    /**
+     * Return persisted prepared signing payload state for a signer.
+     *
+     * @param \stdClass $signer
+     * @return array<string,mixed>
+     */
+    public function get_pending_prepare_state(\stdClass $signer): array {
+        if (empty($signer->signmeta) || !is_string($signer->signmeta)) {
+            return [];
+        }
+        $decoded = json_decode($signer->signmeta, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $state = $decoded['prepare_state'] ?? [];
+        return is_array($state) ? $state : [];
+    }
+
+    /**
      * Whether a job still has pending signers.
      *
      * @param int $jobid
