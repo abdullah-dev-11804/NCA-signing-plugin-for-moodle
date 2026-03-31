@@ -28,7 +28,8 @@ interface signature_backend_interface {
      * @param string $cmsb64
      * @param string $documentbytes
      * @param string|null $expectediin
+     * @param array<string,mixed> $options
      * @return array<string, mixed>
      */
-    public function verify_detached_cms(string $cmsb64, string $documentbytes, ?string $expectediin = null): array;
+    public function verify_detached_cms(string $cmsb64, string $documentbytes, ?string $expectediin = null, array $options = []): array;
 }

@@ -28,9 +28,10 @@ class ncanode_signature_backend implements signature_backend_interface {
      * @param string $cmsb64
      * @param string $documentbytes
      * @param string|null $expectediin
+     * @param array<string,mixed> $options
      * @return array<string, mixed>
      */
-    public function verify_detached_cms(string $cmsb64, string $documentbytes, ?string $expectediin = null): array {
+    public function verify_detached_cms(string $cmsb64, string $documentbytes, ?string $expectediin = null, array $options = []): array {
         $cmsb64 = $this->normalise_base64($cmsb64);
         if ($cmsb64 === '') {
             throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'CMS payload is empty.');
@@ -38,8 +39,11 @@ class ncanode_signature_backend implements signature_backend_interface {
 
         $payload = [
             'cms' => $cmsb64,
-            'data' => base64_encode($documentbytes),
         ];
+        $skipcontentcheck = !empty($options['skip_content_check']);
+        if (!$skipcontentcheck) {
+            $payload['data'] = base64_encode($documentbytes);
+        }
         $revocationchecks = $this->get_revocation_checks();
         if ($revocationchecks) {
             $payload['revocationCheck'] = $revocationchecks;
@@ -100,6 +104,7 @@ class ncanode_signature_backend implements signature_backend_interface {
             'certificateinfo' => $certificate,
             'validation' => [
                 'revocationchecks' => $revocationchecks,
+                'contentcheckskipped' => $skipcontentcheck,
                 'revocations' => $revocations,
                 'tsp' => $signer['tsp'] ?? null,
                 'response' => $response,

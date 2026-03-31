@@ -108,11 +108,13 @@ if ($payloadmode === 'certificate_pdf' || $payloadmode === 'document_pdf') {
 }
 
 $signingmethod = ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs')
-    ? 'ncalayer_basics_detached_hash_for_pades+ncanode_verify'
+    ? 'ncalayer_basics_detached_hash_for_pades+ncanode_cert_verify'
     : 'ncalayer_basics_detached_cms_tsa_requested+ncanode_verify';
 $verificationservice = \local_ncasign\local\signature_backend_factory::create();
 $expectediin = preg_replace('/\D+/', '', (string)($signer->expectediin ?? ''));
-$verification = $verificationservice->verify_detached_cms($cmssignature, $payloadbytes, $expectediin);
+$verification = $verificationservice->verify_detached_cms($cmssignature, $payloadbytes, $expectediin, [
+    'skip_content_check' => ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs'),
+]);
 $signaturefilename = $manager->store_signer_cms_signature((int)$job->id, (int)$signer->id, $cmssignature);
 
 $meta = [
