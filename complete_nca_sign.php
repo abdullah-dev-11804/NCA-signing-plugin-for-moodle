@@ -168,7 +168,7 @@ if (!$manager->mark_signer_signed($token, 'ncalayer_real', $meta, [
         ? json_encode($verification['validation']['revocations'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         : null,
     'signingmethod' => $signingmethod,
-    'verificationstatus' => $preparedpadesmode ? 'deferred_pades_finalize' : 'verified',
+    'verificationstatus' => $preparedpadesmode ? 'pades_deferred' : 'verified',
     'verificationinfo' => json_encode([
         'verifyinfo' => $verification['verifyinfo'] ?? '',
         'certificateinfo' => $verification['certificateinfo'] ?? [],
