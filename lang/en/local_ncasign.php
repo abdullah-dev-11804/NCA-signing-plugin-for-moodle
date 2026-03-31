@@ -77,6 +77,7 @@ $string['badgeskipped'] = 'Skipped by auto-sign';
 $string['badgewaitingprevious'] = 'Waiting for previous signer';
 $string['badgeawaitingsignature'] = 'Awaiting signature';
 $string['badgeverified'] = 'Verified';
+$string['badgedeferredpades'] = 'Accepted: pending PDF finalization';
 $string['badgerevoked'] = 'Rejected: revoked cert';
 $string['badgetrusterror'] = 'Rejected: trust-chain error';
 $string['badgeiinmismatch'] = 'Rejected: IIN mismatch';

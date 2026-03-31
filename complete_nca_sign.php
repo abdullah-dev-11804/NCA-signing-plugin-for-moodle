@@ -108,13 +108,30 @@ if ($payloadmode === 'certificate_pdf' || $payloadmode === 'document_pdf') {
 }
 
 $signingmethod = ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs')
-    ? 'ncalayer_basics_detached_hash_for_pades+ncanode_cert_verify'
+    ? 'ncalayer_basics_detached_hash_for_pades+deferred_pdf_finalization'
     : 'ncalayer_basics_detached_cms_tsa_requested+ncanode_verify';
 $verificationservice = \local_ncasign\local\signature_backend_factory::create();
 $expectediin = preg_replace('/\D+/', '', (string)($signer->expectediin ?? ''));
-$verification = $verificationservice->verify_detached_cms($cmssignature, $payloadbytes, $expectediin, [
-    'skip_content_check' => ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs'),
-]);
+$preparedpadesmode = ($payloadmode === 'prepared_pdf_digest' || $payloadmode === 'prepared_pdf_dtbs');
+if ($preparedpadesmode) {
+    $verification = [
+        'cms_base64' => trim($cmssignature),
+        'certificate' => null,
+        'signeriin' => null,
+        'signingtime' => (string)($decodedmeta['prepare']['signingtime'] ?? ''),
+        'verifyinfo' => 'Prepared-digest CMS accepted. Certificate/content validation is deferred to PDF finalization because NCANode detached-content verification does not apply to DSS-prepared PAdES digests.',
+        'certificateinfo' => [],
+        'validation' => [
+            'contentcheckskipped' => true,
+            'deferred_to_pades_finalizer' => true,
+            'expectediin' => $expectediin,
+        ],
+    ];
+} else {
+    $verification = $verificationservice->verify_detached_cms($cmssignature, $payloadbytes, $expectediin, [
+        'skip_content_check' => false,
+    ]);
+}
 $signaturefilename = $manager->store_signer_cms_signature((int)$job->id, (int)$signer->id, $cmssignature);
 
 $meta = [
@@ -151,7 +168,7 @@ if (!$manager->mark_signer_signed($token, 'ncalayer_real', $meta, [
         ? json_encode($verification['validation']['revocations'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         : null,
     'signingmethod' => $signingmethod,
-    'verificationstatus' => 'verified',
+    'verificationstatus' => $preparedpadesmode ? 'deferred_pades_finalize' : 'verified',
     'verificationinfo' => json_encode([
         'verifyinfo' => $verification['verifyinfo'] ?? '',
         'certificateinfo' => $verification['certificateinfo'] ?? [],

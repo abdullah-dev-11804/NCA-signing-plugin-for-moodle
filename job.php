@@ -243,6 +243,9 @@ function local_ncasign_verification_badge(\stdClass $signer): string {
         }
     }
 
+    if (!empty($signer->verificationstatus) && $signer->verificationstatus === 'deferred_pades_finalize') {
+        return local_ncasign_job_badge(get_string('badgedeferredpades', 'local_ncasign'), '#0d6efd');
+    }
     if (!empty($signer->verificationstatus) && $signer->verificationstatus === 'verified') {
         return local_ncasign_job_badge(get_string('badgeverified', 'local_ncasign'), '#198754');
     }
