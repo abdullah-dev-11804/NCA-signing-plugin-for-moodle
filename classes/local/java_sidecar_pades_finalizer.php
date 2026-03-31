@@ -332,6 +332,9 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
         }
         if ($httpcode >= 400) {
             $message = (string)($decoded['message'] ?? ('HTTP ' . $httpcode));
+            if ($message === '' || $message === 'HTTP ' . $httpcode) {
+                $message = $raw;
+            }
             throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'PAdES sidecar error: ' . $message);
         }
 

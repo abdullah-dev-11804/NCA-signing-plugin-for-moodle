@@ -26,6 +26,21 @@ public class PadesPrepareController {
         } catch (UnsupportedOperationException e) {
             return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(PadesPrepareResponse.error("PAdES prepare backend is scaffolded but not implemented: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(PadesPrepareResponse.error(buildErrorMessage(e)));
         }
+    }
+
+    private String buildErrorMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) {
+            message = current.getClass().getName();
+        }
+        return "Prepare failed: " + message;
     }
 }
