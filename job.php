@@ -138,6 +138,13 @@ function local_ncasign_job_render_artifacts(int $jobid): string {
         );
     }
 
+    $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], 'autosignnote', IGNORE_MISSING);
+    if ($job && !$manager->has_job_signed_pdf($jobid) && !empty($job->autosignnote)) {
+        $links[] = html_writer::tag('span', 'Finalization note: ' . s((string)$job->autosignnote), [
+            'style' => 'color:#b00020;',
+        ]);
+    }
+
     return $links ? implode(' | ', $links) : '-';
 }
 
