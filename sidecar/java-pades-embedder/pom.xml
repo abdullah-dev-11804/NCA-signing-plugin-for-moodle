@@ -36,6 +36,11 @@
             <artifactId>dss-utils-apache-commons</artifactId>
             <version>${dss.version}</version>
         </dependency>
+        <dependency>
+            <groupId>eu.europa.ec.joinup.sd-dss</groupId>
+            <artifactId>dss-cms-object</artifactId>
+            <version>${dss.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

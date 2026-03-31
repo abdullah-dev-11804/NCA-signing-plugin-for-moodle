@@ -27,6 +27,25 @@ defined('MOODLE_INTERNAL') || die();
  */
 class java_sidecar_pades_finalizer implements pades_finalizer_interface {
     /**
+     * Normalize PHP arrays into JSON object-compatible payloads when needed.
+     *
+     * @param mixed $value
+     * @return mixed
+     */
+    private function json_map($value) {
+        if ($value instanceof \stdClass) {
+            return $value;
+        }
+        if (!is_array($value)) {
+            return new \stdClass();
+        }
+        if ($value === []) {
+            return new \stdClass();
+        }
+        return $value;
+    }
+
+    /**
      * @inheritDoc
      */
     public function get_backend_name(): string {
@@ -188,8 +207,8 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
                 'ocspResponseJson' => (string)($signer->ocspresponse ?? ''),
                 'signingMethod' => (string)($signer->signingmethod ?? ''),
                 'verificationStatus' => (string)($signer->verificationstatus ?? ''),
-                'verificationInfo' => $verificationinfo,
-                'signMeta' => $signmeta,
+                'verificationInfo' => $this->json_map($verificationinfo),
+                'signMeta' => $this->json_map($signmeta),
             ];
         }
 
@@ -209,7 +228,7 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
             'draftSha256' => (string)($context['originalsha256'] ?? ''),
             'verifyUrl' => (string)($context['verifyurl'] ?? ''),
             'isFinal' => !empty($context['isfinal']),
-            'manifest' => is_array($context['manifest'] ?? null) ? $context['manifest'] : [],
+            'manifest' => $this->json_map(is_array($context['manifest'] ?? null) ? $context['manifest'] : []),
             'signers' => $signers,
         ];
     }
@@ -237,7 +256,7 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
             'draftPdfBase64' => base64_encode((string)$context['originalpdf']),
             'draftFileName' => (string)($context['originalfilename'] ?? ''),
             'draftSha256' => (string)($context['originalsha256'] ?? ''),
-            'manifest' => is_array($context['manifest'] ?? null) ? $context['manifest'] : [],
+            'manifest' => $this->json_map(is_array($context['manifest'] ?? null) ? $context['manifest'] : []),
             'activeSigner' => [
                 'signerRecordId' => (int)$signer->id,
                 'order' => (int)($signer->signorder ?? 0),
