@@ -6,6 +6,7 @@ import eu.europa.esig.dss.model.DSSDocument;
 import eu.europa.esig.dss.model.DSSMessageDigest;
 import eu.europa.esig.dss.model.InMemoryDocument;
 import eu.europa.esig.dss.pades.PAdESSignatureParameters;
+import eu.europa.esig.dss.pades.signature.ExternalCMSService;
 import eu.europa.esig.dss.pades.SignatureFieldParameters;
 import eu.europa.esig.dss.pades.SignatureImageParameters;
 import eu.europa.esig.dss.pades.signature.PAdESWithExternalCMSService;
@@ -41,7 +42,8 @@ public class DssPadesEmbeddingService implements PadesEmbeddingService {
         int signerOrder = extractSignerOrder(request.activeSigner);
         SignatureSlot slot = resolveSignatureSlot(request.manifest, signerOrder);
         document = ensureFieldExists(document, slot);
-        PAdESSignatureParameters parameters = buildParameters(slot, null);
+        Date signingDate = new Date();
+        PAdESSignatureParameters parameters = buildParameters(slot, signingDate);
         PAdESWithExternalCMSService service = new PAdESWithExternalCMSService();
 
         DSSMessageDigest messageDigest = service.getMessageDigest(document, parameters);
@@ -55,7 +57,7 @@ public class DssPadesEmbeddingService implements PadesEmbeddingService {
         response.payloadMode = "prepared_pdf_digest";
         response.signablePayloadBase64 = Base64.getEncoder().encodeToString(digestBytes);
         response.signablePayloadSha256 = sha256Hex(digestBytes);
-        response.signingTime = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+        response.signingTime = DateTimeFormatter.ISO_INSTANT.format(signingDate.toInstant());
         response.evidence = new HashMap<>();
         response.evidence.put("digestAlgorithm", String.valueOf(messageDigest.getAlgorithm()));
         response.evidence.put("fieldName", slot.fieldName);
@@ -75,9 +77,18 @@ public class DssPadesEmbeddingService implements PadesEmbeddingService {
         for (SignerPayload signer : signedSigners) {
             SignatureSlot slot = resolveSignatureSlot(request.manifest, signer.order);
             currentDocument = ensureFieldExists(currentDocument, slot);
-            PAdESSignatureParameters parameters = buildParameters(slot, signer.signedAt);
+            Date signingDate = extractPrepareSigningDate(signer);
+            PAdESSignatureParameters parameters = buildParameters(slot, signingDate);
             byte[] cmsBytes = decodeBase64(signer.rawCmsBase64, "CMS");
             DSSDocument cmsDocument = new InMemoryDocument(cmsBytes, "signer-" + signer.order + ".p7s", MimeTypeEnum.BINARY);
+            DSSMessageDigest messageDigest = service.getMessageDigest(currentDocument, parameters);
+
+            if (!service.isValidCMSSignedData(messageDigest, cmsDocument)) {
+                throw new IllegalStateException("Signer #" + signer.order + " CMS is not cryptographically valid for the prepared PDF digest.");
+            }
+            if (!service.isValidPAdESBaselineCMSSignedData(messageDigest, cmsDocument)) {
+                throw new IllegalStateException("Signer #" + signer.order + " CMS is not compatible with PAdES Baseline embedding.");
+            }
 
             currentDocument = service.signDocument(currentDocument, parameters, cmsDocument);
         }
@@ -133,7 +144,7 @@ public class DssPadesEmbeddingService implements PadesEmbeddingService {
         return result;
     }
 
-    private PAdESSignatureParameters buildParameters(SignatureSlot slot, Long signedAtUnix) {
+    private PAdESSignatureParameters buildParameters(SignatureSlot slot, Date signingDate) {
         PAdESSignatureParameters parameters = new PAdESSignatureParameters();
         parameters.setSignatureLevel(SignatureLevel.PAdES_BASELINE_B);
         parameters.setContentSize(32768);
@@ -148,12 +159,34 @@ public class DssPadesEmbeddingService implements PadesEmbeddingService {
         SignatureImageParameters imageParameters = new SignatureImageParameters();
         imageParameters.setFieldParameters(fieldParameters);
         parameters.setImageParameters(imageParameters);
-        if (signedAtUnix != null && signedAtUnix > 0) {
-            parameters.bLevel().setSigningDate(new Date(signedAtUnix * 1000L));
-        } else {
-            parameters.bLevel().setSigningDate(new Date());
-        }
+        parameters.bLevel().setSigningDate(signingDate != null ? signingDate : new Date());
         return parameters;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Date extractPrepareSigningDate(SignerPayload signer) {
+        if (signer != null && signer.signMeta != null) {
+            Object payloadMetaObj = signer.signMeta.get("payload_meta");
+            if (payloadMetaObj instanceof Map<?, ?> payloadMetaRaw) {
+                Map<String, Object> payloadMeta = (Map<String, Object>) payloadMetaRaw;
+                Object prepareObj = payloadMeta.get("prepare");
+                if (prepareObj instanceof Map<?, ?> prepareRaw) {
+                    Map<String, Object> prepare = (Map<String, Object>) prepareRaw;
+                    Object signingTimeObj = prepare.get("signingtime");
+                    if (signingTimeObj instanceof String signingTime && !signingTime.isBlank()) {
+                        try {
+                            return Date.from(Instant.parse(signingTime));
+                        } catch (Exception ignored) {
+                            // Fall back below.
+                        }
+                    }
+                }
+            }
+        }
+        if (signer != null && signer.signedAt != null && signer.signedAt > 0) {
+            return new Date(signer.signedAt * 1000L);
+        }
+        return new Date();
     }
 
     private DSSDocument ensureFieldExists(DSSDocument document, SignatureSlot slot) {
