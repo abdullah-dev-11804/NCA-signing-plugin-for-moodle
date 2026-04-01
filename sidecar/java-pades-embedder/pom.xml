@@ -17,7 +17,7 @@
 
     <properties>
         <java.version>17</java.version>
-        <sdk.java.root>${project.basedir}/../../../../../Java</sdk.java.root>
+        <sidecar.lib.dir>${project.basedir}/lib</sidecar.lib.dir>
     </properties>
 
     <dependencies>
@@ -37,7 +37,7 @@
             <artifactId>knca-provider-jce-kalkan</artifactId>
             <version>0.7.5</version>
             <scope>system</scope>
-            <systemPath>${sdk.java.root}/provider/knca_provider_jce_kalkan-0.7.5.jar</systemPath>
+            <systemPath>${sidecar.lib.dir}/knca_provider_jce_kalkan-0.7.5.jar</systemPath>
         </dependency>
 
         <dependency>
@@ -45,7 +45,7 @@
             <artifactId>knca-provider-util</artifactId>
             <version>0.8.5</version>
             <scope>system</scope>
-            <systemPath>${sdk.java.root}/utils/knca_provider_util-0.8.5.jar</systemPath>
+            <systemPath>${sidecar.lib.dir}/knca_provider_util-0.8.5.jar</systemPath>
         </dependency>
 
         <dependency>
