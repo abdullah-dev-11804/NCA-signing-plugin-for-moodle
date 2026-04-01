@@ -1,14 +1,19 @@
 package kz.sental.ncasign.pades.service;
 
+import kz.gov.pki.kalkan.jce.provider.KalkanProvider;
+import kz.gov.pki.provider.utils.CMSUtil;
 import kz.sental.ncasign.pades.model.PadesFinalizeRequest;
 import kz.sental.ncasign.pades.model.PadesFinalizeResponse;
 import kz.sental.ncasign.pades.model.PadesPrepareRequest;
 import kz.sental.ncasign.pades.model.PadesPrepareResponse;
 import kz.sental.ncasign.pades.model.SignerPayload;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.ExternalSigningSupport;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +21,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
+import java.security.Provider;
+import java.security.Security;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
@@ -32,6 +39,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Primary
 public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
     private static final int PREFERRED_SIGNATURE_SIZE = 131072;
+    private static final COSName PDF_SUBFILTER_CADES_DETACHED = COSName.getPDFName("ETSI.CAdES.detached");
+    private static final Logger LOGGER = LoggerFactory.getLogger(PdfBoxPadesEmbeddingService.class);
 
     private final Map<String, PreparedSigningSession> sessions = new ConcurrentHashMap<>();
 
@@ -46,6 +55,14 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
 
         PreparedSigningSession session = createSession(sessionId, pdfBytes, signerName, signingDate, slot);
         sessions.put(sessionId, session);
+        LOGGER.info(
+            "Prepared PDFBox external signing session {} for signer #{} field {} contentLength={} contentSha256={}",
+            sessionId,
+            signerOrder,
+            slot.fieldName,
+            session.contentToSign.length,
+            sha256Hex(session.contentToSign)
+        );
 
         PadesPrepareResponse response = new PadesPrepareResponse();
         response.status = "ok";
@@ -79,8 +96,17 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
 
         try {
             byte[] cmsBytes = decodeBase64(signer.rawCmsBase64, "CMS");
+            verifyCmsAgainstPreparedContent(cmsBytes, session, signer);
             session.externalSigning.setSignature(cmsBytes);
             byte[] signedPdf = session.output.toByteArray();
+            verifyEmbeddedPdfSignature(signedPdf, signer, session);
+            LOGGER.info(
+                "Embedded CMS for signer #{} field {} session {} finalPdfSha256={}",
+                signer.order,
+                session.fieldName,
+                sessionId,
+                sha256Hex(signedPdf)
+            );
 
             PadesFinalizeResponse response = new PadesFinalizeResponse();
             response.status = "ok";
@@ -97,6 +123,10 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("fieldName", session.fieldName);
             response.evidence.put("sessionId", sessionId);
             response.evidence.put("cmsLength", cmsBytes.length);
+            response.evidence.put("cmsVerifiedBy", KalkanProvider.PROVIDER_NAME);
+            response.evidence.put("cmsVerifiedAgainst", "pdfbox_content_to_sign");
+            response.evidence.put("contentToSignSha256", sha256Hex(session.contentToSign));
+            response.evidence.put("embeddedPdfVerification", "kalkan_ok");
             return response;
         } catch (Exception e) {
             throw new IllegalStateException("PDFBox external signing failed for signer #" + signer.order + ": " + e.getMessage(), e);
@@ -110,7 +140,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             PDDocument document = PDDocument.load(pdfBytes);
             PDSignature signature = new PDSignature();
             signature.setFilter(PDSignature.FILTER_ADOBE_PPKLITE);
-            signature.setSubFilter(PDSignature.SUBFILTER_ADBE_PKCS7_DETACHED);
+            signature.setSubFilter(PDF_SUBFILTER_CADES_DETACHED);
             signature.setName(signerName);
             signature.setReason("local_ncasign PDFBox external signing");
             Calendar calendar = Calendar.getInstance();
@@ -132,6 +162,71 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             return new PreparedSigningSession(sessionId, document, externalSigning, output, contentToSign, signingDate, slot.fieldName);
         } catch (IOException e) {
             throw new IllegalStateException("Unable to prepare PDFBox external signing session.", e);
+        }
+    }
+
+    private void verifyCmsAgainstPreparedContent(byte[] cmsBytes, PreparedSigningSession session, SignerPayload signer) {
+        try {
+            Provider provider = ensureKalkanProvider();
+            CMSUtil.verifyCMS(cmsBytes, session.contentToSign, provider);
+            LOGGER.info(
+                "Kalkan CMS verification passed for signer #{} field {} session {} cmsLength={} contentSha256={}",
+                signer.order,
+                session.fieldName,
+                session.sessionId,
+                cmsBytes.length,
+                sha256Hex(session.contentToSign)
+            );
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                "Signer #" + signer.order + " CMS does not verify against the prepared PDF ByteRange content: "
+                    + rootMessage(e),
+                e
+            );
+        }
+    }
+
+    private void verifyEmbeddedPdfSignature(byte[] signedPdf, SignerPayload signer, PreparedSigningSession session) {
+        try (PDDocument document = PDDocument.load(signedPdf)) {
+            List<PDSignature> signatures = document.getSignatureDictionaries();
+            if (signatures == null || signatures.isEmpty()) {
+                throw new IllegalStateException("No embedded PDF signature dictionaries were found after external signing.");
+            }
+
+            PDSignature embeddedSignature = signatures.get(signatures.size() - 1);
+            byte[] signedContent = embeddedSignature.getSignedContent(signedPdf);
+            byte[] embeddedCms = embeddedSignature.getContents(signedPdf);
+            Provider provider = ensureKalkanProvider();
+            CMSUtil.verifyCMS(embeddedCms, signedContent, provider);
+            LOGGER.info(
+                "Embedded PDF signature verified by Kalkan for signer #{} field {} session {} embeddedCmsLength={} signedContentSha256={}",
+                signer.order,
+                session.fieldName,
+                session.sessionId,
+                embeddedCms.length,
+                sha256Hex(signedContent)
+            );
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                "Signer #" + signer.order + " CMS was embedded into the PDF, but the embedded PDF signature does not verify: "
+                    + rootMessage(e),
+                e
+            );
+        }
+    }
+
+    private Provider ensureKalkanProvider() {
+        Provider provider = Security.getProvider(KalkanProvider.PROVIDER_NAME);
+        if (provider != null) {
+            return provider;
+        }
+        synchronized (PdfBoxPadesEmbeddingService.class) {
+            provider = Security.getProvider(KalkanProvider.PROVIDER_NAME);
+            if (provider == null) {
+                provider = new KalkanProvider();
+                Security.addProvider(provider);
+            }
+            return provider;
         }
     }
 
@@ -237,6 +332,18 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to compute SHA-256.", e);
         }
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (message == null || message.isBlank()) {
+            message = current.getClass().getName();
+        }
+        return message;
     }
 
     private static final class PreparedSigningSession {
