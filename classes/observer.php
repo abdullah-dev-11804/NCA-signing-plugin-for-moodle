@@ -96,10 +96,16 @@ class observer {
                             ? $draft['finalizationmanifest']
                             : null
                     );
-                    $manager->notify_signers_for_job($jobid);
                 } catch (\Throwable $e) {
                     self::delete_job($jobid);
                     error_log('local_ncasign: failed to persist generated draft for job ' . $jobid . ': ' . $e->getMessage());
+                    continue;
+                }
+
+                try {
+                    $manager->notify_signers_for_job($jobid);
+                } catch (\Throwable $e) {
+                    error_log('local_ncasign: failed to notify signers for job ' . $jobid . ': ' . $e->getMessage());
                 }
             }
         } finally {

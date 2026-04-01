@@ -324,7 +324,9 @@ class document_generator {
         if (is_readable($autoload)) {
             require_once($autoload);
         }
-        require_once(__DIR__ . '/safe_fpdi.php');
+        if (class_exists('\setasign\Fpdi\Tcpdf\Fpdi') && !class_exists('\local_ncasign\local\safe_fpdi')) {
+            require_once(__DIR__ . '/safe_fpdi.php');
+        }
 
         $loaded = true;
     }
