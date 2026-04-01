@@ -346,19 +346,21 @@ class job_manager {
             return null;
         }
 
-        $original = $this->get_job_certificate_binary($jobid);
-        if (!$original) {
+        $finalizer = pades_finalizer_factory::create();
+        $payload = $finalizer->supports_embedded_pades()
+            ? $this->get_job_signing_payload_binary($jobid)
+            : $this->get_job_certificate_binary($jobid);
+        if (!$payload) {
             return null;
         }
 
         $verificationurl = $this->get_verification_url_for_job((int)$job->id);
         $isfinal = !$this->has_pending_signers($jobid) || $job->status !== self::JOB_PENDING;
-        $finalizer = pades_finalizer_factory::create();
         $result = $finalizer->finalize([
             'job' => $job,
-            'originalpdf' => $original['content'],
-            'originalfilename' => $original['filename'],
-            'originalsha256' => hash('sha256', $original['content']),
+            'originalpdf' => $payload['content'],
+            'originalfilename' => $payload['filename'],
+            'originalsha256' => hash('sha256', $payload['content']),
             'verifyurl' => $verificationurl,
             'signers' => $this->get_signer_records($jobid),
             'completedsignerblocks' => $this->get_completed_signer_blocks($jobid),
@@ -572,16 +574,15 @@ class job_manager {
         $signer->timemodified = $now;
         $DB->update_record('local_ncasign_signers', $signer);
 
-        try {
-            $this->ensure_original_pdf_for_job((int)$signer->jobid);
-            $this->generate_signed_pdf_artifact((int)$signer->jobid);
-            $this->record_finalization_note((int)$signer->jobid, null);
-        } catch (\Throwable $e) {
-            error_log('local_ncasign: failed to refresh signed PDF artifact after signer update: ' . $e->getMessage());
-            $this->record_finalization_note((int)$signer->jobid, 'Progress/final PDF refresh failed: ' . $e->getMessage());
-        }
-
         if ($this->has_pending_signers((int)$signer->jobid)) {
+            try {
+                $this->ensure_original_pdf_for_job((int)$signer->jobid);
+                $this->generate_signed_pdf_artifact((int)$signer->jobid);
+                $this->record_finalization_note((int)$signer->jobid, null);
+            } catch (\Throwable $e) {
+                error_log('local_ncasign: failed to refresh signed PDF artifact after signer update: ' . $e->getMessage());
+                $this->record_finalization_note((int)$signer->jobid, 'Progress/final PDF refresh failed: ' . $e->getMessage());
+            }
             $this->notify_signers_for_job((int)$signer->jobid);
             return true;
         }
