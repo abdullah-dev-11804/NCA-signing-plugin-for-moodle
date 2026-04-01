@@ -223,13 +223,17 @@ class template_manager {
     private function resolve_userid_by_email(string $email): ?int {
         global $DB;
 
-        $userid = $DB->get_field('user', 'id', [
+        $records = $DB->get_records('user', [
             'email' => $email,
             'deleted' => 0,
             'suspended' => 0,
-        ], IGNORE_MISSING);
+        ], 'id ASC', 'id', 0, 1);
+        if (!$records) {
+            return null;
+        }
 
-        return $userid ? (int)$userid : null;
+        $record = reset($records);
+        return !empty($record->id) ? (int)$record->id : null;
     }
 
     /**
