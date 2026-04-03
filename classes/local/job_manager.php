@@ -694,6 +694,9 @@ class job_manager {
             return;
         }
 
+        // Re-read the job after finalization because generate_signed_pdf_artifact()
+        // persists finalhash/finalizationevidence and the pre-finalization object is stale.
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
         $job->status = self::JOB_COMPLETED_MANUAL;
         $job->manualcompleted = time();
         $job->autosignnote = null;
