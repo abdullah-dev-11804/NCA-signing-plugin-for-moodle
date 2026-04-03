@@ -4,6 +4,8 @@ import kz.sental.ncasign.pades.model.PadesFinalizeRequest;
 import kz.sental.ncasign.pades.model.PadesFinalizeResponse;
 import kz.sental.ncasign.pades.model.PadesPrepareRequest;
 import kz.sental.ncasign.pades.model.PadesPrepareResponse;
+import kz.sental.ncasign.pades.model.PadesVerifyRequest;
+import kz.sental.ncasign.pades.model.PadesVerifyResponse;
 
 public class PlaceholderPadesEmbeddingService implements PadesEmbeddingService {
     @Override
@@ -19,6 +21,13 @@ public class PlaceholderPadesEmbeddingService implements PadesEmbeddingService {
         throw new UnsupportedOperationException(
             "Missing PDF embedding engine and two-phase prepare/finalize implementation. " +
             "Recommended stack: DSS PAdES external-CMS flow with PDFBox backend plus Kalkan/NCANode evidence integration."
+        );
+    }
+
+    @Override
+    public PadesVerifyResponse verifySignedPdf(PadesVerifyRequest request) {
+        throw new UnsupportedOperationException(
+            "Missing PDF verification engine. A Kalkan-backed verifier must inspect embedded PDF signatures and verify them against signed content bytes."
         );
     }
 }

@@ -1,7 +1,9 @@
+kz\sental\ncasign\pades\model\PadesVerifyResponse.class
 kz\sental\ncasign\pades\api\HealthController.class
 kz\sental\ncasign\pades\service\PlaceholderPadesEmbeddingService.class
 kz\sental\ncasign\pades\api\PadesPrepareController.class
 kz\sental\ncasign\pades\model\PadesFinalizeResponse.class
+kz\sental\ncasign\pades\api\PadesVerifyController.class
 kz\sental\ncasign\pades\service\PdfBoxPadesEmbeddingService$PreparedSigningSession.class
 kz\sental\ncasign\pades\model\PadesPrepareResponse.class
 kz\sental\ncasign\pades\api\PadesFinalizeController.class
@@ -9,6 +11,7 @@ kz\sental\ncasign\pades\model\JobPayload.class
 kz\sental\ncasign\pades\model\SignerPayload.class
 kz\sental\ncasign\pades\service\PdfBoxPadesEmbeddingService.class
 kz\sental\ncasign\pades\model\PadesPrepareRequest.class
+kz\sental\ncasign\pades\model\PadesVerifyRequest.class
 kz\sental\ncasign\pades\service\PdfBoxPadesEmbeddingService$SignatureSlot.class
 kz\sental\ncasign\pades\PadesSidecarApplication.class
 kz\sental\ncasign\pades\model\PadesFinalizeRequest.class

@@ -1,12 +1,15 @@
 package kz.sental.ncasign.pades.service;
 
 import kz.gov.pki.kalkan.jce.provider.KalkanProvider;
+import kz.gov.pki.kalkan.jce.provider.cms.CMSSignedData;
 import kz.gov.pki.provider.utils.CMSUtil;
 import kz.sental.ncasign.pades.model.PadesFinalizeRequest;
 import kz.sental.ncasign.pades.model.PadesFinalizeResponse;
 import kz.sental.ncasign.pades.model.PadesPrepareRequest;
 import kz.sental.ncasign.pades.model.PadesPrepareResponse;
 import kz.sental.ncasign.pades.model.SignerPayload;
+import kz.sental.ncasign.pades.model.PadesVerifyRequest;
+import kz.sental.ncasign.pades.model.PadesVerifyResponse;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.ExternalSigningSupport;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.cert.X509Certificate;
 import java.security.MessageDigest;
 import java.security.Provider;
 import java.security.Security;
@@ -135,6 +139,48 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         }
     }
 
+    @Override
+    public PadesVerifyResponse verifySignedPdf(PadesVerifyRequest request) {
+        byte[] pdfBytes = decodeBase64(request.pdfBase64, "PDF");
+        Provider provider = ensureKalkanProvider();
+        PadesVerifyResponse response = new PadesVerifyResponse();
+        response.status = "ok";
+        response.message = "Verified embedded PDF signatures with Kalkan";
+        response.filename = request.filename;
+        response.pdfSha256 = sha256Hex(pdfBytes);
+        response.allValid = true;
+
+        try (PDDocument document = PDDocument.load(pdfBytes)) {
+            List<PDSignature> signatures = document.getSignatureDictionaries();
+            response.signatureCount = signatures == null ? 0 : signatures.size();
+            if (signatures == null || signatures.isEmpty()) {
+                response.allValid = false;
+                response.message = "No embedded PDF signatures were found.";
+                return response;
+            }
+
+            int index = 1;
+            for (PDSignature signature : signatures) {
+                Map<String, Object> item = verifyEmbeddedSignature(pdfBytes, signature, index, provider);
+                response.signatures.add(item);
+                if (!Boolean.TRUE.equals(item.get("valid"))) {
+                    response.allValid = false;
+                }
+                index++;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to verify signed PDF: " + rootMessage(e), e);
+        }
+
+        response.evidence.put("provider", KalkanProvider.PROVIDER_NAME);
+        response.evidence.put("pdfSha256", response.pdfSha256);
+        response.evidence.put("signatureCount", response.signatureCount);
+        if (!response.allValid) {
+            response.message = "One or more embedded PDF signatures failed Kalkan verification.";
+        }
+        return response;
+    }
+
     private PreparedSigningSession createSession(String sessionId, byte[] pdfBytes, String signerName, Date signingDate, SignatureSlot slot) {
         try {
             PDDocument document = PDDocument.load(pdfBytes);
@@ -213,6 +259,55 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 e
             );
         }
+    }
+
+    private Map<String, Object> verifyEmbeddedSignature(byte[] pdfBytes, PDSignature signature, int index, Provider provider) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("index", index);
+        item.put("fieldName", "Signature" + index);
+        item.put("name", signature.getName());
+        item.put("subFilter", signature.getSubFilter());
+        item.put("signDate", signature.getSignDate() != null ? signature.getSignDate().getTimeInMillis() / 1000L : null);
+        item.put("byteRange", signature.getByteRange());
+
+        try {
+            byte[] signedContent = signature.getSignedContent(pdfBytes);
+            byte[] embeddedCms = signature.getContents(pdfBytes);
+            CMSUtil.verifyCMS(embeddedCms, signedContent, provider);
+            item.put("valid", true);
+            item.put("signedContentSha256", sha256Hex(signedContent));
+            item.put("cmsSha256", sha256Hex(embeddedCms));
+            item.put("cmsLength", embeddedCms.length);
+
+            CMSSignedData cms = CMSUtil.parseAsCMS(embeddedCms);
+            List<X509Certificate> certificates = CMSUtil.getSignerCertificates(cms, provider);
+            if (certificates != null && !certificates.isEmpty()) {
+                X509Certificate certificate = certificates.get(0);
+                item.put("certificateSubjectDn", certificate.getSubjectX500Principal().getName());
+                item.put("certificateIssuerDn", certificate.getIssuerX500Principal().getName());
+                item.put("certificateSerialNumber", certificate.getSerialNumber().toString());
+                item.put("certificateNotBefore", certificate.getNotBefore().toInstant().toString());
+                item.put("certificateNotAfter", certificate.getNotAfter().toInstant().toString());
+            }
+            LOGGER.info(
+                "Verified embedded signature #{} field {} cmsSha256={} signedContentSha256={}",
+                index,
+                "Signature" + index,
+                item.get("cmsSha256"),
+                item.get("signedContentSha256")
+            );
+        } catch (Exception e) {
+            item.put("valid", false);
+            item.put("error", rootMessage(e));
+            LOGGER.warn(
+                "Embedded signature verification failed for signature #{} field {}: {}",
+                index,
+                "Signature" + index,
+                rootMessage(e)
+            );
+        }
+
+        return item;
     }
 
     private Provider ensureKalkanProvider() {

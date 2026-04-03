@@ -1,5 +1,6 @@
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\service\PdfBoxPadesEmbeddingService.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\api\PadesPrepareController.java
+C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\model\PadesVerifyRequest.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\service\PadesEmbeddingService.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\PadesSidecarApplication.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\api\PadesFinalizeController.java
@@ -9,5 +10,7 @@ C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-emb
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\model\SignerPayload.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\model\JobPayload.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\service\PlaceholderPadesEmbeddingService.java
+C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\model\PadesVerifyResponse.java
+C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\api\PadesVerifyController.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\model\PadesFinalizeRequest.java
 C:\Users\AB\Downloads\SDK 2.0\moodle_plugin\local\ncasign\sidecar\java-pades-embedder\src\main\java\kz\sental\ncasign\pades\model\PadesPrepareResponse.java

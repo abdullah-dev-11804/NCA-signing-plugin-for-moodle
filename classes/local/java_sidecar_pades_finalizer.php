@@ -153,6 +153,23 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
     }
 
     /**
+     * Verify an already signed PDF through the Java sidecar.
+     *
+     * @param string $pdfbytes
+     * @param string $filename
+     * @return array<string,mixed>
+     */
+    public function verify_pdf(string $pdfbytes, string $filename = ''): array {
+        if ($pdfbytes === '') {
+            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'No PDF bytes were provided for verification.');
+        }
+        return $this->post_json('/api/v1/pades/verify', [
+            'pdfBase64' => base64_encode($pdfbytes),
+            'filename' => $filename,
+        ]);
+    }
+
+    /**
      * @inheritDoc
      */
     public function get_required_embedding_capabilities(): array {
