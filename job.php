@@ -113,9 +113,11 @@ function local_ncasign_job_render_artifacts(int $jobid): string {
         );
     }
     if ($manager->has_job_signed_pdf($jobid)) {
+        $signedpdf = $manager->get_job_signed_pdf_binary($jobid);
+        $issignedfinal = !empty($signedpdf['filename']) && stripos((string)$signedpdf['filename'], 'signed_final_') !== false;
         $links[] = html_writer::link(
             new moodle_url('/local/ncasign/download_artifact.php', ['jobid' => $jobid, 'type' => 'signedpdf']),
-            !empty($DB->get_field('local_ncasign_jobs', 'finalhash', ['id' => $jobid]))
+            $issignedfinal
                 ? get_string('signedpdffinallabel', 'local_ncasign')
                 : get_string('signedpdfprogresslabel', 'local_ncasign')
         );
@@ -140,7 +142,7 @@ function local_ncasign_job_render_artifacts(int $jobid): string {
     }
 
     $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], 'autosignnote', IGNORE_MISSING);
-    if ($job && !$manager->has_job_signed_pdf($jobid) && !empty($job->autosignnote)) {
+    if ($job && !empty($job->autosignnote)) {
         $links[] = html_writer::tag('span', 'Finalization note: ' . s((string)$job->autosignnote), [
             'style' => 'color:#b00020;',
         ]);

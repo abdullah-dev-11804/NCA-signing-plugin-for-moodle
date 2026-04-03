@@ -26,7 +26,7 @@ public class PadesFinalizeController {
         } catch (UnsupportedOperationException e) {
             return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(PadesFinalizeResponse.error("PAdES embedding backend is scaffolded but not implemented: " + e.getMessage()));
-        } catch (Exception e) {
+        } catch (Throwable e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(PadesFinalizeResponse.error(buildErrorMessage(e)));
         }

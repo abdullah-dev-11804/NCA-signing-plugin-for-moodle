@@ -26,7 +26,7 @@ public class PadesPrepareController {
         } catch (UnsupportedOperationException e) {
             return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(PadesPrepareResponse.error("PAdES prepare backend is scaffolded but not implemented: " + e.getMessage()));
-        } catch (Exception e) {
+        } catch (Throwable e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(PadesPrepareResponse.error(buildErrorMessage(e)));
         }

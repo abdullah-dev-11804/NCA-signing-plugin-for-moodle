@@ -441,7 +441,9 @@ class job_manager {
 
         $job->finalhash = null;
         $job->finalizerbackend = (string)($result['backend'] ?? $finalizer->get_backend_name());
-        $job->finalhash = !empty($result['finalhash']) ? (string)$result['finalhash'] : null;
+        if ($isfinal) {
+            $job->finalhash = !empty($result['finalhash']) ? (string)$result['finalhash'] : null;
+        }
         $job->finalizationevidence = !empty($result['evidence']) && is_array($result['evidence'])
             ? json_encode($result['evidence'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             : null;
