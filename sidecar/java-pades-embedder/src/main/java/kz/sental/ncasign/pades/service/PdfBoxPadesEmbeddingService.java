@@ -131,13 +131,18 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             return PadesFinalizeResponse.error("Prepared signing session was not found or has expired for signer #" + signer.order + ".");
         }
 
+        String phase = "decode_cms";
         try {
             byte[] cmsBytes = decodeBase64(signer.rawCmsBase64, "CMS");
+            phase = "verify_prepared_content";
             verifyCmsAgainstPreparedContent(cmsBytes, session, signer);
+            phase = "embed_signature";
             session.externalSigning.setSignature(cmsBytes);
             byte[] signedPdf = session.output.toByteArray();
+            phase = "verify_embedded_signature";
             verifyEmbeddedPdfSignature(signedPdf, signer, session);
             Provider provider = ensureKalkanProvider();
+            phase = "ltv_augmentation";
             LtvAugmentationResult ltv = augmentPdfWithLtvEvidence(signedPdf, request.signers, provider, request.isFinal);
             signedPdf = ltv.pdfBytes;
             LOGGER.info(
@@ -148,6 +153,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 sha256Hex(signedPdf)
             );
 
+            phase = "encode_response";
             PadesFinalizeResponse response = new PadesFinalizeResponse();
             response.status = "ok";
             response.message = "Embedded CMS into PDF using PDFBox external signing";
@@ -171,8 +177,11 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("ltvReason", ltv.reason);
             response.evidence.put("ltv", ltv.evidence);
             return response;
-        } catch (Exception e) {
-            throw new IllegalStateException("PDFBox external signing failed for signer #" + signer.order + ": " + e.getMessage(), e);
+        } catch (Throwable e) {
+            throw new IllegalStateException(
+                "PDFBox external signing failed for signer #" + signer.order + " during " + phase + ": " + rootMessage(e),
+                e
+            );
         } finally {
             session.close();
         }
