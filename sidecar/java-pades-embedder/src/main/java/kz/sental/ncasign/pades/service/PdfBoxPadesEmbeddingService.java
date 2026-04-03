@@ -324,7 +324,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             evidence.put("dss", true);
             evidence.put("vriCount", signerEvidence.size());
             return new LtvAugmentationResult(output.toByteArray(), true, "dss_vri_with_certs_crls_ocsp", evidence);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             evidence.put("status", "failed");
             evidence.put("error", rootMessage(e));
             LOGGER.warn("LTV augmentation failed: {}", rootMessage(e));
@@ -466,7 +466,9 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         CMSSignedData cms = CMSUtil.parseAsCMS(cmsBytes);
         List<X509Certificate> certificates = CMSUtil.getX509Certificates(cms, provider);
         if (certificates != null) {
-            evidence.certificates.addAll(certificates);
+            for (X509Certificate certificate : certificates) {
+                evidence.addCertificate(certificate);
+            }
         }
 
         List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
@@ -480,7 +482,9 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                         CMSSignedData tsCms = token.toCMSSignedData();
                         List<X509Certificate> tspCerts = CMSUtil.getX509Certificates(tsCms, provider);
                         if (tspCerts != null) {
-                            evidence.certificates.addAll(tspCerts);
+                            for (X509Certificate tspCert : tspCerts) {
+                                evidence.addCertificate(tspCert);
+                            }
                         }
                     }
                 } catch (Exception ignored) {
@@ -521,7 +525,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                     try {
                         X509CRL crl = X509Util.loadX509CRL(url, provider);
                         if (crl != null) {
-                            evidence.crls.add(crl);
+                            evidence.addCrl(crl);
                         }
                     } catch (Exception ex) {
                         evidence.crlErrors.add(key + ": " + rootMessage(ex));
@@ -535,9 +539,9 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         return evidence;
     }
 
-    private X509Certificate findIssuerCertificate(X509Certificate certificate, Set<X509Certificate> certificates, Provider provider) {
+    private X509Certificate findIssuerCertificate(X509Certificate certificate, List<X509Certificate> certificates, Provider provider) {
         for (X509Certificate candidate : certificates) {
-            if (candidate.equals(certificate)) {
+            if (sameCertificate(candidate, certificate)) {
                 continue;
             }
             if (!certificate.getIssuerX500Principal().equals(candidate.getSubjectX500Principal())) {
@@ -595,7 +599,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             X509Certificate[] ocspCertificates = basicResponse.getCerts(provider.getName());
             if (ocspCertificates != null) {
                 for (X509Certificate ocspCertificate : ocspCertificates) {
-                    evidence.certificates.add(ocspCertificate);
+                    evidence.addCertificate(ocspCertificate);
                 }
             }
         } catch (Exception ex) {
@@ -711,6 +715,18 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             return null;
         }
         return raw.replaceFirst("^[0-9]+:\\s*", "");
+    }
+
+    private boolean sameCertificate(X509Certificate left, X509Certificate right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        try {
+            return MessageDigest.isEqual(left.getEncoded(), right.getEncoded());
+        } catch (Exception e) {
+            return left.getSerialNumber().equals(right.getSerialNumber())
+                && left.getSubjectX500Principal().equals(right.getSubjectX500Principal());
+        }
     }
 
     private String computeVriKey(PDSignature signature, byte[] pdfBytes) throws Exception {
@@ -998,15 +1014,51 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
     }
 
     private static final class SignerLtvEvidence {
-        private final Set<X509Certificate> certificates = new LinkedHashSet<>();
-        private final Set<X509CRL> crls = new LinkedHashSet<>();
+        private final List<X509Certificate> certificates = new ArrayList<>();
+        private final List<X509CRL> crls = new ArrayList<>();
         private final List<byte[]> ocspResponses = new ArrayList<>();
         private final List<byte[]> timestampTokens = new ArrayList<>();
         private final List<String> ocspUrls = new ArrayList<>();
         private final List<String> ocspErrors = new ArrayList<>();
         private final List<String> crlUrls = new ArrayList<>();
         private final List<String> crlErrors = new ArrayList<>();
+        private final Set<String> certificateFingerprints = new LinkedHashSet<>();
+        private final Set<String> crlFingerprints = new LinkedHashSet<>();
         private boolean timestampPresent = false;
+
+        private void addCertificate(X509Certificate certificate) {
+            if (certificate == null) {
+                return;
+            }
+            try {
+                String fingerprint = sha256Hex(certificate.getEncoded());
+                if (certificateFingerprints.add(fingerprint)) {
+                    certificates.add(certificate);
+                }
+            } catch (Exception ignored) {
+                String fallback = certificate.getSerialNumber().toString(16) + "|" + certificate.getSubjectX500Principal().getName();
+                if (certificateFingerprints.add(fallback)) {
+                    certificates.add(certificate);
+                }
+            }
+        }
+
+        private void addCrl(X509CRL crl) {
+            if (crl == null) {
+                return;
+            }
+            try {
+                String fingerprint = sha256Hex(crl.getEncoded());
+                if (crlFingerprints.add(fingerprint)) {
+                    crls.add(crl);
+                }
+            } catch (Exception ignored) {
+                String fallback = crl.getIssuerX500Principal().getName() + "|" + crl.getThisUpdate().getTime();
+                if (crlFingerprints.add(fallback)) {
+                    crls.add(crl);
+                }
+            }
+        }
 
         private Map<String, Object> toMap(int index, String subFilter) {
             Map<String, Object> item = new LinkedHashMap<>();
