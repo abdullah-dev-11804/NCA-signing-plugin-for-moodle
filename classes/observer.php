@@ -62,8 +62,15 @@ class observer {
                     continue;
                 }
 
+                $documentuuid = $manager->create_document_uuid();
+                $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
+
                 try {
-                    $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile);
+                    $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile, [
+                        'documentuuid' => $documentuuid,
+                        'verifyurl' => $verifyurl,
+                        'signers' => $signers,
+                    ]);
                 } catch (\Throwable $e) {
                     error_log(
                         'local_ncasign: failed to generate draft on course completion for profile ' .
@@ -81,7 +88,8 @@ class observer {
                     (string)($draft['documenttype'] ?? ($profile['documenttype'] ?? 'protocol')),
                     (string)($draft['documenttitle'] ?? ($profile['documenttitle'] ?? 'Course document')),
                     false,
-                    !empty($profile['id']) ? (int)$profile['id'] : null
+                    !empty($profile['id']) ? (int)$profile['id'] : null,
+                    $documentuuid
                 );
 
                 try {

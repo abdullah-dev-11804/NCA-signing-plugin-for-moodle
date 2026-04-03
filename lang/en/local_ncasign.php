@@ -57,6 +57,7 @@ $string['jobidlabel'] = 'Job ID';
 $string['templateprofile'] = 'Template profile';
 $string['finalizerbackendlabel'] = 'Finalizer backend';
 $string['signaturemanifestlabel'] = 'Signature manifest';
+$string['finalizationevidencelabel'] = 'Finalization evidence';
 $string['jobdrafthash'] = 'Draft SHA-256';
 $string['jobfinalhash'] = 'Final SHA-256';
 $string['signerorder'] = 'Order';

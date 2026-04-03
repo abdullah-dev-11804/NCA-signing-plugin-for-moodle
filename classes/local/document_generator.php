@@ -150,7 +150,14 @@ class document_generator {
                         $protocolnumber,
                         $completiondate
                     );
-                    $signaturemanifest = $this->overlay_reserved_signature_slots($pdf, $width, $height, 1);
+                    $signaturemanifest = $this->overlay_signature_blocks(
+                        $pdf,
+                        $width,
+                        $height,
+                        1,
+                        (string)($options['verifyurl'] ?? ''),
+                        is_array($options['signers'] ?? null) ? $options['signers'] : []
+                    );
                 }
             }
         } catch (\Throwable $e) {
@@ -227,23 +234,23 @@ class document_generator {
     }
 
     /**
-     * Draw visible reserved signature slots for future PAdES finalization.
-     *
-     * These are visual placeholders plus manifest metadata only. They are not real PDF
-     * signature byte ranges yet; a dedicated PAdES backend still has to consume this manifest
-     * and embed detached CMS into true PDF signature fields.
+     * Draw signer QR/label blocks that will be part of the signed PDF.
      *
      * @param \setasign\Fpdi\Tcpdf\Fpdi $pdf
      * @param float $pagewidth
      * @param float $pageheight
      * @param int $page
+     * @param string $verifyurl
+     * @param array<int,array<string,mixed>> $signers
      * @return array<int,array<string,mixed>>
      */
-    private function overlay_reserved_signature_slots(
+    private function overlay_signature_blocks(
         \setasign\Fpdi\Tcpdf\Fpdi $pdf,
         float $pagewidth,
         float $pageheight,
-        int $page
+        int $page,
+        string $verifyurl,
+        array $signers
     ): array {
         $slots = [];
         $margin = 6.0;
@@ -251,16 +258,36 @@ class document_generator {
         $slotwidth = min(40.0, max(26.0, ($pagewidth - (($count + 1) * $margin)) / $count));
         $slotheight = 24.0;
         $y = max($margin, $pageheight - $slotheight - $margin);
+        $style = [
+            'border' => 0,
+            'padding' => 0,
+            'fgcolor' => [0, 0, 0],
+            'bgcolor' => false,
+        ];
 
-        $pdf->SetDrawColor(150, 150, 150);
-        $pdf->SetTextColor(90, 90, 90);
         for ($i = 0; $i < $count; $i++) {
             $x = $margin + ($i * ($slotwidth + $margin));
-            $label = 'Reserved signature slot ' . ($i + 1);
+            $signer = $signers[$i] ?? [];
+            $label = trim((string)($signer['name'] ?? ('Signer ' . ($i + 1))));
+            $position = trim((string)($signer['position'] ?? ''));
+            $payload = $verifyurl !== '' ? ($verifyurl . '&signer=' . ($i + 1)) : '';
+            $qrsize = min(13.5, max(10.0, $slotwidth * 0.40));
+
+            $pdf->SetDrawColor(120, 120, 120);
+            $pdf->SetTextColor(0, 0, 0);
             $pdf->Rect($x, $y, $slotwidth, $slotheight);
-            $this->set_document_font($pdf, '', 5.5);
-            $pdf->SetXY($x + 2, $y + 2);
-            $pdf->MultiCell($slotwidth - 4, 4, $label, 0, 'C', false, 1);
+            if ($payload !== '') {
+                $pdf->write2DBarcode($payload, 'QRCODE,H', $x + 1.5, $y + 1.5, $qrsize, $qrsize, $style, 'N');
+            }
+            $this->set_document_font($pdf, 'B', 5.2);
+            $pdf->SetXY($x + $qrsize + 3, $y + 2);
+            $pdf->MultiCell(max(8.0, $slotwidth - $qrsize - 4), 4, $label, 0, 'L', false, 1);
+            if ($position !== '') {
+                $this->set_document_font($pdf, '', 4.6);
+                $pdf->SetX($x + $qrsize + 3);
+                $pdf->MultiCell(max(8.0, $slotwidth - $qrsize - 4), 3.5, $position, 0, 'L', false, 1);
+            }
+
             $slots[] = [
                 'name' => 'sig_slot_' . ($i + 1),
                 'page' => $page,
@@ -268,7 +295,9 @@ class document_generator {
                 'y' => round($y, 2),
                 'w' => round($slotwidth, 2),
                 'h' => round($slotheight, 2),
-                'type' => 'visible_placeholder',
+                'type' => 'qr_signature_block',
+                'label' => $label,
+                'payload' => $payload,
                 'reserved_bytes' => null,
             ];
         }

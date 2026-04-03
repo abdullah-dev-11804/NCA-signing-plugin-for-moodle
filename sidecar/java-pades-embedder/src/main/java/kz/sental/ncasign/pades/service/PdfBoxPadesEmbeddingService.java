@@ -1,7 +1,26 @@
 package kz.sental.ncasign.pades.service;
 
 import kz.gov.pki.kalkan.jce.provider.KalkanProvider;
+import kz.gov.pki.kalkan.asn1.ASN1InputStream;
+import kz.gov.pki.kalkan.asn1.ASN1OctetString;
+import kz.gov.pki.kalkan.asn1.DERIA5String;
+import kz.gov.pki.kalkan.asn1.DERObject;
+import kz.gov.pki.kalkan.asn1.x509.AccessDescription;
+import kz.gov.pki.kalkan.asn1.x509.AuthorityInformationAccess;
+import kz.gov.pki.kalkan.asn1.x509.GeneralName;
+import kz.gov.pki.kalkan.asn1.x509.X509Extensions;
 import kz.gov.pki.kalkan.jce.provider.cms.CMSSignedData;
+import kz.gov.pki.kalkan.jce.provider.cms.SignerInformation;
+import kz.gov.pki.kalkan.ocsp.BasicOCSPResp;
+import kz.gov.pki.kalkan.ocsp.CertificateID;
+import kz.gov.pki.kalkan.ocsp.OCSPReq;
+import kz.gov.pki.kalkan.ocsp.OCSPReqGenerator;
+import kz.gov.pki.kalkan.ocsp.OCSPResp;
+import kz.gov.pki.kalkan.ocsp.OCSPRespStatus;
+import kz.gov.pki.kalkan.ocsp.SingleResp;
+import kz.gov.pki.kalkan.tsp.TimeStampToken;
+import kz.gov.pki.provider.utils.TSPUtil;
+import kz.gov.pki.provider.utils.X509Util;
 import kz.gov.pki.provider.utils.CMSUtil;
 import kz.sental.ncasign.pades.model.PadesFinalizeRequest;
 import kz.sental.ncasign.pades.model.PadesFinalizeResponse;
@@ -11,7 +30,13 @@ import kz.sental.ncasign.pades.model.SignerPayload;
 import kz.sental.ncasign.pades.model.PadesVerifyRequest;
 import kz.sental.ncasign.pades.model.PadesVerifyResponse;
 import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.cos.COSArray;
+import org.apache.pdfbox.cos.COSBase;
+import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSStream;
+import org.apache.pdfbox.cos.COSUpdateInfo;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDDocumentCatalog;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.ExternalSigningSupport;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
@@ -23,7 +48,11 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.security.cert.X509Certificate;
+import java.security.cert.X509CRL;
 import java.security.MessageDigest;
 import java.security.Provider;
 import java.security.Security;
@@ -38,6 +67,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.ArrayList;
+import java.util.Set;
 
 @Service
 @Primary
@@ -104,6 +137,9 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             session.externalSigning.setSignature(cmsBytes);
             byte[] signedPdf = session.output.toByteArray();
             verifyEmbeddedPdfSignature(signedPdf, signer, session);
+            Provider provider = ensureKalkanProvider();
+            LtvAugmentationResult ltv = augmentPdfWithLtvEvidence(signedPdf, request.signers, provider, request.isFinal);
+            signedPdf = ltv.pdfBytes;
             LOGGER.info(
                 "Embedded CMS for signer #{} field {} session {} finalPdfSha256={}",
                 signer.order,
@@ -131,6 +167,9 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("cmsVerifiedAgainst", "pdfbox_content_to_sign");
             response.evidence.put("contentToSignSha256", sha256Hex(session.contentToSign));
             response.evidence.put("embeddedPdfVerification", "kalkan_ok");
+            response.evidence.put("ltvApplied", ltv.applied);
+            response.evidence.put("ltvReason", ltv.reason);
+            response.evidence.put("ltv", ltv.evidence);
             return response;
         } catch (Exception e) {
             throw new IllegalStateException("PDFBox external signing failed for signer #" + signer.order + ": " + e.getMessage(), e);
@@ -179,6 +218,118 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.message = "One or more embedded PDF signatures failed Kalkan verification.";
         }
         return response;
+    }
+
+    private LtvAugmentationResult augmentPdfWithLtvEvidence(
+        byte[] signedPdf,
+        List<SignerPayload> signers,
+        Provider provider,
+        boolean isFinal
+    ) {
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        evidence.put("mode", isFinal ? "final" : "progress");
+        if (!isFinal) {
+            evidence.put("status", "skipped");
+            evidence.put("reason", "LTV packaging is deferred until the final signed PDF.");
+            return new LtvAugmentationResult(signedPdf, false, "deferred_until_final", evidence);
+        }
+
+        try (PDDocument document = PDDocument.load(signedPdf)) {
+            List<PDSignature> signatures = document.getSignatureDictionaries();
+            if (signatures == null || signatures.isEmpty()) {
+                evidence.put("status", "skipped");
+                evidence.put("reason", "No embedded signatures found for LTV packaging.");
+                return new LtvAugmentationResult(signedPdf, false, "no_embedded_signatures", evidence);
+            }
+
+            PDDocumentCatalog catalog = document.getDocumentCatalog();
+            COSDictionary catalogDictionary = catalog.getCOSObject();
+            catalogDictionary.setNeedToBeUpdated(true);
+
+            COSDictionary dss = getOrCreateDictionaryEntry(COSDictionary.class, catalogDictionary, "DSS");
+            addExtensions(catalog);
+            COSDictionary vriBase = getOrCreateDictionaryEntry(COSDictionary.class, dss, "VRI");
+            COSArray certs = getOrCreateDictionaryEntry(COSArray.class, dss, "Certs");
+            COSArray crls = getOrCreateDictionaryEntry(COSArray.class, dss, "CRLs");
+            COSArray ocsps = getOrCreateDictionaryEntry(COSArray.class, dss, "OCSPs");
+
+            Map<String, COSStream> certMap = new LinkedHashMap<>();
+            Map<String, COSStream> crlMap = new LinkedHashMap<>();
+            Map<String, COSStream> ocspMap = new LinkedHashMap<>();
+            List<Map<String, Object>> signerEvidence = new ArrayList<>();
+
+            int count = Math.min(signatures.size(), signers == null ? 0 : signers.size());
+            for (int i = 0; i < count; i++) {
+                SignerPayload signer = signers.get(i);
+                if (signer == null || signer.rawCmsBase64 == null || signer.rawCmsBase64.isBlank()) {
+                    continue;
+                }
+                PDSignature signature = signatures.get(i);
+                byte[] cmsBytes = decodeBase64(signer.rawCmsBase64, "CMS");
+                SignerLtvEvidence signerLtv = collectSignerLtvEvidence(cmsBytes, provider);
+                signerEvidence.add(signerLtv.toMap(i + 1, signature.getSubFilter()));
+
+                COSDictionary vri = new COSDictionary();
+                vri.setDirect(false);
+                vriBase.setItem(computeVriKey(signature, signedPdf), vri);
+                vri.setNeedToBeUpdated(true);
+
+                COSArray correspondingCerts = new COSArray();
+                correspondingCerts.setNeedToBeUpdated(true);
+                for (X509Certificate certificate : signerLtv.certificates) {
+                    COSStream stream = getOrCreateCertificateStream(document, certMap, certificate);
+                    correspondingCerts.add(stream);
+                }
+                if (correspondingCerts.size() > 0) {
+                    vri.setItem(COSName.CERT, correspondingCerts);
+                }
+
+                COSArray correspondingCrls = new COSArray();
+                correspondingCrls.setNeedToBeUpdated(true);
+                for (X509CRL crl : signerLtv.crls) {
+                    COSStream stream = getOrCreateCrlStream(document, crlMap, crl);
+                    correspondingCrls.add(stream);
+                }
+                if (correspondingCrls.size() > 0) {
+                    vri.setItem(COSName.getPDFName("CRL"), correspondingCrls);
+                }
+
+                if (!signerLtv.ocspResponses.isEmpty()) {
+                    COSArray correspondingOcsps = new COSArray();
+                    correspondingOcsps.setNeedToBeUpdated(true);
+                    for (byte[] ocsp : signerLtv.ocspResponses) {
+                        COSStream stream = getOrCreateOcspStream(document, ocspMap, ocsp);
+                        correspondingOcsps.add(stream);
+                    }
+                    vri.setItem(COSName.getPDFName("OCSP"), correspondingOcsps);
+                }
+
+                vri.setDate(COSName.TU, Calendar.getInstance());
+            }
+
+            certMap.values().forEach(certs::add);
+            crlMap.values().forEach(crls::add);
+            ocspMap.values().forEach(ocsps::add);
+
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            document.saveIncremental(output);
+            evidence.put("status", "applied");
+            evidence.put("signers", signerEvidence);
+            evidence.put("certCount", certMap.size());
+            evidence.put("crlCount", crlMap.size());
+            evidence.put("ocspCount", ocspMap.size());
+            evidence.put("timestampTokenCount", signerEvidence.stream()
+                .mapToInt(item -> ((Number)item.getOrDefault("timestampTokenCount", 0)).intValue())
+                .sum());
+            evidence.put("dss", true);
+            evidence.put("vriCount", signerEvidence.size());
+            return new LtvAugmentationResult(output.toByteArray(), true, "dss_vri_with_certs_crls_ocsp", evidence);
+        } catch (Exception e) {
+            evidence.put("status", "failed");
+            evidence.put("error", rootMessage(e));
+            LOGGER.warn("LTV augmentation failed: {}", rootMessage(e));
+            return new LtvAugmentationResult(signedPdf, false, "ltv_augmentation_failed", evidence);
+        }
     }
 
     private PreparedSigningSession createSession(String sessionId, byte[] pdfBytes, String signerName, Date signingDate, SignatureSlot slot) {
@@ -310,6 +461,347 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         return item;
     }
 
+    private SignerLtvEvidence collectSignerLtvEvidence(byte[] cmsBytes, Provider provider) throws Exception {
+        SignerLtvEvidence evidence = new SignerLtvEvidence();
+        CMSSignedData cms = CMSUtil.parseAsCMS(cmsBytes);
+        List<X509Certificate> certificates = CMSUtil.getX509Certificates(cms, provider);
+        if (certificates != null) {
+            evidence.certificates.addAll(certificates);
+        }
+
+        List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
+        if (signerInfos != null) {
+            for (SignerInformation signerInformation : signerInfos) {
+                try {
+                    TimeStampToken token = CMSUtil.getTimestampToken(signerInformation, provider);
+                    if (token != null) {
+                        evidence.timestampTokens.add(token.getEncoded());
+                        evidence.timestampPresent = true;
+                        CMSSignedData tsCms = token.toCMSSignedData();
+                        List<X509Certificate> tspCerts = CMSUtil.getX509Certificates(tsCms, provider);
+                        if (tspCerts != null) {
+                            evidence.certificates.addAll(tspCerts);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // CMS may legitimately have no timestamp token.
+                }
+            }
+        }
+
+        List<X509Certificate> certificateSnapshot = new ArrayList<>(evidence.certificates);
+        for (X509Certificate certificate : certificateSnapshot) {
+            X509Certificate issuer = findIssuerCertificate(certificate, evidence.certificates, provider);
+            if (issuer == null) {
+                continue;
+            }
+            try {
+                byte[] ocspResponse = fetchOcspResponse(certificate, issuer, provider, evidence);
+                if (ocspResponse != null && ocspResponse.length > 0) {
+                    evidence.ocspResponses.add(ocspResponse);
+                }
+            } catch (Exception ex) {
+                evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": " + rootMessage(ex));
+            }
+        }
+
+        Set<String> seenCrlUrls = new LinkedHashSet<>();
+        for (X509Certificate certificate : new ArrayList<>(evidence.certificates)) {
+            try {
+                List<java.net.URL> urls = X509Util.getCrlURLs(certificate, true);
+                if (urls == null) {
+                    continue;
+                }
+                for (java.net.URL url : urls) {
+                    String key = url.toString();
+                    if (!seenCrlUrls.add(key)) {
+                        continue;
+                    }
+                    evidence.crlUrls.add(key);
+                    try {
+                        X509CRL crl = X509Util.loadX509CRL(url, provider);
+                        if (crl != null) {
+                            evidence.crls.add(crl);
+                        }
+                    } catch (Exception ex) {
+                        evidence.crlErrors.add(key + ": " + rootMessage(ex));
+                    }
+                }
+            } catch (Exception ex) {
+                evidence.crlErrors.add(certificate.getSubjectX500Principal().getName() + ": " + rootMessage(ex));
+            }
+        }
+
+        return evidence;
+    }
+
+    private X509Certificate findIssuerCertificate(X509Certificate certificate, Set<X509Certificate> certificates, Provider provider) {
+        for (X509Certificate candidate : certificates) {
+            if (candidate.equals(certificate)) {
+                continue;
+            }
+            if (!certificate.getIssuerX500Principal().equals(candidate.getSubjectX500Principal())) {
+                continue;
+            }
+            try {
+                certificate.verify(candidate.getPublicKey(), provider.getName());
+                return candidate;
+            } catch (Exception ignored) {
+                // Keep looking for a working issuer candidate.
+            }
+        }
+        return null;
+    }
+
+    private byte[] fetchOcspResponse(
+        X509Certificate certificate,
+        X509Certificate issuer,
+        Provider provider,
+        SignerLtvEvidence evidence
+    ) throws Exception {
+        String ocspUrl = extractOcspUrl(certificate);
+        if (ocspUrl == null || ocspUrl.isBlank()) {
+            return null;
+        }
+
+        evidence.ocspUrls.add(ocspUrl);
+        OCSPReq request = buildOcspRequest(certificate, issuer);
+        byte[] responseBytes = postOcspRequest(ocspUrl, request.getEncoded());
+        OCSPResp response = new OCSPResp(responseBytes);
+        if (response.getStatus() != OCSPRespStatus.SUCCESSFUL) {
+            throw new IllegalStateException("OCSP responder returned status " + response.getStatus());
+        }
+
+        Object responseObject = response.getResponseObject();
+        if (!(responseObject instanceof BasicOCSPResp basicResponse)) {
+            throw new IllegalStateException("OCSP responder did not return BasicOCSPResp.");
+        }
+
+        SingleResp[] singleResponses = basicResponse.getResponses();
+        boolean matched = false;
+        if (singleResponses != null) {
+            for (SingleResp single : singleResponses) {
+                if (single.getCertID() != null && certificate.getSerialNumber().equals(single.getCertID().getSerialNumber())) {
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (!matched) {
+            throw new IllegalStateException("OCSP response did not include the requested certificate serial number.");
+        }
+
+        try {
+            X509Certificate[] ocspCertificates = basicResponse.getCerts(provider.getName());
+            if (ocspCertificates != null) {
+                for (X509Certificate ocspCertificate : ocspCertificates) {
+                    evidence.certificates.add(ocspCertificate);
+                }
+            }
+        } catch (Exception ex) {
+            evidence.ocspErrors.add("responder certs: " + rootMessage(ex));
+        }
+
+        return response.getEncoded();
+    }
+
+    private OCSPReq buildOcspRequest(X509Certificate certificate, X509Certificate issuer) throws Exception {
+        List<String> hashAlgorithms = List.of(
+            CertificateID.HASH_SHA1,
+            CertificateID.HASH_SHA256,
+            CertificateID.HASH_GOST34311GT,
+            CertificateID.HASH_GOST34311
+        );
+
+        Exception lastError = null;
+        for (String hashAlgorithm : hashAlgorithms) {
+            try {
+                OCSPReqGenerator generator = new OCSPReqGenerator();
+                generator.addRequest(new CertificateID(hashAlgorithm, issuer, certificate.getSerialNumber()));
+                return generator.generate();
+            } catch (Exception ex) {
+                lastError = ex;
+            }
+        }
+
+        throw new IllegalStateException("Unable to build OCSP request for certificate " +
+            certificate.getSubjectX500Principal().getName() + ": " + rootMessage(lastError));
+    }
+
+    private byte[] postOcspRequest(String ocspUrl, byte[] requestBytes) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(ocspUrl).openConnection();
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(15000);
+        connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Content-Type", "application/ocsp-request");
+        connection.setRequestProperty("Accept", "application/ocsp-response");
+        connection.setRequestProperty("Content-Length", Integer.toString(requestBytes.length));
+        try (OutputStream os = connection.getOutputStream()) {
+            os.write(requestBytes);
+        }
+
+        int status = connection.getResponseCode();
+        InputStream responseStream = status >= 200 && status < 300
+            ? connection.getInputStream()
+            : connection.getErrorStream();
+        if (responseStream == null) {
+            throw new IOException("OCSP responder returned HTTP " + status + " without a response body.");
+        }
+        try (InputStream is = responseStream) {
+            byte[] response = is.readAllBytes();
+            if (status < 200 || status >= 300) {
+                throw new IOException("OCSP responder returned HTTP " + status + ".");
+            }
+            return response;
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private String extractOcspUrl(X509Certificate certificate) {
+        try {
+            byte[] extensionValue = certificate.getExtensionValue(X509Extensions.AuthorityInfoAccess.getId());
+            if (extensionValue == null || extensionValue.length == 0) {
+                return null;
+            }
+
+            try (ASN1InputStream outer = new ASN1InputStream(extensionValue)) {
+                DERObject outerObject = outer.readObject();
+                if (!(outerObject instanceof ASN1OctetString octetString)) {
+                    return null;
+                }
+                try (ASN1InputStream inner = new ASN1InputStream(octetString.getOctets())) {
+                    AuthorityInformationAccess aia = AuthorityInformationAccess.getInstance(inner.readObject());
+                    if (aia == null || aia.getAccessDescriptions() == null) {
+                        return null;
+                    }
+                    for (AccessDescription description : aia.getAccessDescriptions()) {
+                        if (description == null || !AccessDescription.id_ad_ocsp.equals(description.getAccessMethod())) {
+                            continue;
+                        }
+                        GeneralName location = description.getAccessLocation();
+                        if (location == null) {
+                            continue;
+                        }
+                        String uri = extractGeneralNameUri(location);
+                        if (uri != null && !uri.isBlank()) {
+                            return uri;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Failed to extract OCSP URL from certificate {}: {}",
+                certificate.getSubjectX500Principal().getName(), rootMessage(e));
+        }
+        return null;
+    }
+
+    private String extractGeneralNameUri(GeneralName name) {
+        if (name == null || name.getTagNo() != GeneralName.uniformResourceIdentifier) {
+            return null;
+        }
+        Object value = name.getName();
+        if (value instanceof DERIA5String ia5) {
+            return ia5.getString();
+        }
+        String raw = value != null ? value.toString() : null;
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        return raw.replaceFirst("^[0-9]+:\\s*", "");
+    }
+
+    private String computeVriKey(PDSignature signature, byte[] pdfBytes) throws Exception {
+        byte[] contents = signature.getContents(pdfBytes);
+        kz.gov.pki.kalkan.asn1.DEROctetString encodedSignature = new kz.gov.pki.kalkan.asn1.DEROctetString(contents);
+        return sha1Hex(encodedSignature.getEncoded());
+    }
+
+    private COSStream getOrCreateCertificateStream(PDDocument document, Map<String, COSStream> certMap, X509Certificate certificate)
+        throws Exception {
+        String key = certificate.getSerialNumber().toString(16) + "|" + certificate.getSubjectX500Principal().getName();
+        COSStream existing = certMap.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        COSStream stream = writeDataToStream(document, certificate.getEncoded());
+        certMap.put(key, stream);
+        return stream;
+    }
+
+    private COSStream getOrCreateCrlStream(PDDocument document, Map<String, COSStream> crlMap, X509CRL crl)
+        throws Exception {
+        String key = crl.getIssuerX500Principal().getName() + "|" + crl.getThisUpdate().getTime();
+        COSStream existing = crlMap.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        COSStream stream = writeDataToStream(document, crl.getEncoded());
+        crlMap.put(key, stream);
+        return stream;
+    }
+
+    private COSStream getOrCreateOcspStream(PDDocument document, Map<String, COSStream> ocspMap, byte[] ocsp)
+        throws Exception {
+        String key = sha256Hex(ocsp);
+        COSStream existing = ocspMap.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        COSStream stream = writeDataToStream(document, ocsp);
+        ocspMap.put(key, stream);
+        return stream;
+    }
+
+    private COSStream writeDataToStream(PDDocument document, byte[] data) throws IOException {
+        COSStream stream = document.getDocument().createCOSStream();
+        try (java.io.OutputStream os = stream.createOutputStream(COSName.FLATE_DECODE)) {
+            os.write(data);
+        }
+        stream.setNeedToBeUpdated(true);
+        return stream;
+    }
+
+    private void addExtensions(PDDocumentCatalog catalog) {
+        COSDictionary catalogDictionary = catalog.getCOSObject();
+        COSDictionary dssExtensions = new COSDictionary();
+        dssExtensions.setDirect(true);
+        catalogDictionary.setItem(COSName.getPDFName("Extensions"), dssExtensions);
+
+        COSDictionary adbeExtension = new COSDictionary();
+        adbeExtension.setDirect(true);
+        dssExtensions.setItem(COSName.getPDFName("ADBE"), adbeExtension);
+        adbeExtension.setName(COSName.getPDFName("BaseVersion"), "1.7");
+        adbeExtension.setInt(COSName.getPDFName("ExtensionLevel"), 5);
+        catalog.setVersion("1.7");
+    }
+
+    private static <T extends COSBase & COSUpdateInfo> T getOrCreateDictionaryEntry(
+        Class<T> clazz,
+        COSDictionary parent,
+        String name
+    ) throws IOException {
+        COSBase element = parent.getDictionaryObject(name);
+        if (element != null && clazz.isInstance(element)) {
+            T result = clazz.cast(element);
+            result.setNeedToBeUpdated(true);
+            return result;
+        }
+        if (element != null) {
+            throw new IOException("Element " + name + " from dictionary is not of expected type.");
+        }
+        try {
+            T result = clazz.getDeclaredConstructor().newInstance();
+            result.setDirect(false);
+            parent.setItem(COSName.getPDFName(name), result);
+            return result;
+        } catch (ReflectiveOperationException e) {
+            throw new IOException("Failed to create dictionary entry " + name, e);
+        }
+    }
+
     private Provider ensureKalkanProvider() {
         Provider provider = Security.getProvider(KalkanProvider.PROVIDER_NAME);
         if (provider != null) {
@@ -415,7 +907,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         return fallback;
     }
 
-    private String sha256Hex(byte[] bytes) {
+    private static String sha256Hex(byte[] bytes) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(bytes);
@@ -426,6 +918,20 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             return builder.toString();
         } catch (Exception e) {
             throw new IllegalStateException("Unable to compute SHA-256.", e);
+        }
+    }
+
+    private static String sha1Hex(byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            byte[] hash = digest.digest(bytes);
+            StringBuilder builder = new StringBuilder(hash.length * 2);
+            for (byte item : hash) {
+                builder.append(String.format("%02x", item));
+            }
+            return builder.toString().toUpperCase();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to compute SHA-1.", e);
         }
     }
 
@@ -474,6 +980,63 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             } catch (IOException ignored) {
                 // Best effort cleanup.
             }
+        }
+    }
+
+    private static final class LtvAugmentationResult {
+        private final byte[] pdfBytes;
+        private final boolean applied;
+        private final String reason;
+        private final Map<String, Object> evidence;
+
+        private LtvAugmentationResult(byte[] pdfBytes, boolean applied, String reason, Map<String, Object> evidence) {
+            this.pdfBytes = pdfBytes;
+            this.applied = applied;
+            this.reason = reason;
+            this.evidence = evidence;
+        }
+    }
+
+    private static final class SignerLtvEvidence {
+        private final Set<X509Certificate> certificates = new LinkedHashSet<>();
+        private final Set<X509CRL> crls = new LinkedHashSet<>();
+        private final List<byte[]> ocspResponses = new ArrayList<>();
+        private final List<byte[]> timestampTokens = new ArrayList<>();
+        private final List<String> ocspUrls = new ArrayList<>();
+        private final List<String> ocspErrors = new ArrayList<>();
+        private final List<String> crlUrls = new ArrayList<>();
+        private final List<String> crlErrors = new ArrayList<>();
+        private boolean timestampPresent = false;
+
+        private Map<String, Object> toMap(int index, String subFilter) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("index", index);
+            item.put("subFilter", subFilter);
+            item.put("certificateCount", certificates.size());
+            item.put("crlCount", crls.size());
+            item.put("ocspCount", ocspResponses.size());
+            item.put("timestampPresent", timestampPresent);
+            item.put("timestampTokenCount", timestampTokens.size());
+            if (!ocspUrls.isEmpty()) {
+                item.put("ocspUrls", new ArrayList<>(ocspUrls));
+            }
+            if (!crlUrls.isEmpty()) {
+                item.put("crlUrls", new ArrayList<>(crlUrls));
+            }
+            if (!ocspErrors.isEmpty()) {
+                item.put("ocspErrors", new ArrayList<>(ocspErrors));
+            }
+            if (!crlErrors.isEmpty()) {
+                item.put("crlErrors", new ArrayList<>(crlErrors));
+            }
+            if (!timestampTokens.isEmpty()) {
+                List<String> tokenHashes = new ArrayList<>();
+                for (byte[] token : timestampTokens) {
+                    tokenHashes.add(sha256Hex(token));
+                }
+                item.put("timestampTokenSha256", tokenHashes);
+            }
+            return item;
         }
     }
 

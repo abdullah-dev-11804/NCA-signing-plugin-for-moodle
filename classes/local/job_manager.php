@@ -71,7 +71,8 @@ class job_manager {
         string $documenttype = 'certificate',
         string $documenttitle = '',
         bool $sendnotifications = true,
-        ?int $templateprofileid = null
+        ?int $templateprofileid = null,
+        ?string $documentuuid = null
     ): int {
         global $DB;
 
@@ -87,13 +88,14 @@ class job_manager {
             'userid' => $userid,
             'courseid' => $courseid,
             'templateprofileid' => $templateprofileid,
-            'documentuuid' => $this->generate_document_uuid(),
+            'documentuuid' => $documentuuid ?: $this->generate_document_uuid(),
             'documenttype' => $this->normalise_document_type($documenttype),
             'documenttitle' => trim($documenttitle) !== '' ? trim($documenttitle) : null,
             'drafthash' => null,
             'finalhash' => null,
             'finalizerbackend' => null,
             'finalizationmanifest' => null,
+            'finalizationevidence' => null,
             'certificateurl' => $certificateurl,
             'status' => self::JOB_PENDING,
             'manualdeadline' => $now + ($manualwindowhours * HOURSECS),
@@ -142,6 +144,37 @@ class job_manager {
         }
 
         return (int)$jobid;
+    }
+
+    /**
+     * Create a document UUID before draft generation.
+     *
+     * @return string
+     */
+    public function create_document_uuid(): string {
+        return $this->generate_document_uuid();
+    }
+
+    /**
+     * Build public verification URL for a known document UUID.
+     *
+     * @param string $documentuuid
+     * @return string
+     */
+    public function build_verification_url_for_document_uuid(string $documentuuid): string {
+        global $CFG;
+
+        $documentuuid = trim($documentuuid);
+        if ($documentuuid === '') {
+            return $CFG->wwwroot;
+        }
+
+        $checksum = $this->get_verification_checksum($documentuuid);
+        $url = new \moodle_url('/local/ncasign/verify.php', [
+            'id' => $documentuuid,
+            'hash' => $checksum,
+        ]);
+        return $url->out(false);
     }
 
     /**
@@ -216,6 +249,7 @@ class job_manager {
         }
         $job->drafthash = hash('sha256', $content);
         $job->finalhash = null;
+        $job->finalizationevidence = null;
         if ($finalizationmanifest !== null) {
             $job->finalizationmanifest = json_encode($finalizationmanifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
@@ -408,6 +442,9 @@ class job_manager {
         $job->finalhash = null;
         $job->finalizerbackend = (string)($result['backend'] ?? $finalizer->get_backend_name());
         $job->finalhash = !empty($result['finalhash']) ? (string)$result['finalhash'] : null;
+        $job->finalizationevidence = !empty($result['evidence']) && is_array($result['evidence'])
+            ? json_encode($result['evidence'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            : null;
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
         return $filename;
@@ -424,6 +461,20 @@ class job_manager {
             return [];
         }
         $decoded = json_decode($job->finalizationmanifest, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Return decoded job finalization evidence.
+     *
+     * @param \stdClass $job
+     * @return array<string,mixed>
+     */
+    public function get_job_finalization_evidence(\stdClass $job): array {
+        if (empty($job->finalizationevidence) || !is_string($job->finalizationevidence)) {
+            return [];
+        }
+        $decoded = json_decode($job->finalizationevidence, true);
         return is_array($decoded) ? $decoded : [];
     }
 
@@ -620,6 +671,10 @@ class job_manager {
                 $job->status = self::JOB_FINALIZE_FAILED;
                 $job->timemodified = time();
                 $job->autosignnote = 'Final PDF was not generated after all signers completed.';
+                $job->finalizationevidence = json_encode([
+                    'status' => 'failed',
+                    'reason' => 'Final PDF was not generated after all signers completed.',
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                 $DB->update_record('local_ncasign_jobs', $job);
                 error_log('local_ncasign: final signed PDF was not generated for job ' . $jobid);
                 return;
@@ -629,6 +684,10 @@ class job_manager {
             $job->status = self::JOB_FINALIZE_FAILED;
             $job->timemodified = time();
             $job->autosignnote = 'Final PDF generation failed: ' . $e->getMessage();
+            $job->finalizationevidence = json_encode([
+                'status' => 'failed',
+                'error' => $e->getMessage(),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $DB->update_record('local_ncasign_jobs', $job);
             return;
         }

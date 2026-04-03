@@ -49,6 +49,7 @@ $summary->data = [
     [get_string('templateprofile', 'local_ncasign'), !empty($job->templateprofileid) ? (int)$job->templateprofileid : '-'],
     [get_string('finalizerbackendlabel', 'local_ncasign'), !empty($job->finalizerbackend) ? s((string)$job->finalizerbackend) : '-'],
     [get_string('finalizationnotelabel', 'local_ncasign'), !empty($job->autosignnote) ? s((string)$job->autosignnote) : '-'],
+    [get_string('finalizationevidencelabel', 'local_ncasign'), local_ncasign_render_finalization_evidence_summary($job, $manager)],
     [get_string('signaturemanifestlabel', 'local_ncasign'), local_ncasign_render_manifest_summary($job)],
     [get_string('jobdrafthash', 'local_ncasign'), !empty($job->drafthash) ? s((string)$job->drafthash) : '-'],
     [get_string('jobfinalhash', 'local_ncasign'), !empty($job->finalhash) ? s((string)$job->finalhash) : '-'],
@@ -360,4 +361,59 @@ function local_ncasign_render_manifest_summary(\stdClass $job): string {
         $parts[] = 'renderer=' . s((string)$manifest['profile_renderer']);
     }
     return $parts ? implode(', ', $parts) : '-';
+}
+
+/**
+ * Render stored finalization/LTV evidence summary.
+ *
+ * @param \stdClass $job
+ * @param \local_ncasign\local\job_manager $manager
+ * @return string
+ */
+function local_ncasign_render_finalization_evidence_summary(\stdClass $job, \local_ncasign\local\job_manager $manager): string {
+    $evidence = $manager->get_job_finalization_evidence($job);
+    if (!$evidence) {
+        return '-';
+    }
+
+    $parts = [];
+    if (!empty($evidence['status'])) {
+        $parts[] = 'status=' . s((string)$evidence['status']);
+    }
+    if (!empty($evidence['mode'])) {
+        $parts[] = 'mode=' . s((string)$evidence['mode']);
+    }
+    if (array_key_exists('dss', $evidence)) {
+        $parts[] = 'dss=' . (!empty($evidence['dss']) ? 'yes' : 'no');
+    }
+    foreach (['vriCount', 'certCount', 'crlCount', 'ocspCount', 'timestampTokenCount'] as $key) {
+        if (isset($evidence[$key])) {
+            $parts[] = $key . '=' . (int)$evidence[$key];
+        }
+    }
+    if (!empty($evidence['reason'])) {
+        $parts[] = 'reason=' . s((string)$evidence['reason']);
+    }
+    if (!empty($evidence['error'])) {
+        $parts[] = 'error=' . s((string)$evidence['error']);
+    }
+
+    if (!empty($evidence['signers']) && is_array($evidence['signers'])) {
+        $lines = [];
+        foreach ($evidence['signers'] as $signer) {
+            if (!is_array($signer)) {
+                continue;
+            }
+            $lines[] = 'signer #' . (int)($signer['index'] ?? 0)
+                . ': certs=' . (int)($signer['certificateCount'] ?? 0)
+                . ', crls=' . (int)($signer['crlCount'] ?? 0)
+                . ', ocsps=' . (int)($signer['ocspCount'] ?? 0)
+                . ', timestamps=' . (int)($signer['timestampTokenCount'] ?? 0);
+        }
+        if ($lines) {
+            $parts[] = implode(html_writer::empty_tag('br'), $lines);
+        }
+    }
+
+    return $parts ? implode(' | ', $parts) : '-';
 }
