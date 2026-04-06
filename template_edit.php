@@ -34,11 +34,27 @@ $PAGE->set_heading(get_string('templateprofileedit', 'local_ncasign'));
 if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
     $layoutconfigraw = optional_param('layoutconfig', '', PARAM_RAW);
     if (trim($layoutconfigraw) !== '') {
-        $decoded = json_decode($layoutconfigraw, true);
-        if (!is_array($decoded)) {
+        $decodedlayout = json_decode($layoutconfigraw, true);
+        if (!is_array($decodedlayout)) {
             throw new moodle_exception('templateprofilelayoutinvalid', 'local_ncasign');
         }
+        $layoutconfig = $decodedlayout;
+    } else {
+        $layoutconfig = [];
     }
+
+    $layoutconfig = local_ncasign_merge_protocol_layout_defaults($layoutconfig);
+    $layoutconfig['metadata']['clientcompanyoverride'] = trim((string)optional_param('clientcompanyoverride', '', PARAM_TEXT));
+    $layoutconfig['metadata']['sentalcompanyname'] = trim((string)optional_param('sentalcompanyname', '', PARAM_TEXT));
+    $layoutconfig['metadata']['orderdate'] = trim((string)optional_param('orderdate', '', PARAM_TEXT));
+    $layoutconfig['metadata']['ordernumber'] = trim((string)optional_param('ordernumber', '', PARAM_TEXT));
+    $layoutconfig['metadata']['protocoltype_initial_kz'] = trim((string)optional_param('protocoltype_initial_kz', '', PARAM_TEXT));
+    $layoutconfig['metadata']['protocoltype_initial_ru'] = trim((string)optional_param('protocoltype_initial_ru', '', PARAM_TEXT));
+    $layoutconfig['metadata']['protocoltype_repeat_kz'] = trim((string)optional_param('protocoltype_repeat_kz', '', PARAM_TEXT));
+    $layoutconfig['metadata']['protocoltype_repeat_ru'] = trim((string)optional_param('protocoltype_repeat_ru', '', PARAM_TEXT));
+    $layoutconfig['metadata']['status_passed'] = trim((string)optional_param('status_passed', '', PARAM_TEXT));
+    $layoutconfig['metadata']['status_failed'] = trim((string)optional_param('status_failed', '', PARAM_TEXT));
+    $persistedlayoutconfig = json_encode($layoutconfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 
     $savedid = $manager->save_profile([
         'id' => $id,
@@ -47,7 +63,7 @@ if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
         'documenttype' => required_param('documenttype', PARAM_ALPHA),
         'documenttitle' => required_param('documenttitle', PARAM_TEXT),
         'templatepath' => required_param('templatepath', PARAM_RAW_TRIMMED),
-        'layoutconfig' => $layoutconfigraw,
+        'layoutconfig' => $persistedlayoutconfig,
         'active' => optional_param('active', 0, PARAM_BOOL),
         'courseids' => optional_param('courseids', '', PARAM_RAW_TRIMMED),
         'signers' => local_ncasign_parse_template_signers(optional_param('signersraw', '', PARAM_RAW)),
@@ -63,16 +79,20 @@ $defaults = [
     'name' => '',
     'renderer' => \local_ncasign\local\document_generator::DOC_ENGINEER_PROTOCOL,
     'documenttype' => 'protocol',
-    'documenttitle' => 'Industrial Safety Protocol (Engineer)',
+    'documenttitle' => 'Industrial Safety Protocol (BiOT ITR)',
     'templatepath' => '',
-    'layoutconfigraw' => '',
+    'layoutconfigraw' => json_encode(local_ncasign_protocol_layout_defaults(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+    'layoutconfig' => local_ncasign_protocol_layout_defaults(),
     'courseids' => [],
     'signers' => [],
     'active' => 1,
 ];
 $profile = $profile ? array_merge($defaults, $profile) : $defaults;
+$profile['layoutconfig'] = local_ncasign_merge_protocol_layout_defaults(is_array($profile['layoutconfig'] ?? null) ? $profile['layoutconfig'] : []);
+$profile['layoutconfigraw'] = json_encode($profile['layoutconfig'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 $courseidscsv = $profile['courseids'] ? implode(',', array_map('intval', $profile['courseids'])) : '';
 $signersraw = local_ncasign_template_signers_to_text($profile['signers']);
+$layoutmetadata = (array)($profile['layoutconfig']['metadata'] ?? []);
 
 echo $OUTPUT->header();
 echo html_writer::link(new moodle_url('/local/ncasign/templates.php'), get_string('templateprofilesback', 'local_ncasign'));
@@ -173,6 +193,119 @@ echo html_writer::tag('p', get_string('templatesigners_desc', 'local_ncasign'));
 echo html_writer::end_div();
 
 echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateclientcompanyoverride', 'local_ncasign'), 'id_clientcompanyoverride');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'clientcompanyoverride',
+    'id' => 'id_clientcompanyoverride',
+    'value' => s((string)($layoutmetadata['clientcompanyoverride'] ?? '')),
+    'size' => 80,
+]);
+echo html_writer::tag('p', get_string('templateclientcompanyoverride_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templatesentalcompany', 'local_ncasign'), 'id_sentalcompanyname');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'sentalcompanyname',
+    'id' => 'id_sentalcompanyname',
+    'value' => s((string)($layoutmetadata['sentalcompanyname'] ?? '')),
+    'size' => 80,
+]);
+echo html_writer::tag('p', get_string('templatesentalcompany_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateorderdate', 'local_ncasign'), 'id_orderdate');
+echo html_writer::empty_tag('input', [
+    'type' => 'date',
+    'name' => 'orderdate',
+    'id' => 'id_orderdate',
+    'value' => s((string)($layoutmetadata['orderdate'] ?? '')),
+]);
+echo html_writer::tag('p', get_string('templateorderdate_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateordernumber', 'local_ncasign'), 'id_ordernumber');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'ordernumber',
+    'id' => 'id_ordernumber',
+    'value' => s((string)($layoutmetadata['ordernumber'] ?? '')),
+    'size' => 50,
+]);
+echo html_writer::tag('p', get_string('templateordernumber_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateprotocoltypeinitialkz', 'local_ncasign'), 'id_protocoltype_initial_kz');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'protocoltype_initial_kz',
+    'id' => 'id_protocoltype_initial_kz',
+    'value' => s((string)($layoutmetadata['protocoltype_initial_kz'] ?? '')),
+    'size' => 40,
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateprotocoltypeinitialru', 'local_ncasign'), 'id_protocoltype_initial_ru');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'protocoltype_initial_ru',
+    'id' => 'id_protocoltype_initial_ru',
+    'value' => s((string)($layoutmetadata['protocoltype_initial_ru'] ?? '')),
+    'size' => 40,
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateprotocoltyperepeatkz', 'local_ncasign'), 'id_protocoltype_repeat_kz');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'protocoltype_repeat_kz',
+    'id' => 'id_protocoltype_repeat_kz',
+    'value' => s((string)($layoutmetadata['protocoltype_repeat_kz'] ?? '')),
+    'size' => 40,
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateprotocoltyperepeaturu', 'local_ncasign'), 'id_protocoltype_repeat_ru');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'protocoltype_repeat_ru',
+    'id' => 'id_protocoltype_repeat_ru',
+    'value' => s((string)($layoutmetadata['protocoltype_repeat_ru'] ?? '')),
+    'size' => 40,
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templatestatuspassed', 'local_ncasign'), 'id_status_passed');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'status_passed',
+    'id' => 'id_status_passed',
+    'value' => s((string)($layoutmetadata['status_passed'] ?? '')),
+    'size' => 80,
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templatestatusfailed', 'local_ncasign'), 'id_status_failed');
+echo html_writer::empty_tag('input', [
+    'type' => 'text',
+    'name' => 'status_failed',
+    'id' => 'id_status_failed',
+    'value' => s((string)($layoutmetadata['status_failed'] ?? '')),
+    'size' => 80,
+]);
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
 echo html_writer::label(get_string('templatelayoutconfig', 'local_ncasign'), 'id_layoutconfig');
 echo html_writer::tag('textarea', s((string)$profile['layoutconfigraw']), [
     'name' => 'layoutconfig',
@@ -224,7 +357,7 @@ function local_ncasign_parse_template_signers(string $raw): array {
 
     return $signers;
 }
-''
+
 /**
  * Convert signer array to textarea format.
  *
@@ -243,4 +376,52 @@ function local_ncasign_template_signers_to_text(array $signers): string {
     }
 
     return implode("\n", $lines);
+}
+
+/**
+ * Decode layout JSON safely.
+ *
+ * @param string $raw
+ * @return array<string, mixed>
+ */
+function local_ncasign_decode_template_layout(string $raw): array {
+    if (trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * Default layout config for the finalized BiOT ITR protocol.
+ *
+ * @return array<string, mixed>
+ */
+function local_ncasign_protocol_layout_defaults(): array {
+    return [
+        'metadata' => [
+            'clientcompanyoverride' => '',
+            'sentalcompanyname' => 'ТОО "SENTAL"',
+            'orderdate' => '',
+            'ordernumber' => '',
+            'protocoltype_initial_kz' => 'бастапқы',
+            'protocoltype_initial_ru' => 'первичный',
+            'protocoltype_repeat_kz' => 'қайталама',
+            'protocoltype_repeat_ru' => 'повторный',
+            'status_passed' => 'өтті / прошел',
+            'status_failed' => 'қайта тексеруге жатады / подлежит повторной проверке знаний',
+        ],
+        'positions' => [],
+    ];
+}
+
+/**
+ * Merge stored layout with finalized protocol defaults.
+ *
+ * @param array<string, mixed> $layout
+ * @return array<string, mixed>
+ */
+function local_ncasign_merge_protocol_layout_defaults(array $layout): array {
+    return array_replace_recursive(local_ncasign_protocol_layout_defaults(), $layout);
 }

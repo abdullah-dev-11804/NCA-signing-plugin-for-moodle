@@ -142,9 +142,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             phase = "verify_embedded_signature";
             verifyEmbeddedPdfSignature(signedPdf, signer, session);
             Provider provider = ensureKalkanProvider();
-            phase = "ltv_augmentation";
-            LtvAugmentationResult ltv = augmentPdfWithLtvEvidence(signedPdf, request.signers, provider, request.isFinal);
-            signedPdf = ltv.pdfBytes;
             LOGGER.info(
                 "Embedded CMS for signer #{} field {} session {} finalPdfSha256={}",
                 signer.order,
@@ -173,9 +170,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("cmsVerifiedAgainst", "pdfbox_content_to_sign");
             response.evidence.put("contentToSignSha256", sha256Hex(session.contentToSign));
             response.evidence.put("embeddedPdfVerification", "kalkan_ok");
-            response.evidence.put("ltvApplied", ltv.applied);
-            response.evidence.put("ltvReason", ltv.reason);
-            response.evidence.put("ltv", ltv.evidence);
             return response;
         } catch (Throwable e) {
             throw new IllegalStateException(
