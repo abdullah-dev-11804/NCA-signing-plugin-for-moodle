@@ -18,6 +18,21 @@ defined('MOODLE_INTERNAL') || die();
 
 if ($hassiteconfig) {
     $settings = new admin_settingpage('local_ncasign', get_string('pluginname', 'local_ncasign'));
+    $jobspageurl = new moodle_url('/local/ncasign/index.php');
+    $templatespageurl = new moodle_url('/local/ncasign/templates.php');
+    $demojobpageurl = new moodle_url('/local/ncasign/create_demo_job.php');
+    $pagelinks = implode(' | ', [
+        html_writer::link($jobspageurl, get_string('adminjobslink', 'local_ncasign')),
+        html_writer::link($templatespageurl, get_string('admintemplateslink', 'local_ncasign')),
+        html_writer::link($demojobpageurl, get_string('admindemojoblink', 'local_ncasign')),
+    ]);
+
+    $settings->add(new admin_setting_heading(
+        'local_ncasign/adminlinksheader',
+        get_string('adminlinksheader', 'local_ncasign'),
+        get_string('adminlinksdesc', 'local_ncasign', $pagelinks)
+    ));
+
     $settings->add(new admin_setting_heading(
         'local_ncasign/header',
         get_string('settingsheader', 'local_ncasign'),
@@ -146,4 +161,22 @@ if ($hassiteconfig) {
     ));
 
     $ADMIN->add('localplugins', $settings);
+    $ADMIN->add('localplugins', new admin_externalpage(
+        'local_ncasign_jobs',
+        get_string('adminjobslink', 'local_ncasign'),
+        $jobspageurl,
+        'local/ncasign:managejobs'
+    ));
+    $ADMIN->add('localplugins', new admin_externalpage(
+        'local_ncasign_templates',
+        get_string('admintemplateslink', 'local_ncasign'),
+        $templatespageurl,
+        'local/ncasign:managejobs'
+    ));
+    $ADMIN->add('localplugins', new admin_externalpage(
+        'local_ncasign_demojob',
+        get_string('admindemojoblink', 'local_ncasign'),
+        $demojobpageurl,
+        'local/ncasign:managejobs'
+    ));
 }

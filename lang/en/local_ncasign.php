@@ -18,6 +18,11 @@ $string['pluginname'] = 'NCA Signing';
 $string['ncasign:managejobs'] = 'Manage NCA signing jobs';
 
 $string['settingsheader'] = 'NCA signing workflow';
+$string['adminlinksheader'] = 'Plugin pages';
+$string['adminlinksdesc'] = 'Open the operational pages for this plugin: {$a}';
+$string['adminjobslink'] = 'Jobs';
+$string['admintemplateslink'] = 'Template profiles';
+$string['admindemojoblink'] = 'Create demo job';
 $string['enabled'] = 'Enable plugin';
 $string['manualwindowhours'] = 'Manual signing window (hours)';
 $string['autosignenabled'] = 'Enable auto-sign fallback';
