@@ -246,39 +246,28 @@ class document_generator {
         array $signers
     ): array {
         $slots = [];
-        $margin = 6.0;
         $count = 3;
-        $slotwidth = min(40.0, max(26.0, ($pagewidth - (($count + 1) * $margin)) / $count));
-        $slotheight = 24.0;
-        $y = max($margin, $pageheight - $slotheight - $margin);
         $style = [
             'border' => 0,
             'padding' => 0,
             'fgcolor' => [0, 0, 0],
             'bgcolor' => false,
         ];
+        $qrsize = 24.0;
+        $positions = [
+            ['x' => 34.0, 'y' => 680.0],
+            ['x' => 34.0, 'y' => 718.0],
+            ['x' => 34.0, 'y' => 756.0],
+        ];
 
         for ($i = 0; $i < $count; $i++) {
-            $x = $margin + ($i * ($slotwidth + $margin));
             $signer = $signers[$i] ?? [];
-            $label = trim((string)($signer['name'] ?? ('Signer ' . ($i + 1))));
-            $position = trim((string)($signer['position'] ?? ''));
             $payload = $verifyurl !== '' ? ($verifyurl . '&signer=' . ($i + 1)) : '';
-            $qrsize = min(13.5, max(10.0, $slotwidth * 0.40));
+            $x = (float)($positions[$i]['x'] ?? max(8.0, $pagewidth - 140.0));
+            $y = min((float)($positions[$i]['y'] ?? max(8.0, $pageheight - 40.0)), $pageheight - $qrsize - 8.0);
 
-            $pdf->SetDrawColor(120, 120, 120);
-            $pdf->SetTextColor(0, 0, 0);
-            $pdf->Rect($x, $y, $slotwidth, $slotheight);
             if ($payload !== '') {
-                $pdf->write2DBarcode($payload, 'QRCODE,H', $x + 1.5, $y + 1.5, $qrsize, $qrsize, $style, 'N');
-            }
-            $this->set_document_font($pdf, 'B', 5.2);
-            $pdf->SetXY($x + $qrsize + 3, $y + 2);
-            $pdf->MultiCell(max(8.0, $slotwidth - $qrsize - 4), 4, $label, 0, 'L', false, 1);
-            if ($position !== '') {
-                $this->set_document_font($pdf, '', 4.6);
-                $pdf->SetX($x + $qrsize + 3);
-                $pdf->MultiCell(max(8.0, $slotwidth - $qrsize - 4), 3.5, $position, 0, 'L', false, 1);
+                $pdf->write2DBarcode($payload, 'QRCODE,H', $x, $y, $qrsize, $qrsize, $style, 'N');
             }
 
             $slots[] = [
@@ -286,16 +275,15 @@ class document_generator {
                 'page' => $page,
                 'x' => round($x, 2),
                 'y' => round($y, 2),
-                'w' => round($slotwidth, 2),
-                'h' => round($slotheight, 2),
-                'type' => 'qr_signature_block',
-                'label' => $label,
+                'w' => round($qrsize, 2),
+                'h' => round($qrsize, 2),
+                'type' => 'signature_qr',
+                'label' => trim((string)($signer['name'] ?? ('Signer ' . ($i + 1)))),
                 'payload' => $payload,
                 'reserved_bytes' => null,
             ];
         }
         $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetDrawColor(0, 0, 0);
 
         return $slots;
     }
@@ -439,6 +427,15 @@ class document_generator {
         if ($w <= 0 || $h <= 0) {
             return;
         }
+
+        $erasepaddingx = (float)($position['erasepadx'] ?? 2.0);
+        $erasepaddingy = (float)($position['erasepady'] ?? 1.0);
+        $erasex = max(0.0, $x - $erasepaddingx);
+        $erasey = max(0.0, $y - $erasepaddingy);
+        $erasew = $w + ($erasepaddingx * 2.0);
+        $eraseh = $h + ($erasepaddingy * 2.0);
+        $pdf->SetFillColor(255, 255, 255);
+        $pdf->Rect($erasex, $erasey, $erasew, $eraseh, 'F');
 
         $this->set_document_font($pdf, $style, $size);
         $pdf->SetXY($x, $y);
