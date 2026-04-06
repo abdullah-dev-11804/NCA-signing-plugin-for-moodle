@@ -193,6 +193,7 @@ class document_generator {
     ): void {
         $pdf->SetTextColor(0, 0, 0);
         $positions = (array)($layoutconfig['positions'] ?? []);
+        $masks = (array)($layoutconfig['placeholder_masks'] ?? []);
         $fieldmap = [
             'companyheader' => (string)($documentdata['clientcompanyname'] ?? ''),
             'protocolnumber' => (string)($documentdata['protocolnumber'] ?? ''),
@@ -221,6 +222,9 @@ class document_generator {
                 continue;
             }
 
+            if (!empty($masks[$fieldname]) && is_array($masks[$fieldname])) {
+                $this->erase_placeholder_masks($pdf, $masks[$fieldname]);
+            }
             $position = $positions[$fieldname];
             $this->write_layout_text($pdf, $position, $text);
         }
@@ -253,11 +257,11 @@ class document_generator {
             'fgcolor' => [0, 0, 0],
             'bgcolor' => false,
         ];
-        $qrsize = 24.0;
+        $qrsize = 26.0;
         $positions = [
-            ['x' => 34.0, 'y' => 680.0],
-            ['x' => 34.0, 'y' => 718.0],
-            ['x' => 34.0, 'y' => 756.0],
+            ['x' => 18.0, 'y' => 792.0],
+            ['x' => 50.0, 'y' => 792.0],
+            ['x' => 82.0, 'y' => 792.0],
         ];
 
         for ($i = 0; $i < $count; $i++) {
@@ -404,7 +408,49 @@ class document_generator {
                 'member1initials' => ['x' => 462.0, 'y' => 732.0, 'w' => 100.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.8, 'style' => ''],
                 'member2initials' => ['x' => 462.0, 'y' => 769.0, 'w' => 100.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.8, 'style' => ''],
             ],
+            'placeholder_masks' => [
+                'protocolnumber' => [[363.31, 93.61, 375.31, 106.89]],
+                'companytable' => [[252.05, 638.01, 346.35, 651.29], [248.09, 651.81, 350.23, 665.09]],
+                'companyheader' => [[173.66, 167.53, 388.99, 180.81]],
+                'issuedatekz' => [[63.86, 194.17, 186.34, 207.45]],
+                'issuedateru' => [[192.65, 194.17, 314.35, 207.45]],
+                'chairfull' => [[246.41, 245.65, 470.12, 258.93]],
+                'member1full' => [[246.41, 280.12, 493.88, 293.40]],
+                'member2full' => [[246.41, 307.72, 556.54, 321.00]],
+                'orderkz' => [[63.86, 342.28, 242.93, 355.56]],
+                'orderru' => [[192.29, 356.08, 370.99, 369.36]],
+                'protocoltypekz' => [[172.70, 452.82, 224.92, 466.10]],
+                'protocoltyperu' => [[352.99, 452.82, 409.19, 466.10]],
+                'userfullname' => [[92.18, 644.85, 205.25, 658.13]],
+                'userjobtitle' => [[363.07, 644.85, 412.51, 658.13]],
+                'completionstatus' => [[444.10, 638.01, 473.36, 651.29], [437.74, 651.81, 479.74, 665.09]],
+                'certificatenumber' => [[518.38, 638.01, 545.06, 651.29], [509.26, 651.81, 557.26, 665.09]],
+                'chairinitials' => [[469.66, 694.65, 556.02, 707.93]],
+                'member1initials' => [[462.34, 722.85, 554.70, 736.13]],
+                'member2initials' => [[479.14, 750.44, 554.58, 763.73]],
+            ],
         ];
+    }
+
+    /**
+     * Erase known placeholder spans from the source template.
+     *
+     * @param \setasign\Fpdi\Tcpdf\Fpdi $pdf
+     * @param array<int, array<int, float|int>> $masks
+     * @return void
+     */
+    private function erase_placeholder_masks(\setasign\Fpdi\Tcpdf\Fpdi $pdf, array $masks): void {
+        $pdf->SetFillColor(255, 255, 255);
+        foreach ($masks as $mask) {
+            if (!is_array($mask) || count($mask) < 4) {
+                continue;
+            }
+            $x0 = max(0.0, (float)$mask[0] - 1.5);
+            $y0 = max(0.0, (float)$mask[1] - 1.0);
+            $x1 = (float)$mask[2] + 1.5;
+            $y1 = (float)$mask[3] + 1.0;
+            $pdf->Rect($x0, $y0, max(0.0, $x1 - $x0), max(0.0, $y1 - $y0), 'F');
+        }
     }
 
     /**
@@ -427,15 +473,6 @@ class document_generator {
         if ($w <= 0 || $h <= 0) {
             return;
         }
-
-        $erasepaddingx = (float)($position['erasepadx'] ?? 2.0);
-        $erasepaddingy = (float)($position['erasepady'] ?? 1.0);
-        $erasex = max(0.0, $x - $erasepaddingx);
-        $erasey = max(0.0, $y - $erasepaddingy);
-        $erasew = $w + ($erasepaddingx * 2.0);
-        $eraseh = $h + ($erasepaddingy * 2.0);
-        $pdf->SetFillColor(255, 255, 255);
-        $pdf->Rect($erasex, $erasey, $erasew, $eraseh, 'F');
 
         $this->set_document_font($pdf, $style, $size);
         $pdf->SetXY($x, $y);
