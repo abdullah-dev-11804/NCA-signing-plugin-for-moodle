@@ -790,7 +790,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             try {
                 issuer = findIssuerCertificate(certificate, evidence.certificates, provider);
                 if (issuer == null) {
-                    issuer = fetchIssuerCertificate(certificate, provider);
+                    issuer = resolveIssuerCertificateForOcsp(certificate, provider, evidence.ocspErrors);
                     if (issuer != null) {
                         evidence.addCertificate(issuer);
                     }
@@ -800,7 +800,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 continue;
             }
             if (issuer == null) {
-                evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": issuer certificate not found in CMS bundle.");
+                evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": issuer certificate could not be resolved for OCSP.");
                 continue;
             }
             try {
@@ -1016,37 +1016,16 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
     }
 
     private X509Certificate fetchIssuerCertificate(X509Certificate certificate, Provider provider) {
-        String issuerUrl = extractCaIssuersUrl(certificate);
-        if (issuerUrl == null || issuerUrl.isBlank()) {
-            return null;
+        List<String> errors = new ArrayList<>();
+        X509Certificate issuer = resolveIssuerCertificateForOcsp(certificate, provider, errors);
+        if (issuer == null && !errors.isEmpty()) {
+            LOGGER.debug(
+                "Failed to resolve issuer certificate for {}: {}",
+                certificate.getSubjectX500Principal().getName(),
+                String.join(" | ", errors)
+            );
         }
-        try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(issuerUrl).openConnection();
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(15000);
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("Accept", "application/pkix-cert, application/x-x509-ca-cert, application/octet-stream");
-            int status = connection.getResponseCode();
-            InputStream responseStream = status >= 200 && status < 300
-                ? connection.getInputStream()
-                : connection.getErrorStream();
-            if (responseStream == null) {
-                return null;
-            }
-            try (InputStream is = responseStream) {
-                CertificateFactory factory = CertificateFactory.getInstance("X.509");
-                Object generated = factory.generateCertificate(is);
-                if (generated instanceof X509Certificate issuerCertificate) {
-                    return issuerCertificate;
-                }
-            } finally {
-                connection.disconnect();
-            }
-        } catch (Throwable e) {
-            LOGGER.debug("Failed to fetch issuer certificate from AIA for {}: {}",
-                certificate.getSubjectX500Principal().getName(), rootMessage(e));
-        }
-        return null;
+        return issuer;
     }
 
     private String extractGeneralNameUri(GeneralName name) {
