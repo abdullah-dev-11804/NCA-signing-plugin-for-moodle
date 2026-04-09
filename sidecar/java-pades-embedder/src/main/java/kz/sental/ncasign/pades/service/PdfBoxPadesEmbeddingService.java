@@ -432,11 +432,8 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             item.put("cmsSha256", sha256Hex(embeddedCms));
             item.put("cmsLength", embeddedCms.length);
 
-            // Keep verify endpoint focused on cryptographic signature + TSA proof.
-            // Online OCSP fetching is intentionally skipped here so network/revocation
-            // lookup issues cannot break the engineer verification workflow.
-            SignerLtvEvidence cmsEvidence = collectSignerEvidence(embeddedCms, provider, false);
-            item.putAll(cmsEvidence.toVerificationMap());
+            Map<String, Object> timestampEvidence = extractTimestampEvidence(embeddedCms, provider);
+            item.putAll(timestampEvidence);
             LOGGER.info(
                 "Verified embedded signature #{} field {} cmsSha256={} signedContentSha256={}",
                 index,
@@ -453,6 +450,92 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 "Signature" + index,
                 rootMessage(e)
             );
+        }
+
+        return item;
+    }
+
+    private Map<String, Object> extractTimestampEvidence(byte[] cmsBytes, Provider provider) throws Exception {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("timestampPresent", false);
+        item.put("timestampTokenCount", 0);
+        item.put("ocspCount", 0);
+
+        CMSSignedData cms = CMSUtil.parseAsCMS(cmsBytes);
+
+        try {
+            List<X509Certificate> signerCertificates = CMSUtil.getSignerCertificates(cms, provider);
+            if (signerCertificates != null && !signerCertificates.isEmpty()) {
+                X509Certificate signerCertificate = signerCertificates.get(0);
+                item.put("certificateSubjectDn", signerCertificate.getSubjectX500Principal().getName());
+                item.put("certificateIssuerDn", signerCertificate.getIssuerX500Principal().getName());
+                item.put("certificateSerialNumber", signerCertificate.getSerialNumber().toString());
+                item.put("certificateNotBefore", signerCertificate.getNotBefore().toInstant().toString());
+                item.put("certificateNotAfter", signerCertificate.getNotAfter().toInstant().toString());
+            }
+        } catch (Throwable e) {
+            item.put("certificateInfoError", rootMessage(e));
+        }
+
+        List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
+        if (signerInfos == null || signerInfos.isEmpty()) {
+            return item;
+        }
+
+        List<String> tokenHashes = new ArrayList<>();
+        List<String> genTimes = new ArrayList<>();
+        List<String> authorities = new ArrayList<>();
+        List<String> timestampErrors = new ArrayList<>();
+
+        for (SignerInformation signerInformation : signerInfos) {
+            try {
+                TimeStampToken token = CMSUtil.getTimestampToken(signerInformation, provider);
+                if (token == null) {
+                    continue;
+                }
+
+                byte[] encoded = token.getEncoded();
+                tokenHashes.add(sha256Hex(encoded));
+                try {
+                    Date genTime = token.getTimeStampInfo().getGenTime();
+                    if (genTime != null) {
+                        genTimes.add(genTime.toInstant().toString());
+                    }
+                } catch (Throwable e) {
+                    timestampErrors.add("genTime: " + rootMessage(e));
+                }
+
+                try {
+                    CMSSignedData tsCms = token.toCMSSignedData();
+                    List<X509Certificate> tspSignerCerts = CMSUtil.getSignerCertificates(tsCms, provider);
+                    if (tspSignerCerts != null) {
+                        for (X509Certificate tspSignerCert : tspSignerCerts) {
+                            authorities.add(tspSignerCert.getSubjectX500Principal().getName());
+                        }
+                    }
+                } catch (Throwable e) {
+                    timestampErrors.add("authority: " + rootMessage(e));
+                }
+            } catch (Throwable e) {
+                timestampErrors.add(rootMessage(e));
+            }
+        }
+
+        item.put("timestampPresent", !tokenHashes.isEmpty());
+        item.put("timestampTokenCount", tokenHashes.size());
+        if (!tokenHashes.isEmpty()) {
+            item.put("timestampTokenSha256", tokenHashes);
+        }
+        if (!genTimes.isEmpty()) {
+            item.put("timestampGenTimes", genTimes);
+            item.put("timestampGenTime", genTimes.get(0));
+        }
+        if (!authorities.isEmpty()) {
+            item.put("timestampAuthorities", authorities);
+            item.put("timestampAuthority", authorities.get(0));
+        }
+        if (!timestampErrors.isEmpty()) {
+            item.put("timestampErrors", timestampErrors);
         }
 
         return item;
