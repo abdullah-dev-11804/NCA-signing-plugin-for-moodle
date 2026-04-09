@@ -561,10 +561,22 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             return evidence;
         }
 
-        List<X509Certificate> certificateSnapshot = new ArrayList<>(evidence.certificates);
-        for (X509Certificate certificate : certificateSnapshot) {
-            X509Certificate issuer = findIssuerCertificate(certificate, evidence.certificates, provider);
+        // OCSP evidence is required for the signer certificate at signing time.
+        // Do not recursively chase every cert bundled in CMS/TSA material here.
+        List<X509Certificate> ocspTargets = signerCertificates != null && !signerCertificates.isEmpty()
+            ? new ArrayList<>(signerCertificates)
+            : new ArrayList<>();
+
+        for (X509Certificate certificate : ocspTargets) {
+            X509Certificate issuer;
+            try {
+                issuer = findIssuerCertificate(certificate, evidence.certificates, provider);
+            } catch (Throwable ex) {
+                evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": issuer lookup failed: " + rootMessage(ex));
+                continue;
+            }
             if (issuer == null) {
+                evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": issuer certificate not found in CMS bundle.");
                 continue;
             }
             try {
@@ -572,7 +584,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 if (ocspResponse != null && ocspResponse.length > 0) {
                     evidence.ocspResponses.add(ocspResponse);
                 }
-            } catch (Exception ex) {
+            } catch (Throwable ex) {
                 evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": " + rootMessage(ex));
             }
         }
@@ -595,11 +607,11 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                         if (crl != null) {
                             evidence.addCrl(crl);
                         }
-                    } catch (Exception ex) {
+                    } catch (Throwable ex) {
                         evidence.crlErrors.add(key + ": " + rootMessage(ex));
                     }
                 }
-            } catch (Exception ex) {
+            } catch (Throwable ex) {
                 evidence.crlErrors.add(certificate.getSubjectX500Principal().getName() + ": " + rootMessage(ex));
             }
         }
@@ -618,7 +630,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             try {
                 certificate.verify(candidate.getPublicKey(), provider.getName());
                 return candidate;
-            } catch (Exception ignored) {
+            } catch (Throwable ignored) {
                 // Keep looking for a working issuer candidate.
             }
         }
@@ -691,7 +703,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                     evidence.addCertificate(ocspCertificate);
                 }
             }
-        } catch (Exception ex) {
+        } catch (Throwable ex) {
             evidence.ocspErrors.add("responder certs: " + rootMessage(ex));
         }
 
