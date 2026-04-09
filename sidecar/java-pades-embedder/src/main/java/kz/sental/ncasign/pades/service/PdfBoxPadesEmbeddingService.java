@@ -495,7 +495,198 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         Provider provider,
         boolean includeOnlineRevocationEvidence
     ) throws Exception {
-        return collectSignerEvidence(cmsBytes, provider, includeOnlineRevocationEvidence).toVerificationMap();
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("timestampPresent", false);
+        item.put("timestampTokenCount", 0);
+        item.put("ocspCount", 0);
+        item.put("ocspResponseCount", 0);
+        item.put("certificateCount", 0);
+        item.put("crlCount", 0);
+
+        CMSSignedData cms = CMSUtil.parseAsCMS(cmsBytes);
+
+        X509Certificate signerCertificate = null;
+        try {
+            List<X509Certificate> signerCertificates = CMSUtil.getSignerCertificates(cms, provider);
+            if (signerCertificates != null && !signerCertificates.isEmpty()) {
+                signerCertificate = signerCertificates.get(0);
+                item.put("certificateCount", signerCertificates.size());
+                item.put("certificateSubjectDn", signerCertificate.getSubjectX500Principal().getName());
+                item.put("certificateIssuerDn", signerCertificate.getIssuerX500Principal().getName());
+                item.put("certificateSerialNumber", signerCertificate.getSerialNumber().toString());
+                item.put("certificateNotBefore", signerCertificate.getNotBefore().toInstant().toString());
+                item.put("certificateNotAfter", signerCertificate.getNotAfter().toInstant().toString());
+            }
+        } catch (Throwable ex) {
+            item.put("certificateInfoError", rootMessage(ex));
+        }
+
+        List<String> timestampErrors = new ArrayList<>();
+        try {
+            List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
+            if (signerInfos != null) {
+                List<String> tokenHashes = new ArrayList<>();
+                List<String> genTimes = new ArrayList<>();
+                List<String> authorities = new ArrayList<>();
+                for (SignerInformation signerInformation : signerInfos) {
+                    try {
+                        TimeStampToken token = CMSUtil.getTimestampToken(signerInformation, provider);
+                        if (token == null) {
+                            continue;
+                        }
+                        tokenHashes.add(sha256Hex(token.getEncoded()));
+                        try {
+                            Date genTime = token.getTimeStampInfo().getGenTime();
+                            if (genTime != null) {
+                                genTimes.add(genTime.toInstant().toString());
+                            }
+                        } catch (Throwable ex) {
+                            timestampErrors.add("genTime: " + rootMessage(ex));
+                        }
+                        try {
+                            CMSSignedData tsCms = token.toCMSSignedData();
+                            List<X509Certificate> tspSignerCerts = CMSUtil.getSignerCertificates(tsCms, provider);
+                            if (tspSignerCerts != null) {
+                                for (X509Certificate tspSignerCert : tspSignerCerts) {
+                                    authorities.add(tspSignerCert.getSubjectX500Principal().getName());
+                                }
+                            }
+                        } catch (Throwable ex) {
+                            timestampErrors.add("timestamp authority: " + rootMessage(ex));
+                        }
+                    } catch (Throwable ex) {
+                        timestampErrors.add(rootMessage(ex));
+                    }
+                }
+
+                item.put("timestampPresent", !tokenHashes.isEmpty());
+                item.put("timestampTokenCount", tokenHashes.size());
+                if (!tokenHashes.isEmpty()) {
+                    item.put("timestampTokenSha256", tokenHashes);
+                }
+                if (!genTimes.isEmpty()) {
+                    item.put("timestampGenTimes", genTimes);
+                    item.put("timestampGenTime", genTimes.get(0));
+                }
+                if (!authorities.isEmpty()) {
+                    item.put("timestampAuthorities", authorities);
+                    item.put("timestampAuthority", authorities.get(0));
+                }
+            }
+        } catch (Throwable ex) {
+            timestampErrors.add("signer infos: " + rootMessage(ex));
+        }
+        if (!timestampErrors.isEmpty()) {
+            item.put("timestampErrors", timestampErrors);
+        }
+
+        if (!includeOnlineRevocationEvidence || signerCertificate == null) {
+            return item;
+        }
+
+        List<String> ocspErrors = new ArrayList<>();
+        try {
+            X509Certificate issuer = resolveIssuerCertificateForOcsp(signerCertificate, provider, ocspErrors);
+            if (issuer == null) {
+                ocspErrors.add(signerCertificate.getSubjectX500Principal().getName() + ": issuer certificate could not be resolved for OCSP.");
+                item.put("ocspCount", 0);
+                item.put("ocspResponseCount", 0);
+            } else {
+                SignerLtvEvidence evidence = new SignerLtvEvidence();
+                byte[] ocspResponse = fetchOcspResponse(signerCertificate, issuer, provider, evidence);
+                if (ocspResponse != null && ocspResponse.length > 0) {
+                    item.put("ocspCount", 1);
+                    item.put("ocspResponseCount", 1);
+                    item.put("ocspUrls", new ArrayList<>(evidence.ocspUrls));
+                    item.put("ocspDetails", new ArrayList<>(evidence.ocspDetails));
+                    item.put("ocspResponseSha256", List.of(sha256Hex(ocspResponse)));
+                }
+                if (!evidence.ocspErrors.isEmpty()) {
+                    ocspErrors.addAll(evidence.ocspErrors);
+                }
+            }
+        } catch (Throwable ex) {
+            ocspErrors.add(rootMessage(ex));
+        }
+        if (!ocspErrors.isEmpty()) {
+            item.put("ocspErrors", ocspErrors);
+        }
+
+        return item;
+    }
+
+    private X509Certificate resolveIssuerCertificateForOcsp(
+        X509Certificate certificate,
+        Provider provider,
+        List<String> errors
+    ) {
+        try {
+            String issuerUrl = extractCaIssuersUrl(certificate);
+            if (issuerUrl != null && !issuerUrl.isBlank()) {
+                X509Certificate issuer = fetchCertificateFromUrl(issuerUrl);
+                if (issuer != null) {
+                    return issuer;
+                }
+                errors.add("AIA caIssuers fetch failed: " + issuerUrl);
+            } else {
+                errors.add("AIA caIssuers URL not present.");
+            }
+        } catch (Throwable ex) {
+            errors.add("AIA caIssuers resolution failed: " + rootMessage(ex));
+        }
+
+        for (String fallbackUrl : guessIssuerFallbackUrls(certificate)) {
+            try {
+                X509Certificate issuer = fetchCertificateFromUrl(fallbackUrl);
+                if (issuer != null) {
+                    errors.add("Issuer certificate resolved via fallback URL: " + fallbackUrl);
+                    return issuer;
+                }
+            } catch (Throwable ex) {
+                errors.add("Issuer fallback failed for " + fallbackUrl + ": " + rootMessage(ex));
+            }
+        }
+        return null;
+    }
+
+    private List<String> guessIssuerFallbackUrls(X509Certificate certificate) {
+        List<String> urls = new ArrayList<>();
+        String issuerDn = certificate.getIssuerX500Principal().getName();
+        if (issuerDn.contains("GOST") && issuerDn.contains("TEST 2022")) {
+            urls.add("http://test.pki.gov.kz/cert/nca_gost2022_test.cer");
+        }
+        if (issuerDn.contains("GOST") && issuerDn.contains("2022") && !issuerDn.contains("TEST")) {
+            urls.add("http://pki.gov.kz/cert/nca_gost2022.cer");
+        }
+        return urls;
+    }
+
+    private X509Certificate fetchCertificateFromUrl(String certificateUrl) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(certificateUrl).openConnection();
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(15000);
+        connection.setRequestMethod("GET");
+        connection.setRequestProperty("Accept", "application/pkix-cert, application/x-x509-ca-cert, application/octet-stream");
+        int status = connection.getResponseCode();
+        InputStream responseStream = status >= 200 && status < 300
+            ? connection.getInputStream()
+            : connection.getErrorStream();
+        if (responseStream == null) {
+            throw new IOException("Certificate URL returned HTTP " + status + " without a response body.");
+        }
+        try (InputStream is = responseStream) {
+            if (status < 200 || status >= 300) {
+                throw new IOException("Certificate URL returned HTTP " + status + ".");
+            }
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            Object generated = factory.generateCertificate(is);
+            if (generated instanceof X509Certificate issuerCertificate) {
+                return issuerCertificate;
+            }
+            return null;
+        } finally {
+            connection.disconnect();
+        }
     }
 
     private SignerLtvEvidence collectSignerLtvEvidence(byte[] cmsBytes, Provider provider) throws Exception {
