@@ -503,24 +503,46 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
 
     private SignerLtvEvidence collectSignerEvidence(byte[] cmsBytes, Provider provider, boolean includeOnlineRevocationEvidence) throws Exception {
         SignerLtvEvidence evidence = new SignerLtvEvidence();
-        CMSSignedData cms = CMSUtil.parseAsCMS(cmsBytes);
-        List<X509Certificate> allCertificates = CMSUtil.getX509Certificates(cms, provider);
-        if (allCertificates != null) {
-            for (X509Certificate certificate : allCertificates) {
-                evidence.addCertificate(certificate);
-            }
-        }
-        List<X509Certificate> signerCertificates = CMSUtil.getSignerCertificates(cms, provider);
-        if (signerCertificates != null && !signerCertificates.isEmpty()) {
-            X509Certificate signerCertificate = signerCertificates.get(0);
-            evidence.signerSubjectDn = signerCertificate.getSubjectX500Principal().getName();
-            evidence.signerIssuerDn = signerCertificate.getIssuerX500Principal().getName();
-            evidence.signerSerialNumber = signerCertificate.getSerialNumber().toString();
-            evidence.signerNotBefore = signerCertificate.getNotBefore().toInstant().toString();
-            evidence.signerNotAfter = signerCertificate.getNotAfter().toInstant().toString();
+        CMSSignedData cms;
+        try {
+            cms = CMSUtil.parseAsCMS(cmsBytes);
+        } catch (Throwable ex) {
+            throw new IllegalStateException("Unable to parse CMS for signer evidence: " + rootMessage(ex), ex);
         }
 
-        List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
+        List<X509Certificate> allCertificates = null;
+        try {
+            allCertificates = CMSUtil.getX509Certificates(cms, provider);
+            if (allCertificates != null) {
+                for (X509Certificate certificate : allCertificates) {
+                    evidence.addCertificate(certificate);
+                }
+            }
+        } catch (Throwable ex) {
+            evidence.ocspErrors.add("certificate bundle: " + rootMessage(ex));
+        }
+
+        List<X509Certificate> signerCertificates = null;
+        try {
+            signerCertificates = CMSUtil.getSignerCertificates(cms, provider);
+            if (signerCertificates != null && !signerCertificates.isEmpty()) {
+                X509Certificate signerCertificate = signerCertificates.get(0);
+                evidence.signerSubjectDn = signerCertificate.getSubjectX500Principal().getName();
+                evidence.signerIssuerDn = signerCertificate.getIssuerX500Principal().getName();
+                evidence.signerSerialNumber = signerCertificate.getSerialNumber().toString();
+                evidence.signerNotBefore = signerCertificate.getNotBefore().toInstant().toString();
+                evidence.signerNotAfter = signerCertificate.getNotAfter().toInstant().toString();
+            }
+        } catch (Throwable ex) {
+            evidence.ocspErrors.add("signer certificate: " + rootMessage(ex));
+        }
+
+        List<SignerInformation> signerInfos = null;
+        try {
+            signerInfos = CMSUtil.getSignerInformations(cms);
+        } catch (Throwable ex) {
+            evidence.timestampErrors.add("signer infos: " + rootMessage(ex));
+        }
         if (signerInfos != null) {
             for (SignerInformation signerInformation : signerInfos) {
                 try {
@@ -533,25 +555,29 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                             if (genTime != null) {
                                 evidence.timestampGenTimes.add(genTime.toInstant().toString());
                             }
-                        } catch (Exception ignored) {
+                        } catch (Throwable ignored) {
                             // Keep timestamp token presence even if genTime is unavailable.
                         }
-                        CMSSignedData tsCms = token.toCMSSignedData();
-                        List<X509Certificate> tspSignerCerts = CMSUtil.getSignerCertificates(tsCms, provider);
-                        if (tspSignerCerts != null) {
-                            for (X509Certificate tspSignerCert : tspSignerCerts) {
-                                evidence.timestampAuthorities.add(tspSignerCert.getSubjectX500Principal().getName());
-                                evidence.addCertificate(tspSignerCert);
+                        try {
+                            CMSSignedData tsCms = token.toCMSSignedData();
+                            List<X509Certificate> tspSignerCerts = CMSUtil.getSignerCertificates(tsCms, provider);
+                            if (tspSignerCerts != null) {
+                                for (X509Certificate tspSignerCert : tspSignerCerts) {
+                                    evidence.timestampAuthorities.add(tspSignerCert.getSubjectX500Principal().getName());
+                                    evidence.addCertificate(tspSignerCert);
+                                }
                             }
-                        }
-                        List<X509Certificate> tspCerts = CMSUtil.getX509Certificates(tsCms, provider);
-                        if (tspCerts != null) {
-                            for (X509Certificate tspCert : tspCerts) {
-                                evidence.addCertificate(tspCert);
+                            List<X509Certificate> tspCerts = CMSUtil.getX509Certificates(tsCms, provider);
+                            if (tspCerts != null) {
+                                for (X509Certificate tspCert : tspCerts) {
+                                    evidence.addCertificate(tspCert);
+                                }
                             }
+                        } catch (Throwable ex) {
+                            evidence.timestampErrors.add("timestamp authority: " + rootMessage(ex));
                         }
                     }
-                } catch (Exception ex) {
+                } catch (Throwable ex) {
                     evidence.timestampErrors.add(rootMessage(ex));
                 }
             }
@@ -586,33 +612,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 }
             } catch (Throwable ex) {
                 evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": " + rootMessage(ex));
-            }
-        }
-
-        Set<String> seenCrlUrls = new LinkedHashSet<>();
-        for (X509Certificate certificate : new ArrayList<>(evidence.certificates)) {
-            try {
-                List<java.net.URL> urls = X509Util.getCrlURLs(certificate, true);
-                if (urls == null) {
-                    continue;
-                }
-                for (java.net.URL url : urls) {
-                    String key = url.toString();
-                    if (!seenCrlUrls.add(key)) {
-                        continue;
-                    }
-                    evidence.crlUrls.add(key);
-                    try {
-                        X509CRL crl = X509Util.loadX509CRL(url, provider);
-                        if (crl != null) {
-                            evidence.addCrl(crl);
-                        }
-                    } catch (Throwable ex) {
-                        evidence.crlErrors.add(key + ": " + rootMessage(ex));
-                    }
-                }
-            } catch (Throwable ex) {
-                evidence.crlErrors.add(certificate.getSubjectX500Principal().getName() + ": " + rootMessage(ex));
             }
         }
 
