@@ -405,10 +405,6 @@ class job_manager {
         if ($signedcontent === '') {
             return null;
         }
-        if (!empty($result['signerevidence']) && is_array($result['signerevidence'])) {
-            $this->apply_sidecar_signer_evidence($jobid, $result['signerevidence']);
-        }
-
         $context = \context_system::instance();
         $fs = get_file_storage();
         $filename = (string)($result['filename'] ?? ($isfinal ? "signed_final_job_{$jobid}.pdf" : "signed_progress_job_{$jobid}.pdf"));
@@ -452,6 +448,16 @@ class job_manager {
             : null;
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
+
+        try {
+            $verification = $finalizer->verify_pdf($signedcontent, $filename);
+            if (!empty($verification['signatures']) && is_array($verification['signatures'])) {
+                $this->apply_sidecar_signer_evidence($jobid, $verification['signatures']);
+            }
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: failed to persist Kalkan verification evidence for signed PDF artifact: ' . $e->getMessage());
+        }
+
         return $filename;
     }
 
@@ -481,6 +487,12 @@ class job_manager {
                 $signer = $DB->get_record('local_ncasign_signers', [
                     'jobid' => $jobid,
                     'signorder' => (int)$item['order'],
+                ], '*', IGNORE_MISSING);
+            }
+            if (!$signer && !empty($item['index'])) {
+                $signer = $DB->get_record('local_ncasign_signers', [
+                    'jobid' => $jobid,
+                    'signorder' => (int)$item['index'],
                 ], '*', IGNORE_MISSING);
             }
             if (!$signer) {
@@ -513,9 +525,6 @@ class job_manager {
                 'tokenSha256' => !empty($item['timestampTokenSha256']) && is_array($item['timestampTokenSha256'])
                     ? array_values($item['timestampTokenSha256'])
                     : [],
-                'tokenBase64' => !empty($item['timestampTokenBase64']) && is_array($item['timestampTokenBase64'])
-                    ? array_values($item['timestampTokenBase64'])
-                    : [],
                 'verifiedBy' => 'Kalkan',
             ];
             if (!empty($item['timestampGenTimes']) && is_array($item['timestampGenTimes'])) {
@@ -534,9 +543,6 @@ class job_manager {
                 'details' => !empty($item['ocspDetails']) && is_array($item['ocspDetails']) ? array_values($item['ocspDetails']) : [],
                 'responseSha256' => !empty($item['ocspResponseSha256']) && is_array($item['ocspResponseSha256'])
                     ? array_values($item['ocspResponseSha256'])
-                    : [],
-                'responseBase64' => !empty($item['ocspResponseBase64']) && is_array($item['ocspResponseBase64'])
-                    ? array_values($item['ocspResponseBase64'])
                     : [],
                 'verifiedBy' => 'Kalkan',
             ];

@@ -141,8 +141,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             byte[] signedPdf = session.output.toByteArray();
             phase = "verify_embedded_signature";
             verifyEmbeddedPdfSignature(signedPdf, signer, session);
-            Provider provider = ensureKalkanProvider();
-            List<Map<String, Object>> signerEvidence = collectFinalizeSignerEvidence(request.signers, provider);
             LOGGER.info(
                 "Embedded CMS for signer #{} field {} session {} finalPdfSha256={}",
                 signer.order,
@@ -171,15 +169,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("cmsVerifiedAgainst", "pdfbox_content_to_sign");
             response.evidence.put("contentToSignSha256", sha256Hex(session.contentToSign));
             response.evidence.put("embeddedPdfVerification", "kalkan_ok");
-            response.evidence.put("timestampTokenCount", signerEvidence.stream()
-                .mapToInt(item -> ((Number)item.getOrDefault("timestampTokenCount", 0)).intValue())
-                .sum());
-            response.evidence.put("ocspCount", signerEvidence.stream()
-                .mapToInt(item -> ((Number)item.getOrDefault("ocspCount", 0)).intValue())
-                .sum());
-            response.evidence.put("timestampPresent", signerEvidence.stream()
-                .anyMatch(item -> Boolean.TRUE.equals(item.get("timestampPresent"))));
-            response.signerEvidence = signerEvidence;
             return response;
         } catch (Throwable e) {
             throw new IllegalStateException(
@@ -443,7 +432,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             item.put("cmsSha256", sha256Hex(embeddedCms));
             item.put("cmsLength", embeddedCms.length);
 
-            SignerLtvEvidence cmsEvidence = collectSignerEvidence(embeddedCms, provider, false);
+            SignerLtvEvidence cmsEvidence = collectSignerEvidence(embeddedCms, provider, true);
             item.putAll(cmsEvidence.toVerificationMap());
             LOGGER.info(
                 "Verified embedded signature #{} field {} cmsSha256={} signedContentSha256={}",
@@ -464,36 +453,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         }
 
         return item;
-    }
-
-    private List<Map<String, Object>> collectFinalizeSignerEvidence(List<SignerPayload> signers, Provider provider) {
-        List<Map<String, Object>> items = new ArrayList<>();
-        if (signers == null) {
-            return items;
-        }
-
-        for (SignerPayload signer : signers) {
-            if (signer == null || signer.rawCmsBase64 == null || signer.rawCmsBase64.isBlank()) {
-                continue;
-            }
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("signerRecordId", signer.signerRecordId);
-            item.put("order", signer.order);
-            item.put("name", signer.name);
-            item.put("email", signer.email);
-            item.put("position", signer.position);
-            try {
-                byte[] cmsBytes = decodeBase64(signer.rawCmsBase64, "CMS");
-                item.put("cmsSha256", sha256Hex(cmsBytes));
-                SignerLtvEvidence evidence = collectSignerEvidence(cmsBytes, provider, true);
-                item.putAll(evidence.toPersistenceMap());
-            } catch (Exception ex) {
-                item.put("valid", false);
-                item.put("error", rootMessage(ex));
-            }
-            items.add(item);
-        }
-        return items;
     }
 
     private SignerLtvEvidence collectSignerLtvEvidence(byte[] cmsBytes, Provider provider) throws Exception {
@@ -1232,24 +1191,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             return item;
         }
 
-        private Map<String, Object> toPersistenceMap() {
-            Map<String, Object> item = toVerificationMap();
-            if (!timestampTokens.isEmpty()) {
-                List<String> tokenBase64 = new ArrayList<>();
-                for (byte[] token : timestampTokens) {
-                    tokenBase64.add(Base64.getEncoder().encodeToString(token));
-                }
-                item.put("timestampTokenBase64", tokenBase64);
-            }
-            if (!ocspResponses.isEmpty()) {
-                List<String> responseBase64 = new ArrayList<>();
-                for (byte[] response : ocspResponses) {
-                    responseBase64.add(Base64.getEncoder().encodeToString(response));
-                }
-                item.put("ocspResponseBase64", responseBase64);
-            }
-            return item;
-        }
     }
 
     private record SignatureSlot(String fieldName) { }
