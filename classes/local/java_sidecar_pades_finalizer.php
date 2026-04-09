@@ -160,13 +160,14 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
      * @param string $filename
      * @return array<string,mixed>
      */
-    public function verify_pdf(string $pdfbytes, string $filename = ''): array {
+    public function verify_pdf(string $pdfbytes, string $filename = '', bool $includeonlinerevocationevidence = false): array {
         if ($pdfbytes === '') {
             throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'No PDF bytes were provided for verification.');
         }
         return $this->post_json('/api/v1/pades/verify', [
             'pdfBase64' => base64_encode($pdfbytes),
             'filename' => $filename,
+            'includeOnlineRevocationEvidence' => $includeonlinerevocationevidence,
         ]);
     }
 

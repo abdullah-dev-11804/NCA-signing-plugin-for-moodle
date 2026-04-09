@@ -23,10 +23,12 @@ require_once($CFG->libdir . '/clilib.php');
     [
         'help' => false,
         'file' => null,
+        'include-ocsp' => false,
     ],
     [
         'h' => 'help',
         'f' => 'file',
+        'o' => 'include-ocsp',
     ]
 );
 
@@ -34,7 +36,8 @@ if (!empty($options['help']) || !empty($unrecognized) || empty($options['file'])
     $help = "Verify an embedded signed PDF using the Java PAdES sidecar + Kalkan\n\n"
         . "Options:\n"
         . "-h, --help           Print this help\n"
-        . "-f, --file=PATH      Absolute or relative path to the signed PDF\n";
+        . "-f, --file=PATH      Absolute or relative path to the signed PDF\n"
+        . "-o, --include-ocsp   Include online OCSP fetching in verification\n";
     cli_writeln($help);
     exit(empty($options['help']) ? 1 : 0);
 }
@@ -50,7 +53,7 @@ if ($pdfbytes === false || $pdfbytes === '') {
 }
 
 $backend = new \local_ncasign\local\java_sidecar_pades_finalizer();
-$result = $backend->verify_pdf($pdfbytes, basename($filepath));
+$result = $backend->verify_pdf($pdfbytes, basename($filepath), !empty($options['include-ocsp']));
 
 cli_writeln(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 exit(0);

@@ -450,7 +450,7 @@ class job_manager {
         $DB->update_record('local_ncasign_jobs', $job);
 
         try {
-            $verification = $finalizer->verify_pdf($signedcontent, $filename);
+            $verification = $finalizer->verify_pdf($signedcontent, $filename, true);
             if (!empty($verification['signatures']) && is_array($verification['signatures'])) {
                 $this->apply_sidecar_signer_evidence($jobid, $verification['signatures']);
             }

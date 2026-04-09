@@ -184,6 +184,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
     public PadesVerifyResponse verifySignedPdf(PadesVerifyRequest request) {
         byte[] pdfBytes = decodeBase64(request.pdfBase64, "PDF");
         Provider provider = ensureKalkanProvider();
+        boolean includeOnlineRevocationEvidence = Boolean.TRUE.equals(request.includeOnlineRevocationEvidence);
         PadesVerifyResponse response = new PadesVerifyResponse();
         response.status = "ok";
         response.message = "Verified embedded PDF signatures with Kalkan";
@@ -202,7 +203,13 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
 
             int index = 1;
             for (PDSignature signature : signatures) {
-                Map<String, Object> item = verifyEmbeddedSignature(pdfBytes, signature, index, provider);
+                Map<String, Object> item = verifyEmbeddedSignature(
+                    pdfBytes,
+                    signature,
+                    index,
+                    provider,
+                    includeOnlineRevocationEvidence
+                );
                 response.signatures.add(item);
                 if (!Boolean.TRUE.equals(item.get("valid"))) {
                     response.allValid = false;
@@ -216,6 +223,10 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         response.evidence.put("provider", KalkanProvider.PROVIDER_NAME);
         response.evidence.put("pdfSha256", response.pdfSha256);
         response.evidence.put("signatureCount", response.signatureCount);
+        response.evidence.put("includeOnlineRevocationEvidence", includeOnlineRevocationEvidence);
+        response.evidence.put("ocspCount", response.signatures.stream()
+            .mapToInt(item -> ((Number)item.getOrDefault("ocspCount", 0)).intValue())
+            .sum());
         if (!response.allValid) {
             response.message = "One or more embedded PDF signatures failed Kalkan verification.";
         }
@@ -414,7 +425,13 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         }
     }
 
-    private Map<String, Object> verifyEmbeddedSignature(byte[] pdfBytes, PDSignature signature, int index, Provider provider) {
+    private Map<String, Object> verifyEmbeddedSignature(
+        byte[] pdfBytes,
+        PDSignature signature,
+        int index,
+        Provider provider,
+        boolean includeOnlineRevocationEvidence
+    ) {
         Map<String, Object> item = new HashMap<>();
         item.put("index", index);
         item.put("fieldName", "Signature" + index);
@@ -433,14 +450,19 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             item.put("cmsLength", embeddedCms.length);
 
             try {
-                Map<String, Object> timestampEvidence = extractTimestampEvidence(embeddedCms, provider);
-                item.putAll(timestampEvidence);
+                Map<String, Object> signerEvidence = extractSignerVerificationEvidence(
+                    embeddedCms,
+                    provider,
+                    includeOnlineRevocationEvidence
+                );
+                item.putAll(signerEvidence);
             } catch (Throwable e) {
                 item.put("timestampPresent", false);
                 item.put("timestampTokenCount", 0);
-                item.put("timestampEvidenceError", rootMessage(e));
+                item.put("ocspCount", 0);
+                item.put("signerEvidenceError", rootMessage(e));
                 LOGGER.warn(
-                    "Timestamp evidence extraction failed for signature #{} field {}: {}",
+                    "Signer evidence extraction failed for signature #{} field {}: {}",
                     index,
                     "Signature" + index,
                     rootMessage(e)
@@ -467,90 +489,12 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         return item;
     }
 
-    private Map<String, Object> extractTimestampEvidence(byte[] cmsBytes, Provider provider) throws Exception {
-        Map<String, Object> item = new LinkedHashMap<>();
-        item.put("timestampPresent", false);
-        item.put("timestampTokenCount", 0);
-        item.put("ocspCount", 0);
-
-        CMSSignedData cms = CMSUtil.parseAsCMS(cmsBytes);
-
-        try {
-            List<X509Certificate> signerCertificates = CMSUtil.getSignerCertificates(cms, provider);
-            if (signerCertificates != null && !signerCertificates.isEmpty()) {
-                X509Certificate signerCertificate = signerCertificates.get(0);
-                item.put("certificateSubjectDn", signerCertificate.getSubjectX500Principal().getName());
-                item.put("certificateIssuerDn", signerCertificate.getIssuerX500Principal().getName());
-                item.put("certificateSerialNumber", signerCertificate.getSerialNumber().toString());
-                item.put("certificateNotBefore", signerCertificate.getNotBefore().toInstant().toString());
-                item.put("certificateNotAfter", signerCertificate.getNotAfter().toInstant().toString());
-            }
-        } catch (Throwable e) {
-            item.put("certificateInfoError", rootMessage(e));
-        }
-
-        List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
-        if (signerInfos == null || signerInfos.isEmpty()) {
-            return item;
-        }
-
-        List<String> tokenHashes = new ArrayList<>();
-        List<String> genTimes = new ArrayList<>();
-        List<String> authorities = new ArrayList<>();
-        List<String> timestampErrors = new ArrayList<>();
-
-        for (SignerInformation signerInformation : signerInfos) {
-            try {
-                TimeStampToken token = CMSUtil.getTimestampToken(signerInformation, provider);
-                if (token == null) {
-                    continue;
-                }
-
-                byte[] encoded = token.getEncoded();
-                tokenHashes.add(sha256Hex(encoded));
-                try {
-                    Date genTime = token.getTimeStampInfo().getGenTime();
-                    if (genTime != null) {
-                        genTimes.add(genTime.toInstant().toString());
-                    }
-                } catch (Throwable e) {
-                    timestampErrors.add("genTime: " + rootMessage(e));
-                }
-
-                try {
-                    CMSSignedData tsCms = token.toCMSSignedData();
-                    List<X509Certificate> tspSignerCerts = CMSUtil.getSignerCertificates(tsCms, provider);
-                    if (tspSignerCerts != null) {
-                        for (X509Certificate tspSignerCert : tspSignerCerts) {
-                            authorities.add(tspSignerCert.getSubjectX500Principal().getName());
-                        }
-                    }
-                } catch (Throwable e) {
-                    timestampErrors.add("authority: " + rootMessage(e));
-                }
-            } catch (Throwable e) {
-                timestampErrors.add(rootMessage(e));
-            }
-        }
-
-        item.put("timestampPresent", !tokenHashes.isEmpty());
-        item.put("timestampTokenCount", tokenHashes.size());
-        if (!tokenHashes.isEmpty()) {
-            item.put("timestampTokenSha256", tokenHashes);
-        }
-        if (!genTimes.isEmpty()) {
-            item.put("timestampGenTimes", genTimes);
-            item.put("timestampGenTime", genTimes.get(0));
-        }
-        if (!authorities.isEmpty()) {
-            item.put("timestampAuthorities", authorities);
-            item.put("timestampAuthority", authorities.get(0));
-        }
-        if (!timestampErrors.isEmpty()) {
-            item.put("timestampErrors", timestampErrors);
-        }
-
-        return item;
+    private Map<String, Object> extractSignerVerificationEvidence(
+        byte[] cmsBytes,
+        Provider provider,
+        boolean includeOnlineRevocationEvidence
+    ) throws Exception {
+        return collectSignerEvidence(cmsBytes, provider, includeOnlineRevocationEvidence).toVerificationMap();
     }
 
     private SignerLtvEvidence collectSignerLtvEvidence(byte[] cmsBytes, Provider provider) throws Exception {
