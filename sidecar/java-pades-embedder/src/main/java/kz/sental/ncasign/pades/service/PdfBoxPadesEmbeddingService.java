@@ -51,6 +51,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.cert.X509CRL;
 import java.security.MessageDigest;
@@ -597,6 +598,12 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             X509Certificate issuer;
             try {
                 issuer = findIssuerCertificate(certificate, evidence.certificates, provider);
+                if (issuer == null) {
+                    issuer = fetchIssuerCertificate(certificate, provider);
+                    if (issuer != null) {
+                        evidence.addCertificate(issuer);
+                    }
+                }
             } catch (Throwable ex) {
                 evidence.ocspErrors.add(certificate.getSubjectX500Principal().getName() + ": issuer lookup failed: " + rootMessage(ex));
                 continue;
@@ -765,38 +772,87 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
 
     private String extractOcspUrl(X509Certificate certificate) {
         try {
-            byte[] extensionValue = certificate.getExtensionValue(X509Extensions.AuthorityInfoAccess.getId());
-            if (extensionValue == null || extensionValue.length == 0) {
-                return null;
-            }
-
-            try (ASN1InputStream outer = new ASN1InputStream(extensionValue)) {
-                DERObject outerObject = outer.readObject();
-                if (!(outerObject instanceof ASN1OctetString octetString)) {
-                    return null;
-                }
-                try (ASN1InputStream inner = new ASN1InputStream(octetString.getOctets())) {
-                    AuthorityInformationAccess aia = AuthorityInformationAccess.getInstance(inner.readObject());
-                    if (aia == null || aia.getAccessDescriptions() == null) {
-                        return null;
-                    }
-                    for (AccessDescription description : aia.getAccessDescriptions()) {
-                        if (description == null || !AccessDescription.id_ad_ocsp.equals(description.getAccessMethod())) {
-                            continue;
-                        }
-                        GeneralName location = description.getAccessLocation();
-                        if (location == null) {
-                            continue;
-                        }
-                        String uri = extractGeneralNameUri(location);
-                        if (uri != null && !uri.isBlank()) {
-                            return uri;
-                        }
-                    }
-                }
-            }
+            return extractAiaUrl(certificate, AccessDescription.id_ad_ocsp);
         } catch (Exception e) {
             LOGGER.debug("Failed to extract OCSP URL from certificate {}: {}",
+                certificate.getSubjectX500Principal().getName(), rootMessage(e));
+        }
+        return null;
+    }
+
+    private String extractCaIssuersUrl(X509Certificate certificate) {
+        try {
+            return extractAiaUrl(certificate, AccessDescription.id_ad_caIssuers);
+        } catch (Exception e) {
+            LOGGER.debug("Failed to extract CA Issuers URL from certificate {}: {}",
+                certificate.getSubjectX500Principal().getName(), rootMessage(e));
+        }
+        return null;
+    }
+
+    private String extractAiaUrl(X509Certificate certificate, Object accessMethod) throws Exception {
+        byte[] extensionValue = certificate.getExtensionValue(X509Extensions.AuthorityInfoAccess.getId());
+        if (extensionValue == null || extensionValue.length == 0) {
+            return null;
+        }
+
+        try (ASN1InputStream outer = new ASN1InputStream(extensionValue)) {
+            DERObject outerObject = outer.readObject();
+            if (!(outerObject instanceof ASN1OctetString octetString)) {
+                return null;
+            }
+            try (ASN1InputStream inner = new ASN1InputStream(octetString.getOctets())) {
+                AuthorityInformationAccess aia = AuthorityInformationAccess.getInstance(inner.readObject());
+                if (aia == null || aia.getAccessDescriptions() == null) {
+                    return null;
+                }
+                for (AccessDescription description : aia.getAccessDescriptions()) {
+                    if (description == null || !accessMethod.equals(description.getAccessMethod())) {
+                        continue;
+                    }
+                    GeneralName location = description.getAccessLocation();
+                    if (location == null) {
+                        continue;
+                    }
+                    String uri = extractGeneralNameUri(location);
+                    if (uri != null && !uri.isBlank()) {
+                        return uri;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private X509Certificate fetchIssuerCertificate(X509Certificate certificate, Provider provider) {
+        String issuerUrl = extractCaIssuersUrl(certificate);
+        if (issuerUrl == null || issuerUrl.isBlank()) {
+            return null;
+        }
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(issuerUrl).openConnection();
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(15000);
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Accept", "application/pkix-cert, application/x-x509-ca-cert, application/octet-stream");
+            int status = connection.getResponseCode();
+            InputStream responseStream = status >= 200 && status < 300
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+            if (responseStream == null) {
+                return null;
+            }
+            try (InputStream is = responseStream) {
+                CertificateFactory factory = CertificateFactory.getInstance("X.509");
+                Object generated = factory.generateCertificate(is);
+                if (generated instanceof X509Certificate issuerCertificate) {
+                    return issuerCertificate;
+                }
+            } finally {
+                connection.disconnect();
+            }
+        } catch (Throwable e) {
+            LOGGER.debug("Failed to fetch issuer certificate from AIA for {}: {}",
                 certificate.getSubjectX500Principal().getName(), rootMessage(e));
         }
         return null;
