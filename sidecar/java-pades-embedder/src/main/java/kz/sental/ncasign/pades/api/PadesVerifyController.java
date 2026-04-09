@@ -26,7 +26,7 @@ public class PadesVerifyController {
         } catch (UnsupportedOperationException e) {
             return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(PadesVerifyResponse.error("PAdES verify backend is scaffolded but not implemented: " + e.getMessage()));
-        } catch (Exception e) {
+        } catch (Throwable e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(PadesVerifyResponse.error(buildErrorMessage(e)));
         }

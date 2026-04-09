@@ -209,7 +209,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 }
                 index++;
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             throw new IllegalStateException("Unable to verify signed PDF: " + rootMessage(e), e);
         }
 
@@ -432,7 +432,10 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             item.put("cmsSha256", sha256Hex(embeddedCms));
             item.put("cmsLength", embeddedCms.length);
 
-            SignerLtvEvidence cmsEvidence = collectSignerEvidence(embeddedCms, provider, true);
+            // Keep verify endpoint focused on cryptographic signature + TSA proof.
+            // Online OCSP fetching is intentionally skipped here so network/revocation
+            // lookup issues cannot break the engineer verification workflow.
+            SignerLtvEvidence cmsEvidence = collectSignerEvidence(embeddedCms, provider, false);
             item.putAll(cmsEvidence.toVerificationMap());
             LOGGER.info(
                 "Verified embedded signature #{} field {} cmsSha256={} signedContentSha256={}",
@@ -441,7 +444,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 item.get("cmsSha256"),
                 item.get("signedContentSha256")
             );
-        } catch (Exception e) {
+        } catch (Throwable e) {
             item.put("valid", false);
             item.put("error", rootMessage(e));
             LOGGER.warn(
