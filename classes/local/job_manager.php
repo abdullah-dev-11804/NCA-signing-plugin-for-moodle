@@ -405,6 +405,9 @@ class job_manager {
         if ($signedcontent === '') {
             return null;
         }
+        if (!empty($result['signerevidence']) && is_array($result['signerevidence'])) {
+            $this->apply_sidecar_signer_evidence($jobid, $result['signerevidence']);
+        }
 
         $context = \context_system::instance();
         $fs = get_file_storage();
@@ -450,6 +453,148 @@ class job_manager {
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
         return $filename;
+    }
+
+    /**
+     * Persist Kalkan-backed signer evidence returned by the Java sidecar.
+     *
+     * @param int $jobid
+     * @param array<int, array<string,mixed>> $items
+     * @return void
+     */
+    private function apply_sidecar_signer_evidence(int $jobid, array $items): void {
+        global $DB;
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $signer = null;
+            if (!empty($item['signerRecordId'])) {
+                $signer = $DB->get_record('local_ncasign_signers', [
+                    'id' => (int)$item['signerRecordId'],
+                    'jobid' => $jobid,
+                ], '*', IGNORE_MISSING);
+            }
+            if (!$signer && !empty($item['order'])) {
+                $signer = $DB->get_record('local_ncasign_signers', [
+                    'jobid' => $jobid,
+                    'signorder' => (int)$item['order'],
+                ], '*', IGNORE_MISSING);
+            }
+            if (!$signer) {
+                continue;
+            }
+
+            $verification = [];
+            if (!empty($signer->verificationinfo) && is_string($signer->verificationinfo)) {
+                $decoded = json_decode($signer->verificationinfo, true);
+                if (is_array($decoded)) {
+                    $verification = $decoded;
+                }
+            }
+            $validation = !empty($verification['validation']) && is_array($verification['validation'])
+                ? $verification['validation']
+                : [];
+            $signmeta = [];
+            if (!empty($signer->signmeta) && is_string($signer->signmeta)) {
+                $decoded = json_decode($signer->signmeta, true);
+                if (is_array($decoded)) {
+                    $signmeta = $decoded;
+                }
+            }
+
+            $tsa = [
+                'present' => !empty($item['timestampPresent']),
+                'tokenCount' => (int)($item['timestampTokenCount'] ?? 0),
+                'genTime' => !empty($item['timestampGenTime']) ? (string)$item['timestampGenTime'] : null,
+                'authority' => !empty($item['timestampAuthority']) ? (string)$item['timestampAuthority'] : null,
+                'tokenSha256' => !empty($item['timestampTokenSha256']) && is_array($item['timestampTokenSha256'])
+                    ? array_values($item['timestampTokenSha256'])
+                    : [],
+                'tokenBase64' => !empty($item['timestampTokenBase64']) && is_array($item['timestampTokenBase64'])
+                    ? array_values($item['timestampTokenBase64'])
+                    : [],
+                'verifiedBy' => 'Kalkan',
+            ];
+            if (!empty($item['timestampGenTimes']) && is_array($item['timestampGenTimes'])) {
+                $tsa['genTimes'] = array_values($item['timestampGenTimes']);
+            }
+            if (!empty($item['timestampAuthorities']) && is_array($item['timestampAuthorities'])) {
+                $tsa['authorities'] = array_values($item['timestampAuthorities']);
+            }
+            if (!empty($item['timestampErrors']) && is_array($item['timestampErrors'])) {
+                $tsa['errors'] = array_values($item['timestampErrors']);
+            }
+
+            $ocsp = [
+                'count' => (int)($item['ocspCount'] ?? 0),
+                'urls' => !empty($item['ocspUrls']) && is_array($item['ocspUrls']) ? array_values($item['ocspUrls']) : [],
+                'details' => !empty($item['ocspDetails']) && is_array($item['ocspDetails']) ? array_values($item['ocspDetails']) : [],
+                'responseSha256' => !empty($item['ocspResponseSha256']) && is_array($item['ocspResponseSha256'])
+                    ? array_values($item['ocspResponseSha256'])
+                    : [],
+                'responseBase64' => !empty($item['ocspResponseBase64']) && is_array($item['ocspResponseBase64'])
+                    ? array_values($item['ocspResponseBase64'])
+                    : [],
+                'verifiedBy' => 'Kalkan',
+            ];
+            if (!empty($item['ocspErrors']) && is_array($item['ocspErrors'])) {
+                $ocsp['errors'] = array_values($item['ocspErrors']);
+            }
+
+            $verification['verifyinfo'] = 'Embedded PDF signature verified by Kalkan after PDF finalization.';
+            $verification['proofsource'] = 'java_sidecar_kalkan';
+            $verification['tsa'] = $tsa;
+            $verification['ocsp'] = $ocsp;
+            if (array_key_exists('valid', $item)) {
+                $verification['valid'] = !empty($item['valid']);
+            }
+            if (!empty($item['error'])) {
+                $verification['prooferror'] = (string)$item['error'];
+            }
+            if (!empty($item['timestampGenTime'])) {
+                $verification['signingtime'] = (string)$item['timestampGenTime'];
+            }
+            $validation['embeddedpdfverified'] = !empty($item['valid']);
+            $validation['proofsource'] = 'java_sidecar_kalkan';
+            $validation['tsapresent'] = !empty($item['timestampPresent']);
+            $validation['timestampverified'] = !empty($item['timestampPresent']);
+            $validation['ocsppresent'] = !empty($item['ocspCount']);
+            $verification['validation'] = $validation;
+
+            $signmeta['finalization_proof'] = [
+                'provider' => 'Kalkan',
+                'timestamp' => $tsa,
+                'ocsp' => [
+                    'count' => $ocsp['count'],
+                    'responseSha256' => $ocsp['responseSha256'],
+                    'urls' => $ocsp['urls'],
+                ],
+                'cms_sha256' => !empty($item['cmsSha256']) ? (string)$item['cmsSha256'] : null,
+            ];
+
+            if (!empty($item['certificateSubjectDn']) || !empty($item['certificateSerialNumber'])) {
+                $certificate = [
+                    'subject' => ['dn' => (string)($item['certificateSubjectDn'] ?? '')],
+                    'issuer' => ['dn' => (string)($item['certificateIssuerDn'] ?? '')],
+                    'serialNumber' => (string)($item['certificateSerialNumber'] ?? ''),
+                    'notBefore' => (string)($item['certificateNotBefore'] ?? ''),
+                    'notAfter' => (string)($item['certificateNotAfter'] ?? ''),
+                ];
+                $signer->signercertificate = json_encode($certificate, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+
+            $signer->verificationstatus = !empty($item['valid']) ? 'verified' : (string)($signer->verificationstatus ?? 'pades_deferred');
+            $signer->verificationinfo = json_encode($verification, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $signer->signmeta = json_encode($signmeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $signer->ocspresponse = $ocsp['count'] > 0
+                ? json_encode($ocsp, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : null;
+            $signer->timemodified = time();
+            $DB->update_record('local_ncasign_signers', $signer);
+        }
     }
 
     /**

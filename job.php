@@ -314,6 +314,29 @@ function local_ncasign_render_signer_verification_details(\stdClass $signer): st
     if (!empty($verification['signingtime'])) {
         $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('signingtimelabel', 'local_ncasign') . ': ') . s((string)$verification['signingtime']));
     }
+    $tsa = !empty($verification['tsa']) && is_array($verification['tsa']) ? $verification['tsa'] : [];
+    if ($tsa) {
+        $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('tsapresentlabel', 'local_ncasign') . ': ') . (!empty($tsa['present']) ? 'yes' : 'no'));
+        if (!empty($tsa['genTime'])) {
+            $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('tsagentimelabel', 'local_ncasign') . ': ') . s((string)$tsa['genTime']));
+        }
+        if (!empty($tsa['authority'])) {
+            $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('tsaauthoritylabel', 'local_ncasign') . ': ') . s((string)$tsa['authority']));
+        }
+        if (!empty($tsa['tokenSha256']) && is_array($tsa['tokenSha256'])) {
+            $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('tsatokensha256label', 'local_ncasign') . ': ') . s(implode(', ', array_map('strval', $tsa['tokenSha256']))));
+        }
+    }
+    $ocsp = !empty($verification['ocsp']) && is_array($verification['ocsp']) ? $verification['ocsp'] : [];
+    if ($ocsp) {
+        $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('ocspcountlabel', 'local_ncasign') . ': ') . (int)($ocsp['count'] ?? 0));
+        if (!empty($ocsp['urls']) && is_array($ocsp['urls'])) {
+            $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('ocspurlslabel', 'local_ncasign') . ': ') . s(implode(', ', array_map('strval', $ocsp['urls']))));
+        }
+        if (!empty($ocsp['responseSha256']) && is_array($ocsp['responseSha256'])) {
+            $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('ocspsha256label', 'local_ncasign') . ': ') . s(implode(', ', array_map('strval', $ocsp['responseSha256']))));
+        }
+    }
     if (!empty($verification['verifyinfo'])) {
         $items[] = html_writer::tag('div', html_writer::tag('strong', get_string('verifyinfolabel', 'local_ncasign') . ': ') . s((string)$verification['verifyinfo']));
     }

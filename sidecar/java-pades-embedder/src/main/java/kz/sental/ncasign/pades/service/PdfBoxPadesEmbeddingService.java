@@ -142,6 +142,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             phase = "verify_embedded_signature";
             verifyEmbeddedPdfSignature(signedPdf, signer, session);
             Provider provider = ensureKalkanProvider();
+            List<Map<String, Object>> signerEvidence = collectFinalizeSignerEvidence(request.signers, provider);
             LOGGER.info(
                 "Embedded CMS for signer #{} field {} session {} finalPdfSha256={}",
                 signer.order,
@@ -170,6 +171,15 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("cmsVerifiedAgainst", "pdfbox_content_to_sign");
             response.evidence.put("contentToSignSha256", sha256Hex(session.contentToSign));
             response.evidence.put("embeddedPdfVerification", "kalkan_ok");
+            response.evidence.put("timestampTokenCount", signerEvidence.stream()
+                .mapToInt(item -> ((Number)item.getOrDefault("timestampTokenCount", 0)).intValue())
+                .sum());
+            response.evidence.put("ocspCount", signerEvidence.stream()
+                .mapToInt(item -> ((Number)item.getOrDefault("ocspCount", 0)).intValue())
+                .sum());
+            response.evidence.put("timestampPresent", signerEvidence.stream()
+                .anyMatch(item -> Boolean.TRUE.equals(item.get("timestampPresent"))));
+            response.signerEvidence = signerEvidence;
             return response;
         } catch (Throwable e) {
             throw new IllegalStateException(
@@ -433,16 +443,8 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             item.put("cmsSha256", sha256Hex(embeddedCms));
             item.put("cmsLength", embeddedCms.length);
 
-            CMSSignedData cms = CMSUtil.parseAsCMS(embeddedCms);
-            List<X509Certificate> certificates = CMSUtil.getSignerCertificates(cms, provider);
-            if (certificates != null && !certificates.isEmpty()) {
-                X509Certificate certificate = certificates.get(0);
-                item.put("certificateSubjectDn", certificate.getSubjectX500Principal().getName());
-                item.put("certificateIssuerDn", certificate.getIssuerX500Principal().getName());
-                item.put("certificateSerialNumber", certificate.getSerialNumber().toString());
-                item.put("certificateNotBefore", certificate.getNotBefore().toInstant().toString());
-                item.put("certificateNotAfter", certificate.getNotAfter().toInstant().toString());
-            }
+            SignerLtvEvidence cmsEvidence = collectSignerEvidence(embeddedCms, provider, false);
+            item.putAll(cmsEvidence.toVerificationMap());
             LOGGER.info(
                 "Verified embedded signature #{} field {} cmsSha256={} signedContentSha256={}",
                 index,
@@ -464,14 +466,57 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         return item;
     }
 
+    private List<Map<String, Object>> collectFinalizeSignerEvidence(List<SignerPayload> signers, Provider provider) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (signers == null) {
+            return items;
+        }
+
+        for (SignerPayload signer : signers) {
+            if (signer == null || signer.rawCmsBase64 == null || signer.rawCmsBase64.isBlank()) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("signerRecordId", signer.signerRecordId);
+            item.put("order", signer.order);
+            item.put("name", signer.name);
+            item.put("email", signer.email);
+            item.put("position", signer.position);
+            try {
+                byte[] cmsBytes = decodeBase64(signer.rawCmsBase64, "CMS");
+                item.put("cmsSha256", sha256Hex(cmsBytes));
+                SignerLtvEvidence evidence = collectSignerEvidence(cmsBytes, provider, true);
+                item.putAll(evidence.toPersistenceMap());
+            } catch (Exception ex) {
+                item.put("valid", false);
+                item.put("error", rootMessage(ex));
+            }
+            items.add(item);
+        }
+        return items;
+    }
+
     private SignerLtvEvidence collectSignerLtvEvidence(byte[] cmsBytes, Provider provider) throws Exception {
+        return collectSignerEvidence(cmsBytes, provider, true);
+    }
+
+    private SignerLtvEvidence collectSignerEvidence(byte[] cmsBytes, Provider provider, boolean includeOnlineRevocationEvidence) throws Exception {
         SignerLtvEvidence evidence = new SignerLtvEvidence();
         CMSSignedData cms = CMSUtil.parseAsCMS(cmsBytes);
-        List<X509Certificate> certificates = CMSUtil.getX509Certificates(cms, provider);
-        if (certificates != null) {
-            for (X509Certificate certificate : certificates) {
+        List<X509Certificate> allCertificates = CMSUtil.getX509Certificates(cms, provider);
+        if (allCertificates != null) {
+            for (X509Certificate certificate : allCertificates) {
                 evidence.addCertificate(certificate);
             }
+        }
+        List<X509Certificate> signerCertificates = CMSUtil.getSignerCertificates(cms, provider);
+        if (signerCertificates != null && !signerCertificates.isEmpty()) {
+            X509Certificate signerCertificate = signerCertificates.get(0);
+            evidence.signerSubjectDn = signerCertificate.getSubjectX500Principal().getName();
+            evidence.signerIssuerDn = signerCertificate.getIssuerX500Principal().getName();
+            evidence.signerSerialNumber = signerCertificate.getSerialNumber().toString();
+            evidence.signerNotBefore = signerCertificate.getNotBefore().toInstant().toString();
+            evidence.signerNotAfter = signerCertificate.getNotAfter().toInstant().toString();
         }
 
         List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
@@ -482,7 +527,22 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                     if (token != null) {
                         evidence.timestampTokens.add(token.getEncoded());
                         evidence.timestampPresent = true;
+                        try {
+                            Date genTime = token.getTimeStampInfo().getGenTime();
+                            if (genTime != null) {
+                                evidence.timestampGenTimes.add(genTime.toInstant().toString());
+                            }
+                        } catch (Exception ignored) {
+                            // Keep timestamp token presence even if genTime is unavailable.
+                        }
                         CMSSignedData tsCms = token.toCMSSignedData();
+                        List<X509Certificate> tspSignerCerts = CMSUtil.getSignerCertificates(tsCms, provider);
+                        if (tspSignerCerts != null) {
+                            for (X509Certificate tspSignerCert : tspSignerCerts) {
+                                evidence.timestampAuthorities.add(tspSignerCert.getSubjectX500Principal().getName());
+                                evidence.addCertificate(tspSignerCert);
+                            }
+                        }
                         List<X509Certificate> tspCerts = CMSUtil.getX509Certificates(tsCms, provider);
                         if (tspCerts != null) {
                             for (X509Certificate tspCert : tspCerts) {
@@ -490,10 +550,14 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                             }
                         }
                     }
-                } catch (Exception ignored) {
-                    // CMS may legitimately have no timestamp token.
+                } catch (Exception ex) {
+                    evidence.timestampErrors.add(rootMessage(ex));
                 }
             }
+        }
+
+        if (!includeOnlineRevocationEvidence) {
+            return evidence;
         }
 
         List<X509Certificate> certificateSnapshot = new ArrayList<>(evidence.certificates);
@@ -597,6 +661,27 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         if (!matched) {
             throw new IllegalStateException("OCSP response did not include the requested certificate serial number.");
         }
+
+        Map<String, Object> ocspDetail = new LinkedHashMap<>();
+        ocspDetail.put("url", ocspUrl);
+        ocspDetail.put("sha256", sha256Hex(response.getEncoded()));
+        ocspDetail.put("certificateSerialNumber", certificate.getSerialNumber().toString());
+        ocspDetail.put("status", "good");
+        if (singleResponses != null) {
+            for (SingleResp single : singleResponses) {
+                if (single.getCertID() == null || !certificate.getSerialNumber().equals(single.getCertID().getSerialNumber())) {
+                    continue;
+                }
+                if (single.getThisUpdate() != null) {
+                    ocspDetail.put("thisUpdate", single.getThisUpdate().toInstant().toString());
+                }
+                if (single.getNextUpdate() != null) {
+                    ocspDetail.put("nextUpdate", single.getNextUpdate().toInstant().toString());
+                }
+                break;
+            }
+        }
+        evidence.ocspDetails.add(ocspDetail);
 
         try {
             X509Certificate[] ocspCertificates = basicResponse.getCerts(provider.getName());
@@ -1021,13 +1106,22 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         private final List<X509CRL> crls = new ArrayList<>();
         private final List<byte[]> ocspResponses = new ArrayList<>();
         private final List<byte[]> timestampTokens = new ArrayList<>();
+        private final List<Map<String, Object>> ocspDetails = new ArrayList<>();
         private final List<String> ocspUrls = new ArrayList<>();
         private final List<String> ocspErrors = new ArrayList<>();
         private final List<String> crlUrls = new ArrayList<>();
         private final List<String> crlErrors = new ArrayList<>();
+        private final List<String> timestampAuthorities = new ArrayList<>();
+        private final List<String> timestampGenTimes = new ArrayList<>();
+        private final List<String> timestampErrors = new ArrayList<>();
         private final Set<String> certificateFingerprints = new LinkedHashSet<>();
         private final Set<String> crlFingerprints = new LinkedHashSet<>();
         private boolean timestampPresent = false;
+        private String signerSubjectDn;
+        private String signerIssuerDn;
+        private String signerSerialNumber;
+        private String signerNotBefore;
+        private String signerNotAfter;
 
         private void addCertificate(X509Certificate certificate) {
             if (certificate == null) {
@@ -1067,13 +1161,39 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("index", index);
             item.put("subFilter", subFilter);
+            item.putAll(toVerificationMap());
+            return item;
+        }
+
+        private Map<String, Object> toVerificationMap() {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("valid", true);
+            if (signerSubjectDn != null && !signerSubjectDn.isBlank()) {
+                item.put("certificateSubjectDn", signerSubjectDn);
+            }
+            if (signerIssuerDn != null && !signerIssuerDn.isBlank()) {
+                item.put("certificateIssuerDn", signerIssuerDn);
+            }
+            if (signerSerialNumber != null && !signerSerialNumber.isBlank()) {
+                item.put("certificateSerialNumber", signerSerialNumber);
+            }
+            if (signerNotBefore != null && !signerNotBefore.isBlank()) {
+                item.put("certificateNotBefore", signerNotBefore);
+            }
+            if (signerNotAfter != null && !signerNotAfter.isBlank()) {
+                item.put("certificateNotAfter", signerNotAfter);
+            }
             item.put("certificateCount", certificates.size());
             item.put("crlCount", crls.size());
             item.put("ocspCount", ocspResponses.size());
             item.put("timestampPresent", timestampPresent);
             item.put("timestampTokenCount", timestampTokens.size());
+            item.put("ocspResponseCount", ocspResponses.size());
             if (!ocspUrls.isEmpty()) {
                 item.put("ocspUrls", new ArrayList<>(ocspUrls));
+            }
+            if (!ocspDetails.isEmpty()) {
+                item.put("ocspDetails", new ArrayList<>(ocspDetails));
             }
             if (!crlUrls.isEmpty()) {
                 item.put("crlUrls", new ArrayList<>(crlUrls));
@@ -1084,12 +1204,49 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             if (!crlErrors.isEmpty()) {
                 item.put("crlErrors", new ArrayList<>(crlErrors));
             }
+            if (!timestampAuthorities.isEmpty()) {
+                item.put("timestampAuthorities", new ArrayList<>(timestampAuthorities));
+                item.put("timestampAuthority", timestampAuthorities.get(0));
+            }
+            if (!timestampGenTimes.isEmpty()) {
+                item.put("timestampGenTimes", new ArrayList<>(timestampGenTimes));
+                item.put("timestampGenTime", timestampGenTimes.get(0));
+            }
+            if (!timestampErrors.isEmpty()) {
+                item.put("timestampErrors", new ArrayList<>(timestampErrors));
+            }
             if (!timestampTokens.isEmpty()) {
                 List<String> tokenHashes = new ArrayList<>();
                 for (byte[] token : timestampTokens) {
                     tokenHashes.add(sha256Hex(token));
                 }
                 item.put("timestampTokenSha256", tokenHashes);
+            }
+            if (!ocspResponses.isEmpty()) {
+                List<String> responseHashes = new ArrayList<>();
+                for (byte[] response : ocspResponses) {
+                    responseHashes.add(sha256Hex(response));
+                }
+                item.put("ocspResponseSha256", responseHashes);
+            }
+            return item;
+        }
+
+        private Map<String, Object> toPersistenceMap() {
+            Map<String, Object> item = toVerificationMap();
+            if (!timestampTokens.isEmpty()) {
+                List<String> tokenBase64 = new ArrayList<>();
+                for (byte[] token : timestampTokens) {
+                    tokenBase64.add(Base64.getEncoder().encodeToString(token));
+                }
+                item.put("timestampTokenBase64", tokenBase64);
+            }
+            if (!ocspResponses.isEmpty()) {
+                List<String> responseBase64 = new ArrayList<>();
+                for (byte[] response : ocspResponses) {
+                    responseBase64.add(Base64.getEncoder().encodeToString(response));
+                }
+                item.put("ocspResponseBase64", responseBase64);
             }
             return item;
         }

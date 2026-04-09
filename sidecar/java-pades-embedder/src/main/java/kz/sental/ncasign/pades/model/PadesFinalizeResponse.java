@@ -1,6 +1,8 @@
 package kz.sental.ncasign.pades.model;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class PadesFinalizeResponse {
@@ -12,6 +14,7 @@ public class PadesFinalizeResponse {
     public String mode;
     public String source;
     public Map<String, Object> evidence = new HashMap<>();
+    public List<Map<String, Object>> signerEvidence = new ArrayList<>();
 
     public static PadesFinalizeResponse error(String message) {
         PadesFinalizeResponse response = new PadesFinalizeResponse();

@@ -140,6 +140,7 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
             'supports_embedded_pades' => true,
             'finalhash' => (string)($response['finalHash'] ?? hash('sha256', $signedpdf)),
             'evidence' => is_array($response['evidence'] ?? null) ? $response['evidence'] : [],
+            'signerevidence' => is_array($response['signerEvidence'] ?? null) ? $response['signerEvidence'] : [],
         ];
     }
 
