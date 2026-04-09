@@ -432,8 +432,20 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             item.put("cmsSha256", sha256Hex(embeddedCms));
             item.put("cmsLength", embeddedCms.length);
 
-            Map<String, Object> timestampEvidence = extractTimestampEvidence(embeddedCms, provider);
-            item.putAll(timestampEvidence);
+            try {
+                Map<String, Object> timestampEvidence = extractTimestampEvidence(embeddedCms, provider);
+                item.putAll(timestampEvidence);
+            } catch (Throwable e) {
+                item.put("timestampPresent", false);
+                item.put("timestampTokenCount", 0);
+                item.put("timestampEvidenceError", rootMessage(e));
+                LOGGER.warn(
+                    "Timestamp evidence extraction failed for signature #{} field {}: {}",
+                    index,
+                    "Signature" + index,
+                    rootMessage(e)
+                );
+            }
             LOGGER.info(
                 "Verified embedded signature #{} field {} cmsSha256={} signedContentSha256={}",
                 index,
