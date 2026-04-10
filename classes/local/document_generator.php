@@ -338,14 +338,14 @@ class document_generator {
             'occupation',
             'dolzhnost',
             'lauazym',
-        ], $outputlanguage === 'ru' ? '?????????' : '????????? / ?????????'));
+        ], $outputlanguage === 'ru' ? 'повторный' : 'Қызметкер / Сотрудник'));
         $protocoltype = $this->resolve_protocol_type_pair($userid, $courseid, $completiondate, $metadata);
         $status = $this->resolve_completion_status_text($completiondate, $metadata);
         $orderref = $this->build_order_reference_pair($metadata, $outputlanguage);
         $signers = is_array($options['signers'] ?? null) ? $options['signers'] : [];
         $sentalcompanyname = trim((string)($options['sentalcompanyname'] ?? ($metadata['sentalcompanyname'] ?? ''))) !== ''
             ? trim((string)($options['sentalcompanyname'] ?? $metadata['sentalcompanyname']))
-            : '??? "SENTAL"';
+            : 'ТОО "SENTAL"';
 
         $issuedatekz = !empty($options['issuedatekz']) ? (string)$options['issuedatekz'] : $this->format_date_kz($completiondate);
         $issuedateru = !empty($options['issuedateru']) ? (string)$options['issuedateru'] : $this->format_date_ru($completiondate);
@@ -400,15 +400,15 @@ class document_generator {
             'metadata' => [
                 'outputlanguage' => 'bilingual',
                 'clientcompanyoverride' => '',
-                'sentalcompanyname' => '??? "SENTAL"',
+                'sentalcompanyname' => 'ТОО "SENTAL"',
                 'orderdate' => '',
                 'ordernumber' => '',
-                'protocoltype_initial_kz' => '????????',
-                'protocoltype_initial_ru' => '?????????',
-                'protocoltype_repeat_kz' => '?????????',
-                'protocoltype_repeat_ru' => '?????????',
-                'status_passed' => '???? / ??????',
-                'status_failed' => '????? ?????????? ?????? / ???????? ?????? ?? ??????',
+                'protocoltype_initial_kz' => 'бастапқы',
+                'protocoltype_initial_ru' => 'повторный',
+                'protocoltype_repeat_kz' => 'повторный',
+                'protocoltype_repeat_ru' => 'повторный',
+                'status_passed' => 'өтті / прошел',
+                'status_failed' => 'білім тексеруден өтпеді / проверку знаний не прошел',
             ],
             'positions' => [
                 'companyheader' => ['x' => 155.0, 'y' => 46.0, 'w' => 190.0, 'h' => 18.0, 'align' => 'C', 'size' => 10.0, 'style' => 'B'],
@@ -590,15 +590,15 @@ class document_generator {
      */
     private function resolve_client_company_name(int $userid, string $override = '', string $outputlanguage = 'bilingual'): string {
         if (trim($override) !== '') {
-            return trim($override);
+            return html_entity_decode(trim($override), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
 
         $iomadcompany = $this->resolve_iomad_company_name($userid);
         if ($iomadcompany !== '') {
-            return $iomadcompany;
+            return html_entity_decode($iomadcompany, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
 
-        return $outputlanguage === 'ru' ? '???????????' : '???? / ???????????';
+        return $outputlanguage === 'ru' ? 'Организация' : 'Ұйым / Организация';
     }
 
     /**
@@ -685,14 +685,14 @@ class document_generator {
         $isrepeat = $this->user_has_previous_completion($userid, $courseid, $completiondate);
         if ($isrepeat) {
             return [
-                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? '?????????')),
-                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? '?????????')),
+                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? 'повторный')),
+                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? 'повторный')),
             ];
         }
 
         return [
-            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? '????????')),
-            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? '?????????')),
+            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? 'бастапқы')),
+            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? 'повторный')),
         ];
     }
 
@@ -705,10 +705,10 @@ class document_generator {
      */
     private function resolve_completion_status_text(int $completiondate, array $metadata): string {
         if ($completiondate > 0) {
-            return trim((string)($metadata['status_passed'] ?? '???? / ??????'));
+            return trim((string)($metadata['status_passed'] ?? 'өтті / прошел'));
         }
 
-        return trim((string)($metadata['status_failed'] ?? '????? ?????????? ?????? / ???????? ?????? ?? ??????'));
+        return trim((string)($metadata['status_failed'] ?? 'білім тексеруден өтпеді / проверку знаний не прошел'));
     }
 
     /**
@@ -784,9 +784,21 @@ class document_generator {
      */
     private function format_commission_full_line(array $signer, string $companyname): string {
         $initials = $this->format_signer_initials($signer);
-        $position = trim((string)($signer['position'] ?? ''));
-        $parts = array_filter([$initials, $position !== '' ? '- ' . $position : '', $companyname]);
-        return trim(implode(' ', $parts));
+        $position = html_entity_decode(trim((string)($signer['position'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $companyname = html_entity_decode(trim($companyname), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $companysegment = $companyname;
+        if ($position !== '' && $companyname !== '' && mb_stripos($position, $companyname, 0, 'UTF-8') !== false) {
+            $companysegment = '';
+        }
+
+        $parts = array_filter([
+            $initials,
+            $position !== '' ? '- ' . $position : '',
+            $companysegment,
+        ]);
+
+        return trim((string)preg_replace('/\s+/u', ' ', implode(' ', $parts)));
     }
 
     /**
@@ -857,23 +869,23 @@ class document_generator {
      */
     private function format_date_kz(int $timestamp): string {
         $months = [
-            1 => '??????',
-            2 => '?????',
-            3 => '??????',
-            4 => '?????',
-            5 => '?????',
-            6 => '??????',
-            7 => '?????',
-            8 => '?????',
-            9 => '????????',
-            10 => '?????',
-            11 => '??????',
-            12 => '?????????',
+            1 => 'қаңтар',
+            2 => 'ақпан',
+            3 => 'наурыз',
+            4 => 'сәуір',
+            5 => 'мамыр',
+            6 => 'маусым',
+            7 => 'шілде',
+            8 => 'тамыз',
+            9 => 'қыркүйек',
+            10 => 'қазан',
+            11 => 'қараша',
+            12 => 'желтоқсан',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '%s ????? "%s" %s',
+            '%s жылғы "%s" %s',
             $datetime->format('Y'),
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m')
@@ -888,23 +900,23 @@ class document_generator {
      */
     private function format_date_ru(int $timestamp): string {
         $months = [
-            1 => '??????',
-            2 => '???????',
-            3 => '?????',
-            4 => '??????',
-            5 => '???',
-            6 => '????',
-            7 => '????',
-            8 => '???????',
-            9 => '????????',
-            10 => '???????',
-            11 => '??????',
-            12 => '???????',
+            1 => 'января',
+            2 => 'февраля',
+            3 => 'марта',
+            4 => 'апреля',
+            5 => 'мая',
+            6 => 'июня',
+            7 => 'июля',
+            8 => 'августа',
+            9 => 'сентября',
+            10 => 'октября',
+            11 => 'ноября',
+            12 => 'декабря',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '"%s" %s %s ????',
+            '"%s" %s %s года',
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m'),
             $datetime->format('Y')
