@@ -95,10 +95,13 @@ class document_generator {
 
         $user = $DB->get_record('user', ['id' => $userid], 'id,firstname,lastname,middlename,alternatename', MUST_EXIST);
         $course = $DB->get_record('course', ['id' => $courseid], 'id,fullname,shortname', MUST_EXIST);
-        $completiondate = (int)$DB->get_field('course_completions', 'timecompleted', [
-            'course' => $courseid,
-            'userid' => $userid,
-        ], IGNORE_MISSING);
+        $completiondate = !empty($options['completiontimestamp']) ? (int)$options['completiontimestamp'] : 0;
+        if ($completiondate <= 0) {
+            $completiondate = (int)$DB->get_field('course_completions', 'timecompleted', [
+                'course' => $courseid,
+                'userid' => $userid,
+            ], IGNORE_MISSING);
+        }
         if ($completiondate <= 0) {
             $completiondate = time();
         }
@@ -169,6 +172,7 @@ class document_generator {
             'documenttype' => (string)($profile['documenttype'] ?? 'protocol'),
             'documenttitle' => (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (BiOT ITR)'),
             'protocolnumber' => (string)$documentdata['protocolnumber'],
+            'previewdata' => $documentdata,
             'finalizationmanifest' => [
                 'version' => 1,
                 'reservationmode' => 'visual_signature_slots_only',
@@ -315,45 +319,51 @@ class document_generator {
     ): array {
         $metadata = (array)($layoutconfig['metadata'] ?? []);
         $outputlanguage = $this->resolve_template_output_language($metadata);
-        $dailysequence = $this->build_daily_sequence_number($completiondate, 'protocol');
-        $protocolnumber = (string)($options['protocolnumber'] ?? $this->build_protocol_number($courseid, $userid, $completiondate, $dailysequence));
-        $certificatenumber = (string)($options['certificatenumber'] ?? $this->build_certificate_number($courseid, $userid, $completiondate, $dailysequence));
+        $documenttimestamp = !empty($options['documenttimestamp']) ? (int)$options['documenttimestamp'] : time();
+        $dailysequence = !empty($options['dailysequence'])
+            ? max(1, (int)$options['dailysequence'])
+            : $this->build_daily_sequence_number($documenttimestamp, 'protocol');
+        $protocolnumber = (string)($options['protocolnumber'] ?? $this->build_protocol_number($courseid, $userid, $documenttimestamp, $dailysequence));
+        $certificatenumber = (string)($options['certificatenumber'] ?? $this->build_certificate_number($courseid, $userid, $documenttimestamp, $dailysequence));
         $clientcompanyname = $this->resolve_client_company_name(
             $userid,
-            (string)($metadata['clientcompanyoverride'] ?? ''),
+            (string)($options['clientcompanyoverride'] ?? ($metadata['clientcompanyoverride'] ?? '')),
             $outputlanguage
         );
-        $userfullname = $this->resolve_user_full_name($userid, $user);
-        $userjobtitle = $this->resolve_user_profile_value($userid, [
+        $userfullname = (string)($options['userfullname'] ?? $this->resolve_user_full_name($userid, $user));
+        $userjobtitle = (string)($options['userjobtitle'] ?? $this->resolve_user_profile_value($userid, [
             'job_title',
             'jobtitle',
             'position',
             'occupation',
             'dolzhnost',
             'lauazym',
-        ], $outputlanguage === 'ru' ? '?????????' : '????????? / ?????????');
+        ], $outputlanguage === 'ru' ? '?????????' : '????????? / ?????????'));
         $protocoltype = $this->resolve_protocol_type_pair($userid, $courseid, $completiondate, $metadata);
         $status = $this->resolve_completion_status_text($completiondate, $metadata);
         $orderref = $this->build_order_reference_pair($metadata, $outputlanguage);
         $signers = is_array($options['signers'] ?? null) ? $options['signers'] : [];
-        $sentalcompanyname = trim((string)($metadata['sentalcompanyname'] ?? '')) !== ''
-            ? trim((string)$metadata['sentalcompanyname'])
-            : 'Ð¢ÐžÐž "SENTAL"';
+        $sentalcompanyname = trim((string)($options['sentalcompanyname'] ?? ($metadata['sentalcompanyname'] ?? ''))) !== ''
+            ? trim((string)($options['sentalcompanyname'] ?? $metadata['sentalcompanyname']))
+            : '??? "SENTAL"';
 
-        $issuedatekz = $this->format_date_kz($completiondate);
-        $issuedateru = $this->format_date_ru($completiondate);
+        $issuedatekz = !empty($options['issuedatekz']) ? (string)$options['issuedatekz'] : $this->format_date_kz($completiondate);
+        $issuedateru = !empty($options['issuedateru']) ? (string)$options['issuedateru'] : $this->format_date_ru($completiondate);
         if ($outputlanguage === 'ru') {
             $issuedatekz = $issuedateru;
             $protocoltype['kz'] = (string)($protocoltype['ru'] ?? '');
             $protocoltype['ru'] = (string)($protocoltype['ru'] ?? '');
             $status = $this->resolve_localised_text_variant($status, 'ru');
         }
+
         return [
             'clientcompanyname' => $clientcompanyname,
             'protocolnumber' => $protocolnumber,
             'issuedatekz' => $issuedatekz,
             'issuedateru' => $issuedateru,
-            'chairfull' => $this->format_commission_full_line($signers[0] ?? [], $sentalcompanyname),
+            'chairfull' => !empty($options['chairfull'])
+                ? (string)$options['chairfull']
+                : $this->format_commission_full_line($signers[0] ?? [], $sentalcompanyname),
             'member1full' => $this->format_commission_full_line($signers[1] ?? [], $sentalcompanyname),
             'member2full' => $this->format_commission_full_line($signers[2] ?? [], $sentalcompanyname),
             'orderkz' => $orderref['kz'],
@@ -390,15 +400,15 @@ class document_generator {
             'metadata' => [
                 'outputlanguage' => 'bilingual',
                 'clientcompanyoverride' => '',
-                'sentalcompanyname' => 'Ð¢ÐžÐž "SENTAL"',
+                'sentalcompanyname' => '??? "SENTAL"',
                 'orderdate' => '',
                 'ordernumber' => '',
-                'protocoltype_initial_kz' => 'Ð±Ð°ÑÑ‚Ð°Ð¿Ò›Ñ‹',
-                'protocoltype_initial_ru' => 'Ð¿ÐµÑ€Ð²Ð¸Ñ‡Ð½Ñ‹Ð¹',
-                'protocoltype_repeat_kz' => 'Ò›Ð°Ð¹Ñ‚Ð°Ð»Ð°Ð¼Ð°',
-                'protocoltype_repeat_ru' => 'Ð¿Ð¾Ð²Ñ‚Ð¾Ñ€Ð½Ñ‹Ð¹',
-                'status_passed' => 'Ó©Ñ‚Ñ‚Ñ– / Ð¿Ñ€Ð¾ÑˆÐµÐ»',
-                'status_failed' => 'Ò›Ð°Ð¹Ñ‚Ð° Ñ‚ÐµÐºÑÐµÑ€ÑƒÐ³Ðµ Ð¶Ð°Ñ‚Ð°Ð´Ñ‹ / Ð¿Ð¾Ð´Ð»ÐµÐ¶Ð¸Ñ‚ Ð¿Ð¾Ð²Ñ‚Ð¾Ñ€Ð½Ð¾Ð¹ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐºÐµ Ð·Ð½Ð°Ð½Ð¸Ð¹',
+                'protocoltype_initial_kz' => '????????',
+                'protocoltype_initial_ru' => '?????????',
+                'protocoltype_repeat_kz' => '?????????',
+                'protocoltype_repeat_ru' => '?????????',
+                'status_passed' => '???? / ??????',
+                'status_failed' => '????? ?????????? ?????? / ???????? ?????? ?? ??????',
             ],
             'positions' => [
                 'companyheader' => ['x' => 155.0, 'y' => 46.0, 'w' => 190.0, 'h' => 18.0, 'align' => 'C', 'size' => 10.0, 'style' => 'B'],
@@ -417,31 +427,31 @@ class document_generator {
                 'companytable' => ['x' => 216.0, 'y' => 628.0, 'w' => 104.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.0, 'style' => ''],
                 'userjobtitle' => ['x' => 333.0, 'y' => 628.0, 'w' => 52.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.2, 'style' => ''],
                 'completionstatus' => ['x' => 433.0, 'y' => 628.0, 'w' => 48.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.2, 'style' => ''],
-                'certificatenumber' => ['x' => 526.0, 'y' => 626.0, 'w' => 50.0, 'h' => 24.0, 'align' => 'C', 'size' => 6.8, 'style' => ''],
-                'chairinitials' => ['x' => 462.0, 'y' => 693.0, 'w' => 100.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.8, 'style' => ''],
-                'member1initials' => ['x' => 462.0, 'y' => 732.0, 'w' => 100.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.8, 'style' => ''],
-                'member2initials' => ['x' => 462.0, 'y' => 769.0, 'w' => 100.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.8, 'style' => ''],
+                'certificatenumber' => ['x' => 493.0, 'y' => 628.0, 'w' => 44.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.0, 'style' => ''],
+                'chairinitials' => ['x' => 386.0, 'y' => 754.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
+                'member1initials' => ['x' => 386.0, 'y' => 780.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
+                'member2initials' => ['x' => 386.0, 'y' => 806.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
             ],
             'placeholder_masks' => [
+                'companyheader' => [[145.68, 53.71, 346.53, 72.63]],
                 'protocolnumber' => [[363.31, 93.61, 375.31, 106.89]],
-                'companytable' => [[252.05, 638.01, 346.35, 651.29], [248.09, 651.81, 350.23, 665.09]],
-                'companyheader' => [[173.66, 167.53, 388.99, 180.81]],
-                'issuedatekz' => [[63.86, 194.17, 186.34, 207.45]],
-                'issuedateru' => [[192.65, 194.17, 314.35, 207.45]],
+                'issuedatekz' => [[25.31, 179.18, 167.24, 193.35]],
+                'issuedateru' => [[199.92, 179.18, 339.66, 193.35]],
                 'chairfull' => [[246.41, 245.65, 470.12, 258.93]],
-                'member1full' => [[246.41, 280.12, 493.88, 293.40]],
-                'member2full' => [[246.41, 307.72, 556.54, 321.00]],
-                'orderkz' => [[63.86, 342.28, 242.93, 355.56]],
-                'orderru' => [[192.29, 356.08, 370.99, 369.36]],
-                'protocoltypekz' => [[172.70, 452.82, 224.92, 466.10]],
-                'protocoltyperu' => [[352.99, 452.82, 409.19, 466.10]],
-                'userfullname' => [[92.18, 644.85, 205.25, 658.13]],
-                'userjobtitle' => [[363.07, 644.85, 412.51, 658.13]],
-                'completionstatus' => [[444.10, 638.01, 473.36, 651.29], [437.74, 651.81, 479.74, 665.09]],
-                'certificatenumber' => [[518.38, 638.01, 545.06, 651.29], [509.26, 651.81, 557.26, 665.09]],
-                'chairinitials' => [[469.66, 694.65, 556.02, 707.93]],
-                'member1initials' => [[462.34, 722.85, 554.70, 736.13]],
-                'member2initials' => [[479.14, 750.44, 554.58, 763.73]],
+                'member1full' => [[246.41, 280.35, 530.85, 293.63]],
+                'member2full' => [[246.41, 312.42, 530.85, 325.70]],
+                'orderkz' => [[23.72, 352.04, 171.71, 389.91]],
+                'orderru' => [[239.39, 352.04, 421.50, 389.91]],
+                'protocoltypekz' => [[178.98, 454.74, 279.33, 468.43]],
+                'protocoltyperu' => [[342.03, 454.74, 449.42, 468.43]],
+                'userfullname' => [[92.12, 633.83, 183.61, 667.22]],
+                'companytable' => [[221.25, 633.83, 311.40, 667.22]],
+                'userjobtitle' => [[334.83, 633.83, 382.82, 667.22]],
+                'completionstatus' => [[432.46, 633.83, 478.61, 667.22]],
+                'certificatenumber' => [[490.30, 633.83, 537.17, 667.22]],
+                'chairinitials' => [[381.44, 755.24, 496.10, 767.74]],
+                'member1initials' => [[381.44, 780.47, 496.10, 792.97]],
+                'member2initials' => [[381.44, 805.70, 496.10, 818.20]],
             ],
         ];
     }
@@ -588,7 +598,7 @@ class document_generator {
             return $iomadcompany;
         }
 
-        return $outputlanguage === 'ru' ? 'ÐžÑ€Ð³Ð°Ð½Ð¸Ð·Ð°Ñ†Ð¸Ñ' : 'Ò°Ð¹Ñ‹Ð¼ / ÐžÑ€Ð³Ð°Ð½Ð¸Ð·Ð°Ñ†Ð¸Ñ';
+        return $outputlanguage === 'ru' ? '???????????' : '???? / ???????????';
     }
 
     /**
@@ -675,14 +685,14 @@ class document_generator {
         $isrepeat = $this->user_has_previous_completion($userid, $courseid, $completiondate);
         if ($isrepeat) {
             return [
-                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? 'Ò›Ð°Ð¹Ñ‚Ð°Ð»Ð°Ð¼Ð°')),
-                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? 'Ð¿Ð¾Ð²Ñ‚Ð¾Ñ€Ð½Ñ‹Ð¹')),
+                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? '?????????')),
+                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? '?????????')),
             ];
         }
 
         return [
-            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? 'Ð±Ð°ÑÑ‚Ð°Ð¿Ò›Ñ‹')),
-            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? 'Ð¿ÐµÑ€Ð²Ð¸Ñ‡Ð½Ñ‹Ð¹')),
+            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? '????????')),
+            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? '?????????')),
         ];
     }
 
@@ -695,10 +705,10 @@ class document_generator {
      */
     private function resolve_completion_status_text(int $completiondate, array $metadata): string {
         if ($completiondate > 0) {
-            return trim((string)($metadata['status_passed'] ?? 'Ó©Ñ‚Ñ‚Ñ– / Ð¿Ñ€Ð¾ÑˆÐµÐ»'));
+            return trim((string)($metadata['status_passed'] ?? '???? / ??????'));
         }
 
-        return trim((string)($metadata['status_failed'] ?? 'Ò›Ð°Ð¹Ñ‚Ð° Ñ‚ÐµÐºÑÐµÑ€ÑƒÐ³Ðµ Ð¶Ð°Ñ‚Ð°Ð´Ñ‹ / Ð¿Ð¾Ð´Ð»ÐµÐ¶Ð¸Ñ‚ Ð¿Ð¾Ð²Ñ‚Ð¾Ñ€Ð½Ð¾Ð¹ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐºÐµ Ð·Ð½Ð°Ð½Ð¸Ð¹'));
+        return trim((string)($metadata['status_failed'] ?? '????? ?????????? ?????? / ???????? ?????? ?? ??????'));
     }
 
     /**
@@ -795,7 +805,7 @@ class document_generator {
             return '';
         }
 
-        if (preg_match('/^[^\\s]+\\s+[A-ZÐ-Ð¯Ó˜Ð†Ò¢Ò’Ò®Ò°ÒšÓ¨ÒºÐ]\\.[A-ZÐ-Ð¯Ó˜Ð†Ò¢Ò’Ò®Ò°ÒšÓ¨ÒºÐ]\\.?$/u', $name)) {
+        if (preg_match('/^[^\\s]+\\s+[A-ZÃÂ-ÃÂ¯Ã“ËœÃâ€ Ã’Â¢Ã’â€™Ã’Â®Ã’Â°Ã’Å¡Ã“Â¨Ã’ÂºÃÂ]\\.[A-ZÃÂ-ÃÂ¯Ã“ËœÃâ€ Ã’Â¢Ã’â€™Ã’Â®Ã’Â°Ã’Å¡Ã“Â¨Ã’ÂºÃÂ]\\.?$/u', $name)) {
             return $name;
         }
 
@@ -847,23 +857,23 @@ class document_generator {
      */
     private function format_date_kz(int $timestamp): string {
         $months = [
-            1 => 'Ò›Ð°Ò£Ñ‚Ð°Ñ€',
-            2 => 'Ð°Ò›Ð¿Ð°Ð½',
-            3 => 'Ð½Ð°ÑƒÑ€Ñ‹Ð·',
-            4 => 'ÑÓ™ÑƒÑ–Ñ€',
-            5 => 'Ð¼Ð°Ð¼Ñ‹Ñ€',
-            6 => 'Ð¼Ð°ÑƒÑÑ‹Ð¼',
-            7 => 'ÑˆÑ–Ð»Ð´Ðµ',
-            8 => 'Ñ‚Ð°Ð¼Ñ‹Ð·',
-            9 => 'Ò›Ñ‹Ñ€ÐºÒ¯Ð¹ÐµÐº',
-            10 => 'Ò›Ð°Ð·Ð°Ð½',
-            11 => 'Ò›Ð°Ñ€Ð°ÑˆÐ°',
-            12 => 'Ð¶ÐµÐ»Ñ‚Ð¾Ò›ÑÐ°Ð½',
+            1 => '??????',
+            2 => '?????',
+            3 => '??????',
+            4 => '?????',
+            5 => '?????',
+            6 => '??????',
+            7 => '?????',
+            8 => '?????',
+            9 => '????????',
+            10 => '?????',
+            11 => '??????',
+            12 => '?????????',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '%s Ð¶Ñ‹Ð»Ò“Ñ‹ "%s" %s',
+            '%s ????? "%s" %s',
             $datetime->format('Y'),
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m')
@@ -878,23 +888,23 @@ class document_generator {
      */
     private function format_date_ru(int $timestamp): string {
         $months = [
-            1 => 'ÑÐ½Ð²Ð°Ñ€Ñ',
-            2 => 'Ñ„ÐµÐ²Ñ€Ð°Ð»Ñ',
-            3 => 'Ð¼Ð°Ñ€Ñ‚Ð°',
-            4 => 'Ð°Ð¿Ñ€ÐµÐ»Ñ',
-            5 => 'Ð¼Ð°Ñ',
-            6 => 'Ð¸ÑŽÐ½Ñ',
-            7 => 'Ð¸ÑŽÐ»Ñ',
-            8 => 'Ð°Ð²Ð³ÑƒÑÑ‚Ð°',
-            9 => 'ÑÐµÐ½Ñ‚ÑÐ±Ñ€Ñ',
-            10 => 'Ð¾ÐºÑ‚ÑÐ±Ñ€Ñ',
-            11 => 'Ð½Ð¾ÑÐ±Ñ€Ñ',
-            12 => 'Ð´ÐµÐºÐ°Ð±Ñ€Ñ',
+            1 => '??????',
+            2 => '???????',
+            3 => '?????',
+            4 => '??????',
+            5 => '???',
+            6 => '????',
+            7 => '????',
+            8 => '???????',
+            9 => '????????',
+            10 => '???????',
+            11 => '??????',
+            12 => '???????',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '"%s" %s %s Ð³Ð¾Ð´Ð°',
+            '"%s" %s %s ????',
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m'),
             $datetime->format('Y')
