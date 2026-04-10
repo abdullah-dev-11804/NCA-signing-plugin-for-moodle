@@ -41,7 +41,7 @@ Options:
 --userid=INT               Student user id (required)
 --courseid=INT             Course id (required)
 --templateid=INT           Optional template profile id; otherwise first mapped active template for the course
---outfile=/path/file.pdf   Optional output path; defaults to moodledata/temp/local_ncasign/ncasign_preview_<userid>_<courseid>.pdf
+--outfile=/path/file.pdf   Optional output path; defaults to local/ncasign/preview_output/ncasign_preview_<userid>_<courseid>.pdf
 --verifyurl=URL            Optional verification URL encoded into QR previews
 --documenttimestamp=INT    Optional timestamp used for protocol/certificate numbering
 --completiontimestamp=INT  Optional timestamp used for issue date / completion-based fields
@@ -106,7 +106,11 @@ $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile, $
 
 $outfile = trim((string)$options['outfile']);
 if ($outfile === '') {
-    $outfile = make_temp_directory('local_ncasign') . DIRECTORY_SEPARATOR . 'ncasign_preview_' . $userid . '_' . $courseid . '.pdf';
+    $previewdir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'preview_output';
+    if (!is_dir($previewdir)) {
+        mkdir($previewdir, 0775, true);
+    }
+    $outfile = $previewdir . DIRECTORY_SEPARATOR . 'ncasign_preview_' . $userid . '_' . $courseid . '.pdf';
 }
 
 file_put_contents($outfile, $draft['content']);
