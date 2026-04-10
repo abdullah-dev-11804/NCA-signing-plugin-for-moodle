@@ -129,7 +129,7 @@ if (!$signers) {
         '#',
         get_string('verifyfullname', 'local_ncasign'),
         get_string('verifyposition', 'local_ncasign'),
-        get_string('status', 'local_ncasign'),
+        get_string('verificationstatuslabel', 'local_ncasign'),
         get_string('verifysignedat', 'local_ncasign'),
     ];
 
@@ -148,7 +148,7 @@ if (!$signers) {
             (int)($signer->signorder ?: ($index + 1)),
             s($signername),
             s($position),
-            s((string)$signer->status),
+            s(local_ncasign_format_public_signer_status((string)$signer->status)),
             !empty($signer->signedat) ? userdate((int)$signer->signedat) : '-',
         ];
     }
@@ -326,7 +326,13 @@ function local_ncasign_format_revocation_status(array $verification): string {
             if (!is_array($detail) || empty($detail['status'])) {
                 continue;
             }
-            $line = 'OCSP: ' . (string)$detail['status'];
+            $status = strtolower((string)$detail['status']);
+            if ($status === 'good') {
+                $status = 'good / действителен';
+            } else if ($status === 'revoked') {
+                $status = 'revoked / отозван';
+            }
+            $line = 'OCSP: ' . $status;
             if (!empty($detail['thisUpdate'])) {
                 $line .= ' (' . (string)$detail['thisUpdate'] . ')';
             }
@@ -357,4 +363,19 @@ function local_ncasign_format_revocation_status(array $verification): string {
     }
 
     return '-';
+}
+
+/**
+ * Format signer workflow status for the public verification page.
+ *
+ * @param string $status
+ * @return string
+ */
+function local_ncasign_format_public_signer_status(string $status): string {
+    return match (trim($status)) {
+        'signed' => 'подписано / қол қойылды',
+        'pending' => 'ожидается / күтуде',
+        'skipped' => 'пропущено / өткізіліп жіберілді',
+        default => $status !== '' ? $status : '-',
+    };
 }

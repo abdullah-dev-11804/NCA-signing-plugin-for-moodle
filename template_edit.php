@@ -44,6 +44,7 @@ if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
     }
 
     $layoutconfig = local_ncasign_merge_protocol_layout_defaults($layoutconfig);
+    $layoutconfig['metadata']['outputlanguage'] = trim((string)optional_param('outputlanguage', 'bilingual', PARAM_ALPHA));
     $layoutconfig['metadata']['clientcompanyoverride'] = trim((string)optional_param('clientcompanyoverride', '', PARAM_TEXT));
     $layoutconfig['metadata']['sentalcompanyname'] = trim((string)optional_param('sentalcompanyname', '', PARAM_TEXT));
     $layoutconfig['metadata']['orderdate'] = trim((string)optional_param('orderdate', '', PARAM_TEXT));
@@ -190,6 +191,21 @@ echo html_writer::tag('textarea', s($signersraw), [
     'placeholder' => "signer1@example.com|Signer One|Commission Chair|123456789012\nsigner2@example.com|Signer Two|Commission Member|123456789013",
 ]);
 echo html_writer::tag('p', get_string('templatesigners_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templateoutputlanguage', 'local_ncasign'), 'id_outputlanguage');
+echo html_writer::select(
+    [
+        'bilingual' => get_string('templateoutputlanguage_bilingual', 'local_ncasign'),
+        'ru' => get_string('templateoutputlanguage_ru', 'local_ncasign'),
+    ],
+    'outputlanguage',
+    (string)($layoutmetadata['outputlanguage'] ?? 'bilingual'),
+    false,
+    ['id' => 'id_outputlanguage']
+);
+echo html_writer::tag('p', get_string('templateoutputlanguage_desc', 'local_ncasign'));
 echo html_writer::end_div();
 
 echo html_writer::start_div('form-group');
@@ -401,6 +417,7 @@ function local_ncasign_decode_template_layout(string $raw): array {
 function local_ncasign_protocol_layout_defaults(): array {
     return [
         'metadata' => [
+            'outputlanguage' => 'bilingual',
             'clientcompanyoverride' => '',
             'sentalcompanyname' => 'ТОО "SENTAL"',
             'orderdate' => '',
