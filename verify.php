@@ -154,6 +154,52 @@ if (!$signers) {
     }
 
     echo html_writer::table($table);
+
+    echo html_writer::tag('h3', get_string('verifycryptodetails', 'local_ncasign'));
+    foreach ($signers as $index => $signer) {
+        $signername = trim((string)($signer->signername ?? $signer->signeremail));
+        $position = trim((string)($signer->signerposition ?? ('Commission member ' . ((int)$signer->signorder ?: ($index + 1)))));
+        if (!empty($signer->signerid)) {
+            $user = $DB->get_record('user', ['id' => (int)$signer->signerid], 'id,firstname,lastname,middlename,alternatename,email', IGNORE_MISSING);
+            if ($user) {
+                $signername = local_ncasign_safe_fullname($user);
+            }
+        }
+
+        $verification = local_ncasign_safe_json_decode($signer->verificationinfo ?? '');
+        $certificate = [];
+        if (!empty($verification['certificateinfo']) && is_array($verification['certificateinfo'])) {
+            $certificate = $verification['certificateinfo'];
+        } else if (!empty($signer->signercertificate)) {
+            $certificate = local_ncasign_safe_json_decode($signer->signercertificate ?? '');
+        }
+        $ocsp = !empty($verification['ocsp']) && is_array($verification['ocsp']) ? $verification['ocsp'] : [];
+        $tsa = !empty($verification['tsa']) && is_array($verification['tsa']) ? $verification['tsa'] : [];
+
+        $rows = [
+            get_string('verifyfullname', 'local_ncasign') => s($signername),
+            get_string('verifyposition', 'local_ncasign') => s($position),
+            get_string('verifyiinidentifierlabel', 'local_ncasign') => s(local_ncasign_extract_signer_identifier($signer, $certificate)),
+            get_string('certsubjectlabel', 'local_ncasign') => !empty($certificate['subject']['dn']) ? s((string)$certificate['subject']['dn']) : '-',
+            get_string('certseriallabel', 'local_ncasign') => !empty($certificate['serialNumber']) ? s((string)$certificate['serialNumber']) : '-',
+            get_string('certperiodlabel', 'local_ncasign') => local_ncasign_format_certificate_period($certificate),
+            get_string('revocationstatuslabel', 'local_ncasign') => s(local_ncasign_format_revocation_status($verification)),
+            get_string('ocspcountlabel', 'local_ncasign') => (string)(int)($ocsp['count'] ?? 0),
+            get_string('ocspurlslabel', 'local_ncasign') => !empty($ocsp['urls']) && is_array($ocsp['urls'])
+                ? s(implode(', ', array_map('strval', $ocsp['urls'])))
+                : '-',
+            get_string('tsapresentlabel', 'local_ncasign') => !empty($tsa['present']) ? get_string('yes') : get_string('no'),
+            get_string('tsaauthoritylabel', 'local_ncasign') => !empty($tsa['authority']) ? s((string)$tsa['authority']) : '-',
+            get_string('tsagentimelabel', 'local_ncasign') => !empty($tsa['genTime']) ? s((string)$tsa['genTime']) : '-',
+        ];
+
+        echo html_writer::tag(
+            'h4',
+            s(((int)($signer->signorder ?: ($index + 1))) . '. ' . $signername),
+            ['style' => 'margin-top:20px;']
+        );
+        echo html_writer::table(local_ncasign_build_verify_table($rows));
+    }
 }
 
 $integrityrows = [
@@ -205,4 +251,110 @@ function local_ncasign_safe_fullname(stdClass $user): string {
     }
 
     return $parts ? implode(' ', $parts) : '-';
+}
+
+/**
+ * Decode JSON into array safely.
+ *
+ * @param mixed $value
+ * @return array
+ */
+function local_ncasign_safe_json_decode($value): array {
+    if (empty($value) || !is_string($value)) {
+        return [];
+    }
+    $decoded = json_decode($value, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * Extract signer subject identifier from stored signer and certificate evidence.
+ *
+ * @param stdClass $signer
+ * @param array $certificate
+ * @return string
+ */
+function local_ncasign_extract_signer_identifier(stdClass $signer, array $certificate): string {
+    if (!empty($signer->signeriin)) {
+        return (string)$signer->signeriin;
+    }
+
+    $subjectdn = '';
+    if (!empty($certificate['subject']['dn']) && is_string($certificate['subject']['dn'])) {
+        $subjectdn = $certificate['subject']['dn'];
+    }
+
+    if ($subjectdn !== '') {
+        if (preg_match('/serialNumber=([^,]+)/i', $subjectdn, $matches)) {
+            return trim((string)$matches[1]);
+        }
+        if (preg_match('/2\\.5\\.4\\.5=#([0-9A-Fa-f]+)/', $subjectdn, $matches)) {
+            $decoded = @hex2bin((string)$matches[1]);
+            if ($decoded !== false && preg_match('/IIN\\d+/i', $decoded, $iinmatch)) {
+                return (string)$iinmatch[0];
+            }
+        }
+    }
+
+    return '-';
+}
+
+/**
+ * Format certificate validity.
+ *
+ * @param array $certificate
+ * @return string
+ */
+function local_ncasign_format_certificate_period(array $certificate): string {
+    if (empty($certificate['notBefore']) && empty($certificate['notAfter'])) {
+        return '-';
+    }
+    return trim((string)($certificate['notBefore'] ?? '-')) . ' -> ' . trim((string)($certificate['notAfter'] ?? '-'));
+}
+
+/**
+ * Format revocation status from stored verification evidence.
+ *
+ * @param array $verification
+ * @return string
+ */
+function local_ncasign_format_revocation_status(array $verification): string {
+    $ocsp = !empty($verification['ocsp']) && is_array($verification['ocsp']) ? $verification['ocsp'] : [];
+    if (!empty($ocsp['details']) && is_array($ocsp['details'])) {
+        $statuses = [];
+        foreach ($ocsp['details'] as $detail) {
+            if (!is_array($detail) || empty($detail['status'])) {
+                continue;
+            }
+            $line = 'OCSP: ' . (string)$detail['status'];
+            if (!empty($detail['thisUpdate'])) {
+                $line .= ' (' . (string)$detail['thisUpdate'] . ')';
+            }
+            $statuses[] = $line;
+        }
+        if ($statuses) {
+            return implode('; ', $statuses);
+        }
+    }
+
+    $validation = !empty($verification['validation']) && is_array($verification['validation']) ? $verification['validation'] : [];
+    if (!empty($validation['revocations']) && is_array($validation['revocations'])) {
+        $statuses = [];
+        foreach ($validation['revocations'] as $revocation) {
+            if (!is_array($revocation)) {
+                continue;
+            }
+            $line = !empty($revocation['by']) ? (string)$revocation['by'] . ': ' : '';
+            $line .= !empty($revocation['revoked']) ? 'revoked' : 'good';
+            if (!empty($revocation['reason'])) {
+                $line .= ' (' . (string)$revocation['reason'] . ')';
+            }
+            $statuses[] = $line;
+        }
+        if ($statuses) {
+            return implode('; ', $statuses);
+        }
+    }
+
+    return '-';
 }
