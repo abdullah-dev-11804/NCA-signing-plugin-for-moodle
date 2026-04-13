@@ -413,7 +413,7 @@ class document_generator {
             ],
             'positions' => [
                 'companyheader' => ['x' => 150.0, 'y' => 156.0, 'w' => 250.0, 'h' => 16.0, 'align' => 'C', 'size' => 10.5, 'style' => 'B', 'fit' => true, 'minsize' => 8.2],
-                'protocolnumber' => ['x' => 345.0, 'y' => 91.0, 'w' => 150.0, 'h' => 11.0, 'align' => 'L', 'size' => 7.0, 'style' => 'B', 'fit' => true, 'minsize' => 5.6],
+                'protocolnumber' => ['x' => 370.0, 'y' => 95.0, 'w' => 150.0, 'h' => 11.0, 'align' => 'L', 'size' => 7.0, 'style' => 'B', 'fit' => true, 'minsize' => 5.6],
                 'issuedatekz' => ['x' => 14.0, 'y' => 193.0, 'w' => 170.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
                 'issuedateru' => ['x' => 193.0, 'y' => 193.0, 'w' => 175.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
                 'chairfull' => ['x' => 196.0, 'y' => 247.0, 'w' => 310.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.4, 'style' => '', 'fit' => true, 'minsize' => 7.0],
