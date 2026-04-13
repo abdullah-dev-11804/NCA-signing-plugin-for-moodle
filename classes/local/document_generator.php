@@ -222,6 +222,7 @@ class document_generator {
         ];
 
         foreach ($fieldmap as $fieldname => $text) {
+            $text = $this->normalise_render_text($text);
             if ($text === '' || empty($positions[$fieldname]) || !is_array($positions[$fieldname])) {
                 continue;
             }
@@ -411,15 +412,15 @@ class document_generator {
                 'status_failed' => 'білім тексеруден өтпеді / проверку знаний не прошел',
             ],
             'positions' => [
-                'companyheader' => ['x' => 155.0, 'y' => 46.0, 'w' => 190.0, 'h' => 18.0, 'align' => 'C', 'size' => 10.0, 'style' => 'B'],
-                'protocolnumber' => ['x' => 404.0, 'y' => 79.0, 'w' => 42.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.0, 'style' => 'B'],
-                'issuedatekz' => ['x' => 58.0, 'y' => 178.0, 'w' => 148.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.4, 'style' => ''],
-                'issuedateru' => ['x' => 209.0, 'y' => 178.0, 'w' => 168.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.4, 'style' => ''],
-                'chairfull' => ['x' => 223.0, 'y' => 249.0, 'w' => 260.0, 'h' => 14.0, 'align' => 'L', 'size' => 8.2, 'style' => ''],
-                'member1full' => ['x' => 223.0, 'y' => 285.0, 'w' => 280.0, 'h' => 14.0, 'align' => 'L', 'size' => 8.2, 'style' => ''],
-                'member2full' => ['x' => 223.0, 'y' => 317.0, 'w' => 290.0, 'h' => 14.0, 'align' => 'L', 'size' => 8.2, 'style' => ''],
-                'orderkz' => ['x' => 27.0, 'y' => 349.0, 'w' => 210.0, 'h' => 16.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
-                'orderru' => ['x' => 239.0, 'y' => 349.0, 'w' => 204.0, 'h' => 16.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
+                'companyheader' => ['x' => 150.0, 'y' => 156.0, 'w' => 250.0, 'h' => 16.0, 'align' => 'C', 'size' => 10.5, 'style' => 'B', 'fit' => true, 'minsize' => 8.2],
+                'protocolnumber' => ['x' => 345.0, 'y' => 91.0, 'w' => 150.0, 'h' => 11.0, 'align' => 'L', 'size' => 7.0, 'style' => 'B', 'fit' => true, 'minsize' => 5.6],
+                'issuedatekz' => ['x' => 14.0, 'y' => 193.0, 'w' => 170.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
+                'issuedateru' => ['x' => 193.0, 'y' => 193.0, 'w' => 175.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
+                'chairfull' => ['x' => 196.0, 'y' => 247.0, 'w' => 310.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.4, 'style' => '', 'fit' => true, 'minsize' => 7.0],
+                'member1full' => ['x' => 196.0, 'y' => 282.0, 'w' => 320.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.4, 'style' => '', 'fit' => true, 'minsize' => 7.0],
+                'member2full' => ['x' => 196.0, 'y' => 311.0, 'w' => 330.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.4, 'style' => '', 'fit' => true, 'minsize' => 7.0],
+                'orderkz' => ['x' => 14.0, 'y' => 340.0, 'w' => 220.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.8],
+                'orderru' => ['x' => 198.0, 'y' => 340.0, 'w' => 250.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.8],
                 'protocoltypekz' => ['x' => 195.0, 'y' => 453.0, 'w' => 88.0, 'h' => 10.0, 'align' => 'C', 'size' => 8.0, 'style' => ''],
                 'protocoltyperu' => ['x' => 364.0, 'y' => 453.0, 'w' => 90.0, 'h' => 10.0, 'align' => 'C', 'size' => 8.0, 'style' => ''],
                 'rownumber' => ['x' => 58.0, 'y' => 629.0, 'w' => 20.0, 'h' => 20.0, 'align' => 'C', 'size' => 8.0, 'style' => ''],
@@ -433,15 +434,15 @@ class document_generator {
                 'member2initials' => ['x' => 386.0, 'y' => 806.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
             ],
             'placeholder_masks' => [
-                'companyheader' => [[145.68, 53.71, 346.53, 72.63]],
-                'protocolnumber' => [[363.31, 93.61, 375.31, 106.89]],
-                'issuedatekz' => [[25.31, 179.18, 167.24, 193.35]],
-                'issuedateru' => [[199.92, 179.18, 339.66, 193.35]],
-                'chairfull' => [[246.41, 245.65, 470.12, 258.93]],
-                'member1full' => [[246.41, 280.35, 530.85, 293.63]],
-                'member2full' => [[246.41, 312.42, 530.85, 325.70]],
-                'orderkz' => [[23.72, 352.04, 171.71, 389.91]],
-                'orderru' => [[239.39, 352.04, 421.50, 389.91]],
+                'companyheader' => [[148.00, 156.00, 398.00, 176.00]],
+                'protocolnumber' => [[360.00, 91.00, 495.00, 104.00]],
+                'issuedatekz' => [[13.00, 191.00, 183.00, 206.00]],
+                'issuedateru' => [[190.00, 191.00, 370.00, 206.00]],
+                'chairfull' => [[194.00, 246.00, 512.00, 262.00]],
+                'member1full' => [[194.00, 280.00, 520.00, 297.00]],
+                'member2full' => [[194.00, 309.00, 530.00, 326.00]],
+                'orderkz' => [[12.00, 339.00, 235.00, 356.00]],
+                'orderru' => [[196.00, 339.00, 450.00, 356.00]],
                 'protocoltypekz' => [[178.98, 454.74, 279.33, 468.43]],
                 'protocoltyperu' => [[342.03, 454.74, 449.42, 468.43]],
                 'userfullname' => [[92.12, 633.83, 183.61, 667.22]],
@@ -486,21 +487,62 @@ class document_generator {
      * @return void
      */
     private function write_layout_text(\setasign\Fpdi\Tcpdf\Fpdi $pdf, array $position, string $text): void {
+        $text = $this->normalise_render_text($text);
         $x = (float)($position['x'] ?? 0.0);
         $y = (float)($position['y'] ?? 0.0);
         $w = (float)($position['w'] ?? 0.0);
         $h = (float)($position['h'] ?? 0.0);
         $align = (string)($position['align'] ?? 'L');
         $size = (float)($position['size'] ?? 8.0);
+        $minsize = (float)($position['minsize'] ?? 5.5);
         $style = (string)($position['style'] ?? '');
+        $fit = !empty($position['fit']);
 
         if ($w <= 0 || $h <= 0) {
             return;
         }
 
         $this->set_document_font($pdf, $style, $size);
+        if ($fit) {
+            while ($size > $minsize && $pdf->GetStringWidth($text) > ($w - 2.0)) {
+                $size -= 0.2;
+                $this->set_document_font($pdf, $style, $size);
+            }
+        }
         $pdf->SetXY($x, $y);
         $pdf->MultiCell($w, max(3.0, $h / 2), $text, 0, $align, false, 1, $x, $y, true, 0, false, true, $h, 'M');
+    }
+
+    /**
+     * Normalize display text before rendering into PDF.
+     *
+     * @param string $text
+     * @return string
+     */
+    private function normalise_render_text(string $text): string {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        for ($i = 0; $i < 3; $i++) {
+            $decoded = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($decoded === $text) {
+                break;
+            }
+            $text = $decoded;
+        }
+
+        if (preg_match('/[ÃÐÑÒÓ]/u', $text)) {
+            $converted = @mb_convert_encoding($text, 'UTF-8', 'Windows-1252');
+            if (is_string($converted) && $converted !== '') {
+                $text = $converted;
+            }
+        }
+
+        $text = str_replace("\xc2\xa0", ' ', $text);
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+        return trim($text);
     }
 
     /**
