@@ -434,7 +434,7 @@ class document_generator {
                 'member2initials' => ['x' => 386.0, 'y' => 806.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
             ],
             'placeholder_masks' => [
-                'companyheader' => [[148.00, 156.00, 398.00, 176.00]],
+                'companyheader' => [[120.00, 170.00, 398.00, 186.00]],
                 'protocolnumber' => [[360.00, 91.00, 495.00, 104.00]],
                 'issuedatekz' => [[13.00, 191.00, 183.00, 206.00]],
                 'issuedateru' => [[190.00, 191.00, 370.00, 206.00]],
@@ -635,16 +635,62 @@ class document_generator {
             return html_entity_decode(trim($override), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
 
+        $profilecompany = $this->resolve_user_company_profile_value($userid);
+        if ($profilecompany !== '') {
+            return html_entity_decode($profilecompany, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
         $iomadcompany = $this->resolve_iomad_company_name($userid);
         if ($iomadcompany !== '') {
             return html_entity_decode($iomadcompany, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
 
-        return $outputlanguage === 'ru' ? 'Организация' : 'Ұйым / Организация';
+        return $outputlanguage === 'ru' ? '???????????' : '???? / ???????????';
+    }
+
+    /**
+     * Resolve the client company from a user custom profile field.
+     *
+     * Primary match is by shortname "Company". If not found, fall back to field id 31.
+     *
+     * @param int $userid
+     * @return string
+     */
+    private function resolve_user_company_profile_value(int $userid): string {
+        global $DB;
+
+        $manager = $DB->get_manager();
+        $fieldtable = new \xmldb_table('user_info_field');
+        $datatable = new \xmldb_table('user_info_data');
+        if (!$manager->table_exists($fieldtable) || !$manager->table_exists($datatable)) {
+            return '';
+        }
+
+        $sqlbyshortname = "SELECT d.data
+                             FROM {user_info_data} d
+                             JOIN {user_info_field} f ON f.id = d.fieldid
+                            WHERE d.userid = :userid
+                              AND LOWER(f.shortname) = LOWER(:shortname)
+                         ORDER BY d.id ASC";
+        $value = $DB->get_field_sql($sqlbyshortname, [
+            'userid' => $userid,
+            'shortname' => 'Company',
+        ], IGNORE_MISSING);
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
+        }
+
+        $value = $DB->get_field('user_info_data', 'data', [
+            'userid' => $userid,
+            'fieldid' => 31,
+        ], IGNORE_MISSING);
+
+        return is_string($value) ? trim($value) : '';
     }
 
     /**
      * Resolve the user's company from IOMAD company membership if available.
+
      *
      * @param int $userid
      * @return string
