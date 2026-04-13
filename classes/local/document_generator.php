@@ -412,7 +412,7 @@ class document_generator {
                 'status_failed' => 'білім тексеруден өтпеді / проверку знаний не прошел',
             ],
             'positions' => [
-                'companyheader' => ['x' => 150.0, 'y' => 156.0, 'w' => 250.0, 'h' => 16.0, 'align' => 'C', 'size' => 10.5, 'style' => 'B', 'fit' => true, 'minsize' => 8.2],
+                'companyheader' => ['x' => 122.0, 'y' => 170.0, 'w' => 276.0, 'h' => 14.0, 'align' => 'C', 'size' => 9.2, 'style' => 'B', 'fit' => true, 'minsize' => 7.8],
                 'protocolnumber' => ['x' => 370.0, 'y' => 95.0, 'w' => 150.0, 'h' => 11.0, 'align' => 'L', 'size' => 7.0, 'style' => 'B', 'fit' => true, 'minsize' => 5.6],
                 'issuedatekz' => ['x' => 14.0, 'y' => 193.0, 'w' => 170.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
                 'issuedateru' => ['x' => 193.0, 'y' => 193.0, 'w' => 175.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
@@ -434,7 +434,7 @@ class document_generator {
                 'member2initials' => ['x' => 386.0, 'y' => 806.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
             ],
             'placeholder_masks' => [
-                'companyheader' => [[120.00, 170.00, 398.00, 186.00]],
+                'companyheader' => [[118.00, 168.00, 400.00, 186.00]],
                 'protocolnumber' => [[360.00, 91.00, 495.00, 104.00]],
                 'issuedatekz' => [[13.00, 191.00, 183.00, 206.00]],
                 'issuedateru' => [[190.00, 191.00, 370.00, 206.00]],
