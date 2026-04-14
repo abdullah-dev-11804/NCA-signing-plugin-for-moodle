@@ -198,6 +198,10 @@ class document_generator {
         $pdf->SetTextColor(0, 0, 0);
         $positions = (array)($layoutconfig['positions'] ?? []);
         $masks = (array)($layoutconfig['placeholder_masks'] ?? []);
+        $staticmasks = (array)($layoutconfig['static_masks'] ?? []);
+        if (!empty($staticmasks)) {
+            $this->erase_placeholder_masks($pdf, $staticmasks);
+        }
         $fieldmap = [
             'companyheader' => (string)($documentdata['clientcompanyname'] ?? ''),
             'protocolnumber' => (string)($documentdata['protocolnumber'] ?? ''),
@@ -326,10 +330,14 @@ class document_generator {
             : $this->build_daily_sequence_number($documenttimestamp, 'protocol');
         $protocolnumber = (string)($options['protocolnumber'] ?? $this->build_protocol_number($courseid, $userid, $documenttimestamp, $dailysequence));
         $certificatenumber = (string)($options['certificatenumber'] ?? $this->build_certificate_number($courseid, $userid, $documenttimestamp, $dailysequence));
+        $sentalcompanyname = trim((string)($options['sentalcompanyname'] ?? ($metadata['sentalcompanyname'] ?? ''))) !== ''
+            ? trim((string)($options['sentalcompanyname'] ?? $metadata['sentalcompanyname']))
+            : 'ТОО "SENTAL"';
         $clientcompanyname = $this->resolve_client_company_name(
             $userid,
             (string)($options['clientcompanyoverride'] ?? ($metadata['clientcompanyoverride'] ?? '')),
-            $outputlanguage
+            $outputlanguage,
+            $sentalcompanyname
         );
         $userfullname = (string)($options['userfullname'] ?? $this->resolve_user_full_name($userid, $user));
         $userjobtitle = (string)($options['userjobtitle'] ?? $this->resolve_user_profile_value($userid, [
@@ -339,14 +347,11 @@ class document_generator {
             'occupation',
             'dolzhnost',
             'lauazym',
-        ], $outputlanguage === 'ru' ? 'повторный' : 'Қызметкер / Сотрудник'));
+        ], $outputlanguage === 'ru' ? 'Сотрудник' : 'Қызметкер / Сотрудник'));
         $protocoltype = $this->resolve_protocol_type_pair($userid, $courseid, $completiondate, $metadata);
         $status = $this->resolve_completion_status_text($completiondate, $metadata);
         $orderref = $this->build_order_reference_pair($metadata, $outputlanguage);
         $signers = is_array($options['signers'] ?? null) ? $options['signers'] : [];
-        $sentalcompanyname = trim((string)($options['sentalcompanyname'] ?? ($metadata['sentalcompanyname'] ?? ''))) !== ''
-            ? trim((string)($options['sentalcompanyname'] ?? $metadata['sentalcompanyname']))
-            : 'ТОО "SENTAL"';
 
         $issuedatekz = !empty($options['issuedatekz']) ? (string)$options['issuedatekz'] : $this->format_date_kz($completiondate);
         $issuedateru = !empty($options['issuedateru']) ? (string)$options['issuedateru'] : $this->format_date_ru($completiondate);
@@ -394,6 +399,9 @@ class document_generator {
     /**
      * Default coordinate and metadata set for the finalized BiOT ITR protocol.
      *
+     * These values are maintained against the editable DOCX template field map
+     * in docs/protocol-docx-field-map.md rather than by PDF screenshot guessing alone.
+     *
      * @return array<string, mixed>
      */
     private function get_engineer_protocol_layout_defaults(): array {
@@ -404,45 +412,45 @@ class document_generator {
                 'sentalcompanyname' => 'ТОО "SENTAL"',
                 'orderdate' => '',
                 'ordernumber' => '',
-                'protocoltype_initial_kz' => 'бастапқы',
-                'protocoltype_initial_ru' => 'повторный',
-                'protocoltype_repeat_kz' => 'повторный',
+                'protocoltype_initial_kz' => 'алғашқы',
+                'protocoltype_initial_ru' => 'первичный',
+                'protocoltype_repeat_kz' => 'қайталама',
                 'protocoltype_repeat_ru' => 'повторный',
                 'status_passed' => 'өтті / прошел',
                 'status_failed' => 'білім тексеруден өтпеді / проверку знаний не прошел',
             ],
             'positions' => [
-                'companyheader' => ['x' => 122.0, 'y' => 170.0, 'w' => 276.0, 'h' => 14.0, 'align' => 'C', 'size' => 9.2, 'style' => 'B', 'fit' => true, 'minsize' => 7.8],
+                'companyheader' => ['x' => 108.0, 'y' => 168.0, 'w' => 325.0, 'h' => 16.0, 'align' => 'C', 'size' => 11.0, 'style' => 'B', 'fit' => true, 'minsize' => 8.2],
                 'protocolnumber' => ['x' => 370.0, 'y' => 95.0, 'w' => 150.0, 'h' => 11.0, 'align' => 'L', 'size' => 7.0, 'style' => 'B', 'fit' => true, 'minsize' => 5.6],
-                'issuedatekz' => ['x' => 14.0, 'y' => 193.0, 'w' => 170.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
-                'issuedateru' => ['x' => 193.0, 'y' => 193.0, 'w' => 175.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.8, 'style' => '', 'fit' => true, 'minsize' => 7.4],
-                'chairfull' => ['x' => 196.0, 'y' => 247.0, 'w' => 310.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.4, 'style' => '', 'fit' => true, 'minsize' => 7.0],
-                'member1full' => ['x' => 196.0, 'y' => 282.0, 'w' => 320.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.4, 'style' => '', 'fit' => true, 'minsize' => 7.0],
-                'member2full' => ['x' => 196.0, 'y' => 311.0, 'w' => 330.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.4, 'style' => '', 'fit' => true, 'minsize' => 7.0],
-                'orderkz' => ['x' => 14.0, 'y' => 340.0, 'w' => 220.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.8],
-                'orderru' => ['x' => 198.0, 'y' => 340.0, 'w' => 250.0, 'h' => 15.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.8],
+                'issuedatekz' => ['x' => 18.0, 'y' => 194.0, 'w' => 186.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.6, 'style' => '', 'fit' => true, 'minsize' => 7.2],
+                'issuedateru' => ['x' => 194.0, 'y' => 194.0, 'w' => 190.0, 'h' => 12.0, 'align' => 'L', 'size' => 8.6, 'style' => '', 'fit' => true, 'minsize' => 7.2],
+                'chairfull' => ['x' => 196.0, 'y' => 245.0, 'w' => 322.0, 'h' => 16.0, 'align' => 'L', 'size' => 8.2, 'style' => '', 'fit' => true, 'minsize' => 6.8],
+                'member1full' => ['x' => 196.0, 'y' => 279.0, 'w' => 332.0, 'h' => 16.0, 'align' => 'L', 'size' => 8.2, 'style' => '', 'fit' => true, 'minsize' => 6.8],
+                'member2full' => ['x' => 196.0, 'y' => 307.0, 'w' => 342.0, 'h' => 16.0, 'align' => 'L', 'size' => 8.2, 'style' => '', 'fit' => true, 'minsize' => 6.8],
+                'orderkz' => ['x' => 14.0, 'y' => 337.0, 'w' => 228.0, 'h' => 16.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.6],
+                'orderru' => ['x' => 196.0, 'y' => 337.0, 'w' => 262.0, 'h' => 16.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.6],
                 'protocoltypekz' => ['x' => 195.0, 'y' => 453.0, 'w' => 88.0, 'h' => 10.0, 'align' => 'C', 'size' => 8.0, 'style' => ''],
                 'protocoltyperu' => ['x' => 364.0, 'y' => 453.0, 'w' => 90.0, 'h' => 10.0, 'align' => 'C', 'size' => 8.0, 'style' => ''],
                 'rownumber' => ['x' => 58.0, 'y' => 629.0, 'w' => 20.0, 'h' => 20.0, 'align' => 'C', 'size' => 8.0, 'style' => ''],
-                'userfullname' => ['x' => 89.0, 'y' => 628.0, 'w' => 105.0, 'h' => 22.0, 'align' => 'L', 'size' => 7.6, 'style' => ''],
-                'companytable' => ['x' => 216.0, 'y' => 628.0, 'w' => 104.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.0, 'style' => ''],
-                'userjobtitle' => ['x' => 333.0, 'y' => 628.0, 'w' => 52.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.2, 'style' => ''],
-                'completionstatus' => ['x' => 433.0, 'y' => 628.0, 'w' => 48.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.2, 'style' => ''],
-                'certificatenumber' => ['x' => 493.0, 'y' => 628.0, 'w' => 44.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.0, 'style' => ''],
-                'chairinitials' => ['x' => 386.0, 'y' => 754.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
-                'member1initials' => ['x' => 386.0, 'y' => 780.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
-                'member2initials' => ['x' => 386.0, 'y' => 806.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => ''],
+                'userfullname' => ['x' => 89.0, 'y' => 628.0, 'w' => 105.0, 'h' => 22.0, 'align' => 'L', 'size' => 7.6, 'style' => '', 'fit' => true, 'minsize' => 6.4],
+                'companytable' => ['x' => 216.0, 'y' => 628.0, 'w' => 104.0, 'h' => 22.0, 'align' => 'C', 'size' => 6.8, 'style' => '', 'fit' => true, 'minsize' => 5.6],
+                'userjobtitle' => ['x' => 333.0, 'y' => 628.0, 'w' => 52.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.0, 'style' => '', 'fit' => true, 'minsize' => 5.8],
+                'completionstatus' => ['x' => 433.0, 'y' => 628.0, 'w' => 48.0, 'h' => 22.0, 'align' => 'C', 'size' => 7.0, 'style' => '', 'fit' => true, 'minsize' => 5.8],
+                'certificatenumber' => ['x' => 493.0, 'y' => 628.0, 'w' => 44.0, 'h' => 22.0, 'align' => 'C', 'size' => 6.8, 'style' => '', 'fit' => true, 'minsize' => 5.6],
+                'chairinitials' => ['x' => 386.0, 'y' => 754.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.8],
+                'member1initials' => ['x' => 386.0, 'y' => 780.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.8],
+                'member2initials' => ['x' => 386.0, 'y' => 806.0, 'w' => 138.0, 'h' => 10.0, 'align' => 'L', 'size' => 8.0, 'style' => '', 'fit' => true, 'minsize' => 6.8],
             ],
             'placeholder_masks' => [
-                'companyheader' => [[118.00, 168.00, 400.00, 186.00]],
+                'companyheader' => [[104.00, 165.00, 436.00, 186.00]],
                 'protocolnumber' => [[360.00, 91.00, 495.00, 104.00]],
                 'issuedatekz' => [[13.00, 191.00, 183.00, 206.00]],
                 'issuedateru' => [[190.00, 191.00, 370.00, 206.00]],
-                'chairfull' => [[194.00, 246.00, 512.00, 262.00]],
-                'member1full' => [[194.00, 280.00, 520.00, 297.00]],
-                'member2full' => [[194.00, 309.00, 530.00, 326.00]],
-                'orderkz' => [[12.00, 339.00, 235.00, 356.00]],
-                'orderru' => [[196.00, 339.00, 450.00, 356.00]],
+                'chairfull' => [[192.00, 243.00, 520.00, 262.00]],
+                'member1full' => [[192.00, 277.00, 530.00, 296.00]],
+                'member2full' => [[192.00, 305.00, 540.00, 324.00]],
+                'orderkz' => [[12.00, 334.00, 244.00, 354.00]],
+                'orderru' => [[194.00, 334.00, 464.00, 354.00]],
                 'protocoltypekz' => [[178.98, 454.74, 279.33, 468.43]],
                 'protocoltyperu' => [[342.03, 454.74, 449.42, 468.43]],
                 'userfullname' => [[92.12, 633.83, 183.61, 667.22]],
@@ -453,6 +461,9 @@ class document_generator {
                 'chairinitials' => [[381.44, 755.24, 496.10, 767.74]],
                 'member1initials' => [[381.44, 780.47, 496.10, 792.97]],
                 'member2initials' => [[381.44, 805.70, 496.10, 818.20]],
+            ],
+            'static_masks' => [
+                [188.00, 795.00, 290.00, 816.00],
             ],
         ];
     }
@@ -624,13 +635,20 @@ class document_generator {
     }
 
     /**
-     * Resolve the client company name from IOMAD, with optional template override.
+     * Resolve the client company name from override, profile, or IOMAD membership.
      *
      * @param int $userid
      * @param string $override
+     * @param string $outputlanguage
+     * @param string $fallbackcompany
      * @return string
      */
-    private function resolve_client_company_name(int $userid, string $override = '', string $outputlanguage = 'bilingual'): string {
+    private function resolve_client_company_name(
+        int $userid,
+        string $override = '',
+        string $outputlanguage = 'bilingual',
+        string $fallbackcompany = ''
+    ): string {
         if (trim($override) !== '') {
             return html_entity_decode(trim($override), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
@@ -645,7 +663,11 @@ class document_generator {
             return html_entity_decode($iomadcompany, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
 
-        return $outputlanguage === 'ru' ? '???????????' : '???? / ???????????';
+        if (trim($fallbackcompany) !== '') {
+            return html_entity_decode(trim($fallbackcompany), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        return $outputlanguage === 'ru' ? 'Организация' : 'Ұйым / Организация';
     }
 
     /**
@@ -773,14 +795,14 @@ class document_generator {
         $isrepeat = $this->user_has_previous_completion($userid, $courseid, $completiondate);
         if ($isrepeat) {
             return [
-                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? 'повторный')),
+                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? 'қайталама')),
                 'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? 'повторный')),
             ];
         }
 
         return [
-            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? 'бастапқы')),
-            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? 'повторный')),
+            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? 'алғашқы')),
+            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? 'первичный')),
         ];
     }
 
