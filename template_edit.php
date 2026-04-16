@@ -55,6 +55,8 @@ if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
     $layoutconfig['metadata']['protocoltype_repeat_ru'] = trim((string)optional_param('protocoltype_repeat_ru', '', PARAM_TEXT));
     $layoutconfig['metadata']['status_passed'] = trim((string)optional_param('status_passed', '', PARAM_TEXT));
     $layoutconfig['metadata']['status_failed'] = trim((string)optional_param('status_failed', '', PARAM_TEXT));
+    $layoutconfig['structuredtemplate'] = optional_param('structuredtemplate', '', PARAM_RAW);
+    $layoutconfig['structuredcss'] = optional_param('structuredcss', '', PARAM_RAW);
     $persistedlayoutconfig = json_encode($layoutconfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 
     $savedid = $manager->save_profile([
@@ -119,6 +121,7 @@ echo html_writer::label(get_string('templaterenderer', 'local_ncasign'), 'id_ren
 echo html_writer::select(
     [
         \local_ncasign\local\document_generator::DOC_ENGINEER_PROTOCOL => 'Engineer protocol',
+        \local_ncasign\local\document_generator::DOC_STRUCTURED_PROTOCOL => 'Structured protocol (HTML/CSS)',
     ],
     'renderer',
     (string)$profile['renderer'],
@@ -163,7 +166,6 @@ echo html_writer::empty_tag('input', [
     'id' => 'id_templatepath',
     'value' => s((string)$profile['templatepath']),
     'size' => 100,
-    'required' => 'required',
 ]);
 echo html_writer::tag('p', get_string('templatepathlabel_desc', 'local_ncasign'));
 echo html_writer::end_div();
@@ -322,6 +324,28 @@ echo html_writer::empty_tag('input', [
 echo html_writer::end_div();
 
 echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templatestructuredtemplate', 'local_ncasign'), 'id_structuredtemplate');
+echo html_writer::tag('textarea', s((string)($profile['layoutconfig']['structuredtemplate'] ?? '')), [
+    'name' => 'structuredtemplate',
+    'id' => 'id_structuredtemplate',
+    'rows' => 18,
+    'cols' => 100,
+]);
+echo html_writer::tag('p', get_string('templatestructuredtemplate_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templatestructuredcss', 'local_ncasign'), 'id_structuredcss');
+echo html_writer::tag('textarea', s((string)($profile['layoutconfig']['structuredcss'] ?? '')), [
+    'name' => 'structuredcss',
+    'id' => 'id_structuredcss',
+    'rows' => 12,
+    'cols' => 100,
+]);
+echo html_writer::tag('p', get_string('templatestructuredcss_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
 echo html_writer::label(get_string('templatelayoutconfig', 'local_ncasign'), 'id_layoutconfig');
 echo html_writer::tag('textarea', s((string)$profile['layoutconfigraw']), [
     'name' => 'layoutconfig',
@@ -430,6 +454,8 @@ function local_ncasign_protocol_layout_defaults(): array {
             'status_failed' => 'қайта тексеруге жатады / подлежит повторной проверке знаний',
         ],
         'positions' => [],
+        'structuredcss' => local_ncasign_structured_protocol_css_defaults(),
+        'structuredtemplate' => local_ncasign_structured_protocol_template_defaults(),
     ];
 }
 
@@ -441,4 +467,93 @@ function local_ncasign_protocol_layout_defaults(): array {
  */
 function local_ncasign_merge_protocol_layout_defaults(array $layout): array {
     return array_replace_recursive(local_ncasign_protocol_layout_defaults(), $layout);
+}
+
+/**
+ * Default structured protocol HTML template.
+ *
+ * @return string
+ */
+function local_ncasign_structured_protocol_template_defaults(): string {
+    return <<<'HTML'
+<div class="doc">
+    <div class="doc__org">{{clientcompanyname}}</div>
+    <div class="doc__title">Хаттамасы / Протокол № {{protocolnumber}}</div>
+    <div class="doc__title">Жұмыскерлердің еңбек қауіпсіздігі және еңбекті қорғау бойынша білімдерін тексеру жөніндегі емтихан комиссиясы отырысының / заседания экзаменационной комиссии по проверке знаний по безопасности и охране труда работников</div>
+    <table class="doc__meta">
+        <tr>
+            <td>{{issuedatekz}}</td>
+            <td>/</td>
+            <td>{{issuedateru}}</td>
+        </tr>
+    </table>
+    <div class="doc__section">Комиссия құрамы / Комиссия в составе:</div>
+    <div class="doc__line"><span class="doc__line-label">Төраға / Председатель:</span> {{chairfull}}</div>
+    <div class="doc__line"><span class="doc__line-label">Комиссия мүшелері / Члены комиссии:</span> {{member1full}}</div>
+    <div class="doc__line"><span class="doc__line-label"></span> {{member2full}}</div>
+    <div class="doc__line">{{orderkz}} / {{orderru}}</div>
+    <div class="doc__line">білімін тексеру түрі ({{protocoltypekz}}) / вид проверки знаний ({{protocoltyperu}})</div>
+    <table class="doc__table">
+        <tr>
+            <th>№</th>
+            <th>Тегі, аты, әкесінің аты / ФИО</th>
+            <th>Ұйым / Организация</th>
+            <th>Лауазымы / Должность</th>
+            <th>Нәтиже / Результат</th>
+            <th>Сертификат №</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>{{userfullname}}</td>
+            <td>{{companytable}}</td>
+            <td>{{userjobtitle}}</td>
+            <td>{{completionstatus}}</td>
+            <td>{{certificatenumber}}</td>
+        </tr>
+    </table>
+    <div class="doc__footer">
+        <table class="doc__sigline">
+            <tr>
+                <td class="doc__siglabel">Комиссия төрағасы / Председатель:</td>
+                <td class="doc__sigvalue">{{chairinitials}}</td>
+            </tr>
+            <tr>
+                <td class="doc__siglabel">Комиссия мүшелері / Члены комиссии:</td>
+                <td class="doc__sigvalue">{{member1initials}}</td>
+            </tr>
+            <tr>
+                <td class="doc__siglabel"></td>
+                <td class="doc__sigvalue">{{member2initials}}</td>
+            </tr>
+        </table>
+    </div>
+</div>
+HTML;
+}
+
+/**
+ * Default structured protocol CSS.
+ *
+ * @return string
+ */
+function local_ncasign_structured_protocol_css_defaults(): string {
+    return <<<'CSS'
+body { font-family: dejavusans, serif; font-size: 10pt; color: #111111; }
+.doc { line-height: 1.25; }
+.doc__title { text-align: center; font-weight: bold; font-size: 13pt; margin-bottom: 10px; }
+.doc__org { text-align: center; font-weight: bold; font-size: 12pt; margin-bottom: 10px; }
+.doc__meta { width: 100%; margin-bottom: 12px; }
+.doc__meta td { font-size: 10pt; vertical-align: top; }
+.doc__section { margin-top: 10px; margin-bottom: 6px; font-weight: bold; font-size: 11pt; }
+.doc__line { margin-bottom: 6px; }
+.doc__line-label { display: inline-block; width: 170px; font-weight: bold; }
+.doc__table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.doc__table th, .doc__table td { border: 1px solid #222222; padding: 4px; font-size: 9pt; vertical-align: top; }
+.doc__table th { text-align: center; font-weight: bold; }
+.doc__footer { margin-top: 18px; }
+.doc__sigline { margin-top: 12px; width: 100%; }
+.doc__sigline td { font-size: 10pt; vertical-align: top; }
+.doc__siglabel { width: 180px; font-weight: bold; }
+.doc__sigvalue { border-bottom: 1px solid #222222; }
+CSS;
 }

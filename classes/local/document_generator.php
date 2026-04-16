@@ -24,6 +24,8 @@ defined('MOODLE_INTERNAL') || die();
 class document_generator {
     /** @var string */
     public const DOC_ENGINEER_PROTOCOL = 'engineer_protocol';
+    /** @var string */
+    public const DOC_STRUCTURED_PROTOCOL = 'structured_protocol_html';
     /** @var string|null */
     private $resolvedfontfamily = null;
 
@@ -67,11 +69,15 @@ class document_generator {
         array $options = []
     ): array {
         $renderer = (string)($profile['renderer'] ?? self::DOC_ENGINEER_PROTOCOL);
-        if ($renderer !== self::DOC_ENGINEER_PROTOCOL) {
-            throw new \RuntimeException('Unsupported template renderer: ' . $renderer);
+        if ($renderer === self::DOC_ENGINEER_PROTOCOL) {
+            return $this->generate_engineer_protocol($userid, $courseid, $options, $profile);
         }
 
-        return $this->generate_engineer_protocol($userid, $courseid, $options, $profile);
+        if ($renderer === self::DOC_STRUCTURED_PROTOCOL) {
+            return $this->generate_structured_protocol($userid, $courseid, $options, $profile);
+        }
+
+        throw new \RuntimeException('Unsupported template renderer: ' . $renderer);
     }
 
     /**
@@ -177,6 +183,96 @@ class document_generator {
                 'version' => 1,
                 'reservationmode' => 'visual_signature_slots_only',
                 'profile_renderer' => self::DOC_ENGINEER_PROTOCOL,
+                'signature_slots' => $signaturemanifest,
+            ],
+        ];
+    }
+
+    /**
+     * Generate a structured HTML/CSS document and render it to PDF.
+     *
+     * This keeps PDF as the signed artifact while moving template authoring away
+     * from coordinate-based PDF overlays.
+     *
+     * @param int $userid
+     * @param int $courseid
+     * @param array $options
+     * @param array $profile
+     * @return array<string, mixed>
+     */
+    private function generate_structured_protocol(int $userid, int $courseid, array $options, array $profile = []): array {
+        global $DB;
+
+        $layoutconfig = $this->merge_structured_protocol_layout_config((array)($profile['layoutconfig'] ?? []));
+        $this->load_pdf_dependencies();
+
+        if (!class_exists('\setasign\Fpdi\Tcpdf\Fpdi')) {
+            throw new \RuntimeException('FPDI for TCPDF is not installed on this Moodle server.');
+        }
+
+        $user = $DB->get_record('user', ['id' => $userid], 'id,firstname,lastname,middlename,alternatename', MUST_EXIST);
+        $course = $DB->get_record('course', ['id' => $courseid], 'id,fullname,shortname', MUST_EXIST);
+        $completiondate = !empty($options['completiontimestamp']) ? (int)$options['completiontimestamp'] : 0;
+        if ($completiondate <= 0) {
+            $completiondate = (int)$DB->get_field('course_completions', 'timecompleted', [
+                'course' => $courseid,
+                'userid' => $userid,
+            ], IGNORE_MISSING);
+        }
+        if ($completiondate <= 0) {
+            $completiondate = time();
+        }
+
+        $documentdata = $this->build_engineer_protocol_data(
+            $userid,
+            $courseid,
+            $completiondate,
+            $user,
+            $options,
+            $profile,
+            $layoutconfig
+        );
+
+        $html = $this->render_structured_protocol_html($documentdata, $layoutconfig, $profile, $course);
+
+        $pdf = new safe_fpdi('P', 'pt', 'A4');
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetAutoPageBreak(true, 28);
+        $pdf->SetMargins(28, 24, 28, true);
+        $pdf->SetHeaderMargin(0);
+        $pdf->SetFooterMargin(0);
+        $pdf->SetCreator('local_ncasign');
+        $pdf->SetAuthor('local_ncasign');
+        $pdf->SetTitle((string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (BiOT ITR)'));
+        $this->set_document_font($pdf, '', 10.0);
+        $pdf->AddPage('P', 'A4');
+        $pdf->writeHTML($html, true, false, true, false, '');
+
+        $page = $pdf->getPage();
+        $pagesizes = $pdf->getPageDimensions();
+        $pagewidth = (float)($pagesizes['wk'] ?? 595.0);
+        $pageheight = (float)($pagesizes['hk'] ?? 842.0);
+        $signaturemanifest = $this->overlay_signature_blocks(
+            $pdf,
+            $pagewidth,
+            $pageheight,
+            $page,
+            (string)($options['verifyurl'] ?? ''),
+            is_array($options['signers'] ?? null) ? $options['signers'] : []
+        );
+
+        return [
+            'filename' => 'structured_protocol_' . $courseid . '_' . $userid . '.pdf',
+            'content' => $pdf->Output('', 'S'),
+            'documenttype' => (string)($profile['documenttype'] ?? 'protocol'),
+            'documenttitle' => (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (BiOT ITR)'),
+            'protocolnumber' => (string)$documentdata['protocolnumber'],
+            'previewdata' => $documentdata + ['renderedhtml' => $html],
+            'finalizationmanifest' => [
+                'version' => 1,
+                'reservationmode' => 'visual_signature_slots_only',
+                'profile_renderer' => self::DOC_STRUCTURED_PROTOCOL,
                 'signature_slots' => $signaturemanifest,
             ],
         ];
@@ -397,6 +493,16 @@ class document_generator {
     }
 
     /**
+     * Merge structured HTML/CSS template defaults with template config.
+     *
+     * @param array<string, mixed> $layoutconfig
+     * @return array<string, mixed>
+     */
+    private function merge_structured_protocol_layout_config(array $layoutconfig): array {
+        return array_replace_recursive($this->get_structured_protocol_layout_defaults(), $layoutconfig);
+    }
+
+    /**
      * Default coordinate and metadata set for the finalized BiOT ITR protocol.
      *
      * These values are maintained against the editable DOCX template field map
@@ -469,6 +575,31 @@ class document_generator {
     }
 
     /**
+     * Default layout config for the structured HTML/CSS renderer.
+     *
+     * @return array<string, mixed>
+     */
+    private function get_structured_protocol_layout_defaults(): array {
+        return [
+            'metadata' => [
+                'outputlanguage' => 'bilingual',
+                'clientcompanyoverride' => '',
+                'sentalcompanyname' => 'ТОО "SENTAL"',
+                'orderdate' => '',
+                'ordernumber' => '',
+                'protocoltype_initial_kz' => 'алғашқы',
+                'protocoltype_initial_ru' => 'первичный',
+                'protocoltype_repeat_kz' => 'қайталама',
+                'protocoltype_repeat_ru' => 'повторный',
+                'status_passed' => 'өтті / прошел',
+                'status_failed' => 'білім тексеруден өтпеді / проверку знаний не прошел',
+            ],
+            'structuredcss' => $this->get_default_structured_protocol_css(),
+            'structuredtemplate' => $this->get_default_structured_protocol_template(),
+        ];
+    }
+
+    /**
      * Erase known placeholder spans from the source template.
      *
      * @param \setasign\Fpdi\Tcpdf\Fpdi $pdf
@@ -522,6 +653,142 @@ class document_generator {
         }
         $pdf->SetXY($x, $y);
         $pdf->MultiCell($w, max(3.0, $h / 2), $text, 0, $align, false, 1, $x, $y, true, 0, false, true, $h, 'M');
+    }
+
+    /**
+     * Render the structured HTML template with document data.
+     *
+     * @param array<string, string> $documentdata
+     * @param array<string, mixed> $layoutconfig
+     * @param array<string, mixed> $profile
+     * @param \stdClass $course
+     * @return string
+     */
+    private function render_structured_protocol_html(
+        array $documentdata,
+        array $layoutconfig,
+        array $profile,
+        \stdClass $course
+    ): string {
+        $template = (string)($layoutconfig['structuredtemplate'] ?? '');
+        if (trim($template) === '') {
+            $template = $this->get_default_structured_protocol_template();
+        }
+        $css = (string)($layoutconfig['structuredcss'] ?? '');
+        if (trim($css) === '') {
+            $css = $this->get_default_structured_protocol_css();
+        }
+
+        $tokens = [
+            'documenttitle' => (string)($profile['documenttitle'] ?? ''),
+            'coursename' => (string)($course->fullname ?? ''),
+        ];
+        foreach ($documentdata as $key => $value) {
+            $tokens[$key] = $value;
+        }
+
+        $html = preg_replace_callback('/{{\s*([a-z0-9_]+)\s*}}/i', function(array $matches) use ($tokens): string {
+            $key = strtolower((string)$matches[1]);
+            $value = (string)($tokens[$key] ?? '');
+            return htmlspecialchars($this->normalise_render_text($value), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }, $template);
+        $html = is_string($html) ? $html : $template;
+
+        return '<style>' . $css . '</style>' . $html;
+    }
+
+    /**
+     * Default CSS for structured protocol templates.
+     *
+     * @return string
+     */
+    private function get_default_structured_protocol_css(): string {
+        return <<<'CSS'
+body { font-family: dejavusans, serif; font-size: 10pt; color: #111111; }
+.doc { line-height: 1.25; }
+.doc__title { text-align: center; font-weight: bold; font-size: 13pt; margin-bottom: 10px; }
+.doc__org { text-align: center; font-weight: bold; font-size: 12pt; margin-bottom: 10px; }
+.doc__meta { width: 100%; margin-bottom: 12px; }
+.doc__meta td { font-size: 10pt; vertical-align: top; }
+.doc__section { margin-top: 10px; margin-bottom: 6px; font-weight: bold; font-size: 11pt; }
+.doc__line { margin-bottom: 6px; }
+.doc__line-label { display: inline-block; width: 170px; font-weight: bold; }
+.doc__table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.doc__table th, .doc__table td { border: 1px solid #222222; padding: 4px; font-size: 9pt; vertical-align: top; }
+.doc__table th { text-align: center; font-weight: bold; }
+.doc__footer { margin-top: 18px; }
+.doc__sigline { margin-top: 12px; width: 100%; }
+.doc__sigline td { font-size: 10pt; vertical-align: top; }
+.doc__siglabel { width: 180px; font-weight: bold; }
+.doc__sigvalue { border-bottom: 1px solid #222222; }
+CSS;
+    }
+
+    /**
+     * Default HTML template for structured protocol templates.
+     *
+     * @return string
+     */
+    private function get_default_structured_protocol_template(): string {
+        return <<<'HTML'
+<div class="doc">
+    <div class="doc__org">{{clientcompanyname}}</div>
+    <div class="doc__title">Хаттамасы / Протокол № {{protocolnumber}}</div>
+    <div class="doc__title">Жұмыскерлердің еңбек қауіпсіздігі және еңбекті қорғау бойынша білімдерін тексеру жөніндегі емтихан комиссиясы отырысының / заседания экзаменационной комиссии по проверке знаний по безопасности и охране труда работников</div>
+
+    <table class="doc__meta">
+        <tr>
+            <td>{{issuedatekz}}</td>
+            <td>/</td>
+            <td>{{issuedateru}}</td>
+        </tr>
+    </table>
+
+    <div class="doc__section">Комиссия құрамы / Комиссия в составе:</div>
+    <div class="doc__line"><span class="doc__line-label">Төраға / Председатель:</span> {{chairfull}}</div>
+    <div class="doc__line"><span class="doc__line-label">Комиссия мүшелері / Члены комиссии:</span> {{member1full}}</div>
+    <div class="doc__line"><span class="doc__line-label"></span> {{member2full}}</div>
+
+    <div class="doc__line">{{orderkz}} / {{orderru}}</div>
+    <div class="doc__line">білімін тексеру түрі ({{protocoltypekz}}) / вид проверки знаний ({{protocoltyperu}})</div>
+
+    <table class="doc__table">
+        <tr>
+            <th>№</th>
+            <th>Тегі, аты, әкесінің аты / ФИО</th>
+            <th>Ұйым / Организация</th>
+            <th>Лауазымы / Должность</th>
+            <th>Нәтиже / Результат</th>
+            <th>Сертификат №</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>{{userfullname}}</td>
+            <td>{{companytable}}</td>
+            <td>{{userjobtitle}}</td>
+            <td>{{completionstatus}}</td>
+            <td>{{certificatenumber}}</td>
+        </tr>
+    </table>
+
+    <div class="doc__footer">
+        <table class="doc__sigline">
+            <tr>
+                <td class="doc__siglabel">Комиссия төрағасы / Председатель:</td>
+                <td class="doc__sigvalue">{{chairinitials}}</td>
+            </tr>
+            <tr>
+                <td class="doc__siglabel">Комиссия мүшелері / Члены комиссии:</td>
+                <td class="doc__sigvalue">{{member1initials}}</td>
+            </tr>
+            <tr>
+                <td class="doc__siglabel"></td>
+                <td class="doc__sigvalue">{{member2initials}}</td>
+            </tr>
+        </table>
+    </div>
+</div>
+HTML;
     }
 
     /**
