@@ -15,6 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 require_once(__DIR__ . '/../../config.php');
+require_once($CFG->libdir . '/editorlib.php');
 
 require_login();
 $context = context_system::instance();
@@ -96,6 +97,15 @@ $profile['layoutconfigraw'] = json_encode($profile['layoutconfig'], JSON_UNESCAP
 $courseidscsv = $profile['courseids'] ? implode(',', array_map('intval', $profile['courseids'])) : '';
 $signersraw = local_ncasign_template_signers_to_text($profile['signers']);
 $layoutmetadata = (array)($profile['layoutconfig']['metadata'] ?? []);
+$structuredtemplateeditor = editors_get_preferred_editor(FORMAT_HTML);
+$structuredtemplateeditoroptions = [
+    'maxfiles' => 0,
+    'maxbytes' => 0,
+    'context' => $context,
+    'enable_filemanagement' => false,
+    'autosave' => false,
+    'removeorphaneddrafts' => true,
+];
 
 echo $OUTPUT->header();
 echo html_writer::link(new moodle_url('/local/ncasign/templates.php'), get_string('templateprofilesback', 'local_ncasign'));
@@ -368,6 +378,11 @@ echo html_writer::empty_tag('input', [
     'class' => 'btn btn-primary',
 ]);
 echo html_writer::end_tag('form');
+
+if ($structuredtemplateeditor !== null) {
+    $structuredtemplateeditor->use_editor('id_structuredtemplate', $structuredtemplateeditoroptions);
+}
+
 echo $OUTPUT->footer();
 
 /**
