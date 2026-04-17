@@ -19,7 +19,6 @@ namespace local_ncasign;
 defined('MOODLE_INTERNAL') || die();
 
 use local_ncasign\local\job_manager;
-use local_ncasign\local\document_generator;
 use local_ncasign\local\document_storage;
 use local_ncasign\local\template_manager;
 
@@ -27,6 +26,9 @@ use local_ncasign\local\template_manager;
  * Plugin event observers.
  */
 class observer {
+    /** @var int */
+    private const COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID = 6;
+
     /**
      * Queue signing workflow after course completion.
      *
@@ -51,8 +53,6 @@ class observer {
             error_log('local_ncasign: no mapped template profiles found for course ' . $courseid . ', user ' . $userid);
             return;
         }
-        $generator = new document_generator();
-
         ob_start();
         try {
             foreach ($profiles as $profile) {
@@ -63,17 +63,15 @@ class observer {
                 }
 
                 $documentuuid = $manager->create_document_uuid();
-                $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
-
                 try {
-                    $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile, [
-                        'documentuuid' => $documentuuid,
-                        'verifyurl' => $verifyurl,
-                        'signers' => $signers,
-                    ]);
+                    $draft = self::generate_customcert_pdf_for_course_completion(
+                        $userid,
+                        $courseid,
+                        self::COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID
+                    );
                 } catch (\Throwable $e) {
                     error_log(
-                        'local_ncasign: failed to generate draft on course completion for profile ' .
+                        'local_ncasign: failed to generate customcert-backed draft on course completion for profile ' .
                         (string)($profile['name'] ?? 'unknown') . ': ' . $e->getMessage()
                     );
                     continue;
@@ -99,7 +97,7 @@ class observer {
                         $jobid,
                         (string)$draft['filename'],
                         (string)$draft['content'],
-                        'local_generated_draft:' . $storedpath,
+                        'mod_customcert_template_' . self::COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID . ':' . $storedpath,
                         !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
                             ? $draft['finalizationmanifest']
                             : null
@@ -267,6 +265,73 @@ class observer {
     }
 
     /**
+     * Generate the PDF used by ncasign on course completion from a fixed customcert template.
+     *
+     * If the course has a customcert activity using this template, generate against a real issue
+     * record so issue-dependent elements continue to work. Otherwise render directly from the
+     * template as a fallback.
+     *
+     * @param int $userid
+     * @param int $courseid
+     * @param int $templateid
+     * @return array{filename:string,content:string,documenttype:string,documenttitle:string,finalizationmanifest:array<string,mixed>}
+     */
+    private static function generate_customcert_pdf_for_course_completion(int $userid, int $courseid, int $templateid): array {
+        global $DB;
+
+        $customcert = $DB->get_record('customcert', ['templateid' => $templateid, 'course' => $courseid], '*', IGNORE_MISSING);
+        if ($customcert) {
+            $issue = $DB->get_record('customcert_issues', [
+                'customcertid' => (int)$customcert->id,
+                'userid' => $userid,
+            ], '*', IGNORE_MISSING);
+
+            if (!$issue) {
+                $issue = (object)[
+                    'userid' => $userid,
+                    'customcertid' => (int)$customcert->id,
+                    'code' => class_exists('\mod_customcert\certificate') ? \mod_customcert\certificate::generate_code() : null,
+                    'emailed' => 0,
+                    'timecreated' => time(),
+                ];
+                $issue->id = $DB->insert_record('customcert_issues', $issue);
+            }
+
+            $generated = self::generate_customcert_pdf_from_issue((int)$issue->id, $userid);
+            if ($generated) {
+                return [
+                    'filename' => (string)$generated['filename'],
+                    'content' => (string)$generated['content'],
+                    'documenttype' => 'certificate',
+                    'documenttitle' => trim((string)$customcert->name) !== '' ? trim((string)$customcert->name) : 'Custom certificate',
+                    'finalizationmanifest' => [
+                        'source' => 'customcert_issue',
+                        'templateid' => $templateid,
+                        'customcertid' => (int)$customcert->id,
+                        'issueid' => (int)$issue->id,
+                    ],
+                ];
+            }
+        }
+
+        $generated = self::generate_customcert_pdf_from_template($templateid, $userid);
+        if ($generated) {
+            return [
+                'filename' => (string)$generated['filename'],
+                'content' => (string)$generated['content'],
+                'documenttype' => 'certificate',
+                'documenttitle' => (string)$generated['documenttitle'],
+                'finalizationmanifest' => [
+                    'source' => 'customcert_template',
+                    'templateid' => $templateid,
+                ],
+            ];
+        }
+
+        throw new \RuntimeException('Unable to generate PDF from customcert template id ' . $templateid . '.');
+    }
+
+    /**
      * Generate certificate PDF bytes directly from mod_customcert issue data.
      *
      * @param int $issueid
@@ -315,6 +380,52 @@ class observer {
             ];
         } catch (\Throwable $e) {
             error_log('local_ncasign: customcert PDF generation failed for issue ' . $issueid . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Generate certificate PDF bytes directly from a customcert template id.
+     *
+     * @param int $templateid
+     * @param int $userid
+     * @return array{filename:string,content:string,documenttitle:string}|null
+     */
+    private static function generate_customcert_pdf_from_template(int $templateid, int $userid): ?array {
+        global $DB;
+
+        if ($templateid <= 0 || !class_exists('\mod_customcert\template')) {
+            return null;
+        }
+
+        try {
+            $template = self::get_customcert_template_instance($templateid);
+            if (!$template) {
+                return null;
+            }
+
+            $content = null;
+            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+                $pdfservice = \mod_customcert\service\pdf_generation_service::create();
+                $content = $pdfservice->generate_pdf($template, false, $userid, true);
+            } else if (method_exists($template, 'generate_pdf')) {
+                $content = $template->generate_pdf(false, $userid, true);
+            }
+
+            if (!is_string($content) || $content === '') {
+                return null;
+            }
+
+            $templatename = (string)$DB->get_field('customcert_templates', 'name', ['id' => $templateid], IGNORE_MISSING);
+            $documenttitle = trim($templatename) !== '' ? trim($templatename) : 'Custom certificate';
+
+            return [
+                'filename' => "customcert_template_{$templateid}_user_{$userid}.pdf",
+                'content' => $content,
+                'documenttitle' => $documenttitle,
+            ];
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: customcert PDF generation failed for template ' . $templateid . ': ' . $e->getMessage());
             return null;
         }
     }
