@@ -81,6 +81,103 @@ class document_generator {
     }
 
     /**
+     * Overlay visible signer QR blocks onto an existing PDF and return a compatible manifest.
+     *
+     * This is used when the draft PDF comes from another generator, e.g. mod_customcert,
+     * but still needs the same visible QR/signature slot layer expected by the ncasign flow.
+     *
+     * @param string $pdfbytes
+     * @param string $verifyurl
+     * @param array<int,array<string,mixed>> $signers
+     * @param string $profilerenderer
+     * @return array{content:string,finalizationmanifest:array<string,mixed>}
+     */
+    public function overlay_signature_qr_slots_on_pdf(
+        string $pdfbytes,
+        string $verifyurl,
+        array $signers = [],
+        string $profilerenderer = 'external_pdf'
+    ): array {
+        if ($pdfbytes === '') {
+            throw new \RuntimeException('No PDF bytes were provided for QR/signature overlay.');
+        }
+
+        $this->load_pdf_dependencies();
+
+        if (!class_exists('\setasign\Fpdi\Tcpdf\Fpdi')) {
+            throw new \RuntimeException('FPDI for TCPDF is not installed on this Moodle server.');
+        }
+
+        $pdf = new safe_fpdi('P', 'pt');
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetAutoPageBreak(false, 0);
+        $pdf->SetMargins(0, 0, 0, true);
+        $pdf->SetHeaderMargin(0);
+        $pdf->SetFooterMargin(0);
+        $pdf->SetCreator('local_ncasign');
+        $pdf->SetAuthor('local_ncasign');
+
+        $signaturemanifest = [];
+        $overlayexception = null;
+
+        ob_start();
+        try {
+            $tmpdir = make_request_directory();
+            if (!$tmpdir) {
+                throw new \RuntimeException('Unable to create a temporary directory for PDF overlay.');
+            }
+
+            $sourcepath = $tmpdir . DIRECTORY_SEPARATOR . 'ncasign_external_source_' . md5($pdfbytes) . '.pdf';
+            file_put_contents($sourcepath, $pdfbytes);
+
+            $pagecount = $pdf->setSourceFile($sourcepath);
+            for ($pageno = 1; $pageno <= $pagecount; $pageno++) {
+                $templateid = $pdf->importPage($pageno);
+                $size = $pdf->getTemplateSize($templateid);
+                $width = (float)($size['width'] ?? $size['w'] ?? 595.0);
+                $height = (float)($size['height'] ?? $size['h'] ?? 842.0);
+                $orientation = ($width > $height) ? 'L' : 'P';
+
+                $pdf->AddPage($orientation, [$width, $height]);
+                $pdf->useTemplate($templateid, 0, 0, $width, $height, true);
+
+                if ($pageno === 1) {
+                    $signaturemanifest = $this->overlay_signature_blocks(
+                        $pdf,
+                        $width,
+                        $height,
+                        1,
+                        $verifyurl,
+                        $signers
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            $overlayexception = $e;
+        } finally {
+            $unexpectedoutput = trim((string)ob_get_clean());
+            if ($unexpectedoutput !== '' && !$overlayexception) {
+                throw new \RuntimeException('Unexpected PDF library output: ' . trim(strip_tags($unexpectedoutput)));
+            }
+        }
+
+        if ($overlayexception) {
+            throw $overlayexception;
+        }
+
+        return [
+            'content' => $pdf->Output('', 'S'),
+            'finalizationmanifest' => [
+                'version' => 1,
+                'reservationmode' => 'visual_signature_slots_only',
+                'profile_renderer' => $profilerenderer,
+                'signature_slots' => $signaturemanifest,
+            ],
+        ];
+    }
+
+    /**
      * Generate engineer protocol draft from the supplied PDF template.
      *
      * @param int $userid

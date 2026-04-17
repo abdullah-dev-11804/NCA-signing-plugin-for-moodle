@@ -19,6 +19,7 @@ namespace local_ncasign;
 defined('MOODLE_INTERNAL') || die();
 
 use local_ncasign\local\job_manager;
+use local_ncasign\local\document_generator;
 use local_ncasign\local\document_storage;
 use local_ncasign\local\template_manager;
 
@@ -63,11 +64,14 @@ class observer {
                 }
 
                 $documentuuid = $manager->create_document_uuid();
+                $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
                 try {
                     $draft = self::generate_customcert_pdf_for_course_completion(
                         $userid,
                         $courseid,
-                        self::COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID
+                        self::COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID,
+                        $verifyurl,
+                        $signers
                     );
                 } catch (\Throwable $e) {
                     error_log(
@@ -274,9 +278,17 @@ class observer {
      * @param int $userid
      * @param int $courseid
      * @param int $templateid
+     * @param string $verifyurl
+     * @param array<int,array<string,mixed>> $signers
      * @return array{filename:string,content:string,documenttype:string,documenttitle:string,finalizationmanifest:array<string,mixed>}
      */
-    private static function generate_customcert_pdf_for_course_completion(int $userid, int $courseid, int $templateid): array {
+    private static function generate_customcert_pdf_for_course_completion(
+        int $userid,
+        int $courseid,
+        int $templateid,
+        string $verifyurl,
+        array $signers = []
+    ): array {
         global $DB;
 
         $customcert = $DB->get_record('customcert', ['templateid' => $templateid, 'course' => $courseid], '*', IGNORE_MISSING);
@@ -299,36 +311,60 @@ class observer {
 
             $generated = self::generate_customcert_pdf_from_issue((int)$issue->id, $userid);
             if ($generated) {
+                $overlay = self::add_signature_qr_slots_to_customcert_pdf((string)$generated['content'], $verifyurl, $signers);
                 return [
                     'filename' => (string)$generated['filename'],
-                    'content' => (string)$generated['content'],
+                    'content' => (string)$overlay['content'],
                     'documenttype' => 'certificate',
                     'documenttitle' => trim((string)$customcert->name) !== '' ? trim((string)$customcert->name) : 'Custom certificate',
-                    'finalizationmanifest' => [
+                    'finalizationmanifest' => array_replace_recursive($overlay['finalizationmanifest'], [
                         'source' => 'customcert_issue',
                         'templateid' => $templateid,
                         'customcertid' => (int)$customcert->id,
                         'issueid' => (int)$issue->id,
-                    ],
+                    ]),
                 ];
             }
         }
 
         $generated = self::generate_customcert_pdf_from_template($templateid, $userid);
         if ($generated) {
+            $overlay = self::add_signature_qr_slots_to_customcert_pdf((string)$generated['content'], $verifyurl, $signers);
             return [
                 'filename' => (string)$generated['filename'],
-                'content' => (string)$generated['content'],
+                'content' => (string)$overlay['content'],
                 'documenttype' => 'certificate',
                 'documenttitle' => (string)$generated['documenttitle'],
-                'finalizationmanifest' => [
+                'finalizationmanifest' => array_replace_recursive($overlay['finalizationmanifest'], [
                     'source' => 'customcert_template',
                     'templateid' => $templateid,
-                ],
+                ]),
             ];
         }
 
         throw new \RuntimeException('Unable to generate PDF from customcert template id ' . $templateid . '.');
+    }
+
+    /**
+     * Add the standard ncasign QR/signature slots to a customcert-generated PDF.
+     *
+     * @param string $pdfcontent
+     * @param string $verifyurl
+     * @param array<int,array<string,mixed>> $signers
+     * @return array{content:string,finalizationmanifest:array<string,mixed>}
+     */
+    private static function add_signature_qr_slots_to_customcert_pdf(
+        string $pdfcontent,
+        string $verifyurl,
+        array $signers = []
+    ): array {
+        $generator = new document_generator();
+        return $generator->overlay_signature_qr_slots_on_pdf(
+            $pdfcontent,
+            $verifyurl,
+            $signers,
+            'customcert_template_pdf'
+        );
     }
 
     /**
