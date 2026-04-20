@@ -71,11 +71,16 @@ foreach ($profiles as $profile) {
     $actions = html_writer::link($editurl, get_string('edit')) . ' | ' .
         html_writer::link($deleteurl, get_string('delete'));
 
+    $rendererlabel = (string)$profile['renderer'];
+    if ($rendererlabel === \local_ncasign\local\document_generator::DOC_CUSTOMCERT_TEMPLATE && !empty($profile['customcerttemplatename'])) {
+        $rendererlabel .= ' (' . (string)$profile['customcerttemplatename'] . ' #' . (int)$profile['customcerttemplateid'] . ')';
+    }
+
     $table->data[] = [
         (int)$profile['id'],
         s((string)$profile['name']),
         s((string)$profile['documenttype']),
-        s((string)$profile['renderer']),
+        s($rendererlabel),
         s($courses),
         $signers ? implode('<br>', $signers) : '-',
         !empty($profile['active']) ? get_string('yes') : get_string('no'),

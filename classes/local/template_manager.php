@@ -91,6 +91,8 @@ class template_manager {
      * @return array<string, mixed>
      */
     public function hydrate_profile(\stdClass $record): array {
+        $layoutconfig = $this->decode_layout_config((string)($record->layoutconfig ?? ''));
+        $customcerttemplateid = (int)((array)($layoutconfig['customcert'] ?? [])['templateid'] ?? 0);
         return [
             'id' => (int)$record->id,
             'name' => (string)$record->name,
@@ -98,11 +100,38 @@ class template_manager {
             'documenttype' => (string)$record->documenttype,
             'documenttitle' => (string)($record->documenttitle ?? ''),
             'templatepath' => (string)($record->templatepath ?? ''),
-            'layoutconfig' => $this->decode_layout_config((string)($record->layoutconfig ?? '')),
+            'layoutconfig' => $layoutconfig,
             'layoutconfigraw' => (string)($record->layoutconfig ?? ''),
             'courseids' => $this->get_template_course_ids((int)$record->id),
             'signers' => $this->get_template_signers((int)$record->id),
+            'customcerttemplateid' => $customcerttemplateid,
+            'customcerttemplatename' => $customcerttemplateid > 0 ? $this->get_customcert_template_name($customcerttemplateid) : '',
         ];
+    }
+
+    /**
+     * Return all available customcert templates.
+     *
+     * @return array<int,string>
+     */
+    public function get_available_customcert_templates(): array {
+        global $DB;
+
+        if (!$DB->get_manager()->table_exists('customcert_templates')) {
+            return [];
+        }
+
+        $records = $DB->get_records('customcert_templates', null, 'name ASC, id ASC', 'id,name');
+        $result = [];
+        foreach ($records as $record) {
+            $label = trim((string)$record->name);
+            if ($label === '') {
+                $label = 'Template #' . (int)$record->id;
+            }
+            $result[(int)$record->id] = $label . ' (#' . (int)$record->id . ')';
+        }
+
+        return $result;
     }
 
     /**
@@ -212,6 +241,23 @@ class template_manager {
 
         $decoded = json_decode($json, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Resolve a customcert template display name.
+     *
+     * @param int $templateid
+     * @return string
+     */
+    private function get_customcert_template_name(int $templateid): string {
+        global $DB;
+
+        if ($templateid <= 0 || !$DB->get_manager()->table_exists('customcert_templates')) {
+            return '';
+        }
+
+        $name = $DB->get_field('customcert_templates', 'name', ['id' => $templateid], IGNORE_MISSING);
+        return is_string($name) ? trim($name) : '';
     }
 
     /**

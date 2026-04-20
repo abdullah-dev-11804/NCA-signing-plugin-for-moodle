@@ -69,13 +69,18 @@ if (optional_param('submitjob', 0, PARAM_BOOL) && confirm_sesskey()) {
                 $pdffilename = $_FILES['certificatepdf']['name'] ?? "certificate_{$jobid}.pdf";
                 $manager->attach_certificate_binary_to_job($jobid, $pdffilename, $pdfcontent, 'manual_upload');
             }
-        } else if ($documenttype === 'protocol' && $selectedprofile) {
+        } else if ($selectedprofile) {
             try {
                 $generator = new \local_ncasign\local\document_generator();
                 $draft = $generator->generate_draft_from_profile(
                     $userid,
                     $courseid,
-                    $selectedprofile
+                    $selectedprofile,
+                    [
+                        'documentuuid' => $manager->create_document_uuid(),
+                        'verifyurl' => '',
+                        'signers' => $signers,
+                    ]
                 );
                 $storage = new \local_ncasign\local\document_storage();
                 $storedpath = $storage->store_pending_draft($jobid, (string)$draft['filename'], (string)$draft['content']);

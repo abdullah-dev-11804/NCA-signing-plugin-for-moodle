@@ -22,6 +22,7 @@ $context = context_system::instance();
 require_capability('local/ncasign:managejobs', $context);
 
 $manager = new \local_ncasign\local\template_manager();
+$availablecustomcerttemplates = $manager->get_available_customcert_templates();
 $id = optional_param('id', 0, PARAM_INT);
 $profile = $id > 0 ? $manager->get_profile($id) : null;
 
@@ -58,6 +59,7 @@ if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
     $layoutconfig['metadata']['status_failed'] = trim((string)optional_param('status_failed', '', PARAM_TEXT));
     $layoutconfig['structuredtemplate'] = optional_param('structuredtemplate', '', PARAM_RAW);
     $layoutconfig['structuredcss'] = optional_param('structuredcss', '', PARAM_RAW);
+    $layoutconfig['customcert']['templateid'] = optional_param('customcerttemplateid', 0, PARAM_INT);
     $persistedlayoutconfig = json_encode($layoutconfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
 
     $savedid = $manager->save_profile([
@@ -94,6 +96,7 @@ $defaults = [
 $profile = $profile ? array_merge($defaults, $profile) : $defaults;
 $profile['layoutconfig'] = local_ncasign_merge_protocol_layout_defaults(is_array($profile['layoutconfig'] ?? null) ? $profile['layoutconfig'] : []);
 $profile['layoutconfigraw'] = json_encode($profile['layoutconfig'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+$selectedcustomcerttemplateid = (int)((array)($profile['layoutconfig']['customcert'] ?? [])['templateid'] ?? 0);
 $courseidscsv = $profile['courseids'] ? implode(',', array_map('intval', $profile['courseids'])) : '';
 $signersraw = local_ncasign_template_signers_to_text($profile['signers']);
 $layoutmetadata = (array)($profile['layoutconfig']['metadata'] ?? []);
@@ -132,6 +135,7 @@ echo html_writer::select(
     [
         \local_ncasign\local\document_generator::DOC_ENGINEER_PROTOCOL => 'Engineer protocol',
         \local_ncasign\local\document_generator::DOC_STRUCTURED_PROTOCOL => 'Structured protocol (HTML/CSS)',
+        \local_ncasign\local\document_generator::DOC_CUSTOMCERT_TEMPLATE => 'Custom certificate template',
     ],
     'renderer',
     (string)$profile['renderer'],
@@ -178,6 +182,18 @@ echo html_writer::empty_tag('input', [
     'size' => 100,
 ]);
 echo html_writer::tag('p', get_string('templatepathlabel_desc', 'local_ncasign'));
+echo html_writer::end_div();
+
+echo html_writer::start_div('form-group');
+echo html_writer::label(get_string('templatecustomcerttemplate', 'local_ncasign'), 'id_customcerttemplateid');
+echo html_writer::select(
+    [0 => get_string('templatecustomcerttemplate_none', 'local_ncasign')] + $availablecustomcerttemplates,
+    'customcerttemplateid',
+    $selectedcustomcerttemplateid,
+    false,
+    ['id' => 'id_customcerttemplateid']
+);
+echo html_writer::tag('p', get_string('templatecustomcerttemplate_desc', 'local_ncasign'));
 echo html_writer::end_div();
 
 echo html_writer::start_div('form-group');

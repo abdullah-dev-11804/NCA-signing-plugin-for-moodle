@@ -26,6 +26,8 @@ class document_generator {
     public const DOC_ENGINEER_PROTOCOL = 'engineer_protocol';
     /** @var string */
     public const DOC_STRUCTURED_PROTOCOL = 'structured_protocol_html';
+    /** @var string */
+    public const DOC_CUSTOMCERT_TEMPLATE = 'customcert_template';
     /** @var string|null */
     private $resolvedfontfamily = null;
 
@@ -75,6 +77,10 @@ class document_generator {
 
         if ($renderer === self::DOC_STRUCTURED_PROTOCOL) {
             return $this->generate_structured_protocol($userid, $courseid, $options, $profile);
+        }
+
+        if ($renderer === self::DOC_CUSTOMCERT_TEMPLATE) {
+            return $this->generate_customcert_template_document($userid, $courseid, $options, $profile);
         }
 
         throw new \RuntimeException('Unsupported template renderer: ' . $renderer);
@@ -174,6 +180,108 @@ class document_generator {
                 'profile_renderer' => $profilerenderer,
                 'signature_slots' => $signaturemanifest,
             ],
+        ];
+    }
+
+    /**
+     * Generate a PDF from a customcert template using runtime text overrides.
+     *
+     * @param int $userid
+     * @param int $courseid
+     * @param array<string,mixed> $options
+     * @param array<string,mixed> $profile
+     * @return array<string,mixed>
+     */
+    private function generate_customcert_template_document(
+        int $userid,
+        int $courseid,
+        array $options,
+        array $profile = []
+    ): array {
+        global $DB;
+
+        if (!class_exists('\mod_customcert\template')) {
+            throw new \RuntimeException('mod_customcert is not installed on this Moodle server.');
+        }
+
+        $layoutconfig = (array)($profile['layoutconfig'] ?? []);
+        $templateid = $this->get_customcert_template_id($profile);
+        if ($templateid <= 0) {
+            throw new \RuntimeException('No customcert template id is configured for this profile.');
+        }
+
+        $user = $DB->get_record('user', ['id' => $userid], 'id,firstname,lastname,middlename,alternatename', MUST_EXIST);
+        $course = $DB->get_record('course', ['id' => $courseid], 'id,fullname,shortname', MUST_EXIST);
+        $completiondate = !empty($options['completiontimestamp']) ? (int)$options['completiontimestamp'] : 0;
+        if ($completiondate <= 0) {
+            $completiondate = (int)$DB->get_field('course_completions', 'timecompleted', [
+                'course' => $courseid,
+                'userid' => $userid,
+            ], IGNORE_MISSING);
+        }
+        if ($completiondate <= 0) {
+            $completiondate = time();
+        }
+
+        $documentdata = $this->build_engineer_protocol_data(
+            $userid,
+            $courseid,
+            $completiondate,
+            $user,
+            $options,
+            $profile,
+            $layoutconfig
+        );
+
+        $overrides = $this->build_customcert_text_overrides($documentdata, $layoutconfig);
+        $template = $this->load_customcert_template_instance($templateid);
+        $content = '';
+
+        customcert_runtime_overrides::push($overrides);
+        try {
+            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+                $pdfservice = \mod_customcert\service\pdf_generation_service::create();
+                $content = (string)$pdfservice->generate_pdf($template, false, $userid, true);
+            } else if (method_exists($template, 'generate_pdf')) {
+                $content = (string)$template->generate_pdf(false, $userid, true);
+            }
+        } finally {
+            customcert_runtime_overrides::pop();
+        }
+
+        if ($content === '') {
+            throw new \RuntimeException('customcert did not return any PDF bytes.');
+        }
+
+        $overlay = $this->overlay_signature_qr_slots_on_pdf(
+            $content,
+            (string)($options['verifyurl'] ?? ''),
+            is_array($options['signers'] ?? null) ? $options['signers'] : [],
+            self::DOC_CUSTOMCERT_TEMPLATE
+        );
+
+        $templatename = (string)$DB->get_field('customcert_templates', 'name', ['id' => $templateid], IGNORE_MISSING);
+        $documenttitle = trim((string)($profile['documenttitle'] ?? '')) !== ''
+            ? (string)$profile['documenttitle']
+            : (trim($templatename) !== '' ? trim($templatename) : 'Custom certificate');
+
+        return [
+            'filename' => 'customcert_' . $templateid . '_' . $courseid . '_' . $userid . '.pdf',
+            'content' => (string)$overlay['content'],
+            'documenttype' => (string)($profile['documenttype'] ?? 'certificate'),
+            'documenttitle' => $documenttitle,
+            'previewdata' => [
+                'templateid' => $templateid,
+                'overrides' => $overrides,
+            ] + $documentdata,
+            'finalizationmanifest' => array_replace_recursive(
+                (array)$overlay['finalizationmanifest'],
+                [
+                    'source' => 'customcert_runtime_template',
+                    'customcert_templateid' => $templateid,
+                    'customcert_text_overrides' => array_keys($overrides),
+                ]
+            ),
         ];
     }
 
@@ -1444,6 +1552,103 @@ HTML;
             throw new \RuntimeException('Engineer protocol template PDF path is not configured or not readable.');
         }
         return $path;
+    }
+
+    /**
+     * Resolve the customcert template id from profile layout config.
+     *
+     * @param array<string,mixed> $profile
+     * @return int
+     */
+    private function get_customcert_template_id(array $profile): int {
+        $layoutconfig = (array)($profile['layoutconfig'] ?? []);
+        $customcert = (array)($layoutconfig['customcert'] ?? []);
+        return (int)($customcert['templateid'] ?? 0);
+    }
+
+    /**
+     * Load a customcert template object across plugin versions.
+     *
+     * @param int $templateid
+     * @return object
+     */
+    private function load_customcert_template_instance(int $templateid): object {
+        global $DB;
+
+        if ($templateid <= 0) {
+            throw new \RuntimeException('Invalid customcert template id.');
+        }
+
+        try {
+            if (method_exists('\mod_customcert\template', 'load')) {
+                return \mod_customcert\template::load($templateid);
+            }
+            if (method_exists('\mod_customcert\template', 'instance')) {
+                return \mod_customcert\template::instance($templateid);
+            }
+            $templaterecord = $DB->get_record('customcert_templates', ['id' => $templateid], '*', MUST_EXIST);
+            return new \mod_customcert\template($templaterecord);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Failed to load customcert template ' . $templateid . ': ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * Build the runtime override map for named customcert text elements.
+     *
+     * @param array<string,string> $documentdata
+     * @param array<string,mixed> $layoutconfig
+     * @return array<string,string>
+     */
+    private function build_customcert_text_overrides(array $documentdata, array $layoutconfig): array {
+        $aliases = [
+            'protocol_number' => 'protocolnumber',
+            'company_name' => 'clientcompanyname',
+            'issue_date_kazakh' => 'issuedatekz',
+            'issue_date_russian' => 'issuedateru',
+            'comission_chair' => 'chairfull',
+            'commission_chair' => 'chairfull',
+            'commision_member_1' => 'member1full',
+            'commission_member_1' => 'member1full',
+            'commision_member_2' => 'member2full',
+            'comission_member_2' => 'member2full',
+            'commission_member_2' => 'member2full',
+            'order_date_kazakh' => 'orderkz',
+            'order_date_russian' => 'orderru',
+            'protocol_type_kazakh' => 'protocoltypekz',
+            'protocol_type_russian' => 'protocoltyperu',
+            'user_full_name' => 'userfullname',
+            'user_job_title' => 'userjobtitle',
+            'course_completion_status' => 'completionstatus',
+            'certificate_number' => 'certificatenumber',
+            'commision_chair_initials_ss' => 'chairinitials',
+            'comission_chair_initials_ss' => 'chairinitials',
+            'commission_chair_initials_ss' => 'chairinitials',
+            'commision_member_1_initials_ss' => 'member1initials',
+            'commission_member_1_initials_ss' => 'member1initials',
+            'comission_member_2_initials_ss' => 'member2initials',
+            'commision_member_2_initials_ss' => 'member2initials',
+            'commission_member_2_initials_ss' => 'member2initials',
+        ];
+
+        $customfieldmap = (array)((array)($layoutconfig['customcert'] ?? [])['fieldmap'] ?? []);
+        foreach ($customfieldmap as $elementname => $sourcefield) {
+            $elementname = trim((string)$elementname);
+            $sourcefield = trim((string)$sourcefield);
+            if ($elementname !== '' && $sourcefield !== '') {
+                $aliases[\core_text::strtolower($elementname)] = $sourcefield;
+            }
+        }
+
+        $overrides = [];
+        foreach ($aliases as $elementname => $sourcefield) {
+            if (!array_key_exists($sourcefield, $documentdata)) {
+                continue;
+            }
+            $overrides[$elementname] = (string)$documentdata[$sourcefield];
+        }
+
+        return $overrides;
     }
 
     /**

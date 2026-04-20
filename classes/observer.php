@@ -27,9 +27,6 @@ use local_ncasign\local\template_manager;
  * Plugin event observers.
  */
 class observer {
-    /** @var int */
-    private const COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID = 6;
-
     /**
      * Queue signing workflow after course completion.
      *
@@ -54,6 +51,7 @@ class observer {
             error_log('local_ncasign: no mapped template profiles found for course ' . $courseid . ', user ' . $userid);
             return;
         }
+        $generator = new document_generator();
         ob_start();
         try {
             foreach ($profiles as $profile) {
@@ -66,16 +64,14 @@ class observer {
                 $documentuuid = $manager->create_document_uuid();
                 $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
                 try {
-                    $draft = self::generate_customcert_pdf_for_course_completion(
-                        $userid,
-                        $courseid,
-                        self::COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID,
-                        $verifyurl,
-                        $signers
-                    );
+                    $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile, [
+                        'documentuuid' => $documentuuid,
+                        'verifyurl' => $verifyurl,
+                        'signers' => $signers,
+                    ]);
                 } catch (\Throwable $e) {
                     error_log(
-                        'local_ncasign: failed to generate customcert-backed draft on course completion for profile ' .
+                        'local_ncasign: failed to generate draft on course completion for profile ' .
                         (string)($profile['name'] ?? 'unknown') . ': ' . $e->getMessage()
                     );
                     continue;
@@ -101,7 +97,7 @@ class observer {
                         $jobid,
                         (string)$draft['filename'],
                         (string)$draft['content'],
-                        'mod_customcert_template_' . self::COURSE_COMPLETION_CUSTOMCERT_TEMPLATEID . ':' . $storedpath,
+                        'local_generated_draft:' . $storedpath,
                         !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
                             ? $draft['finalizationmanifest']
                             : null
