@@ -60,7 +60,10 @@ if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
     $layoutconfig['structuredtemplate'] = optional_param('structuredtemplate', '', PARAM_RAW);
     $layoutconfig['structuredcss'] = optional_param('structuredcss', '', PARAM_RAW);
     $layoutconfig['customcert']['templateid'] = optional_param('customcerttemplateid', 0, PARAM_INT);
-    $persistedlayoutconfig = json_encode($layoutconfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    $persistedlayoutconfig = json_encode(
+        $layoutconfig,
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE
+    );
 
     $savedid = $manager->save_profile([
         'id' => $id,
@@ -87,7 +90,10 @@ $defaults = [
     'documenttype' => 'protocol',
     'documenttitle' => 'Industrial Safety Protocol (BiOT ITR)',
     'templatepath' => '',
-    'layoutconfigraw' => json_encode(local_ncasign_protocol_layout_defaults(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+    'layoutconfigraw' => json_encode(
+        local_ncasign_protocol_layout_defaults(),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE
+    ),
     'layoutconfig' => local_ncasign_protocol_layout_defaults(),
     'courseids' => [],
     'signers' => [],
@@ -95,7 +101,10 @@ $defaults = [
 ];
 $profile = $profile ? array_merge($defaults, $profile) : $defaults;
 $profile['layoutconfig'] = local_ncasign_merge_protocol_layout_defaults(is_array($profile['layoutconfig'] ?? null) ? $profile['layoutconfig'] : []);
-$profile['layoutconfigraw'] = json_encode($profile['layoutconfig'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+$profile['layoutconfigraw'] = json_encode(
+    $profile['layoutconfig'],
+    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE
+);
 $selectedcustomcerttemplateid = (int)((array)($profile['layoutconfig']['customcert'] ?? [])['templateid'] ?? 0);
 $courseidscsv = $profile['courseids'] ? implode(',', array_map('intval', $profile['courseids'])) : '';
 $signersraw = local_ncasign_template_signers_to_text($profile['signers']);

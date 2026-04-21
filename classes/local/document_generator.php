@@ -938,8 +938,8 @@ CSS;
         return <<<'HTML'
 <div class="doc">
     <div class="doc__org">{{clientcompanyname}}</div>
-    <div class="doc__title">Хаттамасы / Протокол № {{protocolnumber}}</div>
-    <div class="doc__title">Жұмыскерлердің еңбек қауіпсіздігі және еңбекті қорғау бойынша білімдерін тексеру жөніндегі емтихан комиссиясы отырысының / заседания экзаменационной комиссии по проверке знаний по безопасности и охране труда работников</div>
+    <div class="doc__title">????????? / ???????? ? {{protocolnumber}}</div>
+    <div class="doc__title">?????????????? ????? ???????????? ???? ??????? ?????? ??????? ?????????? ??????? ????????? ??????? ?????????? ?????????? / ????????? ??????????????? ???????? ?? ???????? ?????? ?? ???????????? ? ?????? ????? ??????????</div>
 
     <table class="doc__meta">
         <tr>
@@ -949,22 +949,22 @@ CSS;
         </tr>
     </table>
 
-    <div class="doc__section">Комиссия құрамы / Комиссия в составе:</div>
-    <div class="doc__line"><span class="doc__line-label">Төраға / Председатель:</span> {{chairfull}}</div>
-    <div class="doc__line"><span class="doc__line-label">Комиссия мүшелері / Члены комиссии:</span> {{member1full}}</div>
+    <div class="doc__section">???????? ?????? / ???????? ? ???????:</div>
+    <div class="doc__line"><span class="doc__line-label">?????? / ????????????:</span> {{chairfull}}</div>
+    <div class="doc__line"><span class="doc__line-label">???????? ???????? / ????? ????????:</span> {{member1full}}</div>
     <div class="doc__line"><span class="doc__line-label"></span> {{member2full}}</div>
 
     <div class="doc__line">{{orderkz}} / {{orderru}}</div>
-    <div class="doc__line">білімін тексеру түрі ({{protocoltypekz}}) / вид проверки знаний ({{protocoltyperu}})</div>
+    <div class="doc__line">??????? ??????? ???? ({{protocoltypekz}}) / ??? ???????? ?????? ({{protocoltyperu}})</div>
 
     <table class="doc__table">
         <tr>
-            <th>№</th>
-            <th>Тегі, аты, әкесінің аты / ФИО</th>
-            <th>Ұйым / Организация</th>
-            <th>Лауазымы / Должность</th>
-            <th>Нәтиже / Результат</th>
-            <th>Сертификат №</th>
+            <th>?</th>
+            <th>????, ???, ???????? ??? / ???</th>
+            <th>???? / ???????????</th>
+            <th>???????? / ?????????</th>
+            <th>?????? / ?????????</th>
+            <th>?????????? ?</th>
         </tr>
         <tr>
             <td>1</td>
@@ -979,11 +979,11 @@ CSS;
     <div class="doc__footer">
         <table class="doc__sigline">
             <tr>
-                <td class="doc__siglabel">Комиссия төрағасы / Председатель:</td>
+                <td class="doc__siglabel">???????? ???????? / ????????????:</td>
                 <td class="doc__sigvalue">{{chairinitials}}</td>
             </tr>
             <tr>
-                <td class="doc__siglabel">Комиссия мүшелері / Члены комиссии:</td>
+                <td class="doc__siglabel">???????? ???????? / ????? ????????:</td>
                 <td class="doc__sigvalue">{{member1initials}}</td>
             </tr>
             <tr>
@@ -1267,14 +1267,14 @@ HTML;
         $isrepeat = $this->user_has_previous_completion($userid, $courseid, $completiondate);
         if ($isrepeat) {
             return [
-                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? 'қайталама')),
-                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? 'повторный')),
+                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? '?????????')),
+                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? '?????????')),
             ];
         }
 
         return [
-            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? 'алғашқы')),
-            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? 'первичный')),
+            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? '???????')),
+            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? '?????????')),
         ];
     }
 
@@ -1287,10 +1287,10 @@ HTML;
      */
     private function resolve_completion_status_text(int $completiondate, array $metadata): string {
         if ($completiondate > 0) {
-            return trim((string)($metadata['status_passed'] ?? 'өтті / прошел'));
+            return trim((string)($metadata['status_passed'] ?? '???? / ??????'));
         }
 
-        return trim((string)($metadata['status_failed'] ?? 'білім тексеруден өтпеді / проверку знаний не прошел'));
+        return trim((string)($metadata['status_failed'] ?? '????? ?????????? ?????? / ???????? ?????? ?? ??????'));
     }
 
     /**
@@ -1399,7 +1399,7 @@ HTML;
             return '';
         }
 
-        if (preg_match('/^[^\\s]+\\s+[A-ZÃÂ-ÃÂ¯Ã“ËœÃâ€ Ã’Â¢Ã’â€™Ã’Â®Ã’Â°Ã’Å¡Ã“Â¨Ã’ÂºÃÂ]\\.[A-ZÃÂ-ÃÂ¯Ã“ËœÃâ€ Ã’Â¢Ã’â€™Ã’Â®Ã’Â°Ã’Å¡Ã“Â¨Ã’ÂºÃÂ]\\.?$/u', $name)) {
+        if (preg_match('/^[^\s]+\s+\p{L}\.\p{L}\.?$/u', $name)) {
             return $name;
         }
 
@@ -1451,23 +1451,23 @@ HTML;
      */
     private function format_date_kz(int $timestamp): string {
         $months = [
-            1 => 'қаңтар',
-            2 => 'ақпан',
-            3 => 'наурыз',
-            4 => 'сәуір',
-            5 => 'мамыр',
-            6 => 'маусым',
-            7 => 'шілде',
-            8 => 'тамыз',
-            9 => 'қыркүйек',
-            10 => 'қазан',
-            11 => 'қараша',
-            12 => 'желтоқсан',
+            1 => '??????',
+            2 => '?????',
+            3 => '??????',
+            4 => '?????',
+            5 => '?????',
+            6 => '??????',
+            7 => '?????',
+            8 => '?????',
+            9 => '????????',
+            10 => '?????',
+            11 => '??????',
+            12 => '?????????',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '%s жылғы "%s" %s',
+            '%s ????? "%s" %s',
             $datetime->format('Y'),
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m')
@@ -1482,23 +1482,23 @@ HTML;
      */
     private function format_date_ru(int $timestamp): string {
         $months = [
-            1 => 'января',
-            2 => 'февраля',
-            3 => 'марта',
-            4 => 'апреля',
-            5 => 'мая',
-            6 => 'июня',
-            7 => 'июля',
-            8 => 'августа',
-            9 => 'сентября',
-            10 => 'октября',
-            11 => 'ноября',
-            12 => 'декабря',
+            1 => '??????',
+            2 => '???????',
+            3 => '?????',
+            4 => '??????',
+            5 => '???',
+            6 => '????',
+            7 => '????',
+            8 => '???????',
+            9 => '????????',
+            10 => '???????',
+            11 => '??????',
+            12 => '???????',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '"%s" %s %s года',
+            '"%s" %s %s ????',
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m'),
             $datetime->format('Y')
