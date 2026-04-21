@@ -34,6 +34,8 @@ $PAGE->set_title(get_string('templateprofileedit', 'local_ncasign'));
 $PAGE->set_heading(get_string('templateprofileedit', 'local_ncasign'));
 
 if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
+    $renderer = required_param('renderer', PARAM_ALPHANUMEXT);
+    $customcerttemplateid = optional_param('customcerttemplateid', 0, PARAM_INT);
     $layoutconfigraw = optional_param('layoutconfig', '', PARAM_RAW);
     if (trim($layoutconfigraw) !== '') {
         $decodedlayout = json_decode($layoutconfigraw, true);
@@ -59,19 +61,23 @@ if (optional_param('saveprofile', 0, PARAM_BOOL) && confirm_sesskey()) {
     $layoutconfig['metadata']['status_failed'] = trim((string)optional_param('status_failed', '', PARAM_TEXT));
     $layoutconfig['structuredtemplate'] = optional_param('structuredtemplate', '', PARAM_RAW);
     $layoutconfig['structuredcss'] = optional_param('structuredcss', '', PARAM_RAW);
-    $layoutconfig['customcert']['templateid'] = optional_param('customcerttemplateid', 0, PARAM_INT);
+    $layoutconfig['customcert']['templateid'] = $customcerttemplateid;
     $persistedlayoutconfig = json_encode(
         $layoutconfig,
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE
     );
+    $templatepath = required_param('templatepath', PARAM_RAW_TRIMMED);
+    if ($renderer === \local_ncasign\local\document_generator::DOC_CUSTOMCERT_TEMPLATE && $customcerttemplateid > 0) {
+        $templatepath = 'customcert:' . $customcerttemplateid;
+    }
 
     $savedid = $manager->save_profile([
         'id' => $id,
         'name' => required_param('name', PARAM_TEXT),
-        'renderer' => required_param('renderer', PARAM_ALPHANUMEXT),
+        'renderer' => $renderer,
         'documenttype' => required_param('documenttype', PARAM_ALPHA),
         'documenttitle' => required_param('documenttitle', PARAM_TEXT),
-        'templatepath' => required_param('templatepath', PARAM_RAW_TRIMMED),
+        'templatepath' => $templatepath,
         'layoutconfig' => $persistedlayoutconfig,
         'active' => optional_param('active', 0, PARAM_BOOL),
         'courseids' => optional_param('courseids', '', PARAM_RAW_TRIMMED),
@@ -106,6 +112,10 @@ $profile['layoutconfigraw'] = json_encode(
     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE
 );
 $selectedcustomcerttemplateid = (int)((array)($profile['layoutconfig']['customcert'] ?? [])['templateid'] ?? 0);
+if ($selectedcustomcerttemplateid <= 0 && !empty($profile['templatepath'])
+    && preg_match('/^customcert:(\d+)$/', (string)$profile['templatepath'], $matches)) {
+    $selectedcustomcerttemplateid = (int)$matches[1];
+}
 $courseidscsv = $profile['courseids'] ? implode(',', array_map('intval', $profile['courseids'])) : '';
 $signersraw = local_ncasign_template_signers_to_text($profile['signers']);
 $layoutmetadata = (array)($profile['layoutconfig']['metadata'] ?? []);

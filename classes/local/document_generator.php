@@ -1563,7 +1563,17 @@ HTML;
     private function get_customcert_template_id(array $profile): int {
         $layoutconfig = (array)($profile['layoutconfig'] ?? []);
         $customcert = (array)($layoutconfig['customcert'] ?? []);
-        return (int)($customcert['templateid'] ?? 0);
+        $templateid = (int)($customcert['templateid'] ?? 0);
+        if ($templateid > 0) {
+            return $templateid;
+        }
+
+        $templatepath = trim((string)($profile['templatepath'] ?? ''));
+        if ($templatepath !== '' && preg_match('/^customcert:(\d+)$/', $templatepath, $matches)) {
+            return (int)$matches[1];
+        }
+
+        return 0;
     }
 
     /**
