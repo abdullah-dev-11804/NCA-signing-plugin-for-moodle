@@ -258,7 +258,17 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             KeyStore keyStore = loadPkcs12KeyStore(request.pkcs12Path, request.pkcs12Password, provider);
             char[] password = request.pkcs12Password == null ? new char[0] : request.pkcs12Password.toCharArray();
             String alias = resolvePkcs12Alias(keyStore, request.pkcs12Alias);
-            SigningEntity signingEntity = KeyStoreUtil.getSigningEntityDefaultChained(keyStore, alias, password);
+            SigningEntity signingEntity;
+            try {
+                signingEntity = KeyStoreUtil.getSigningEntityDefaultChained(keyStore, alias, password);
+            } catch (Throwable chainedError) {
+                LOGGER.warn(
+                    "Falling back to non-chained PKCS#12 signer for alias {} because issuer chain resolution failed: {}",
+                    alias,
+                    rootMessage(chainedError)
+                );
+                signingEntity = KeyStoreUtil.getSigningEntity(keyStore, alias, password);
+            }
             CMSSignedData cms = CMSUtil.createCAdES(signingEntity, session.contentToSign, false, provider);
             byte[] cmsBytes = cms.getEncoded();
             X509Certificate signerCertificate = signingEntity.getCertificateChain().isEmpty()
