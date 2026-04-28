@@ -1,6 +1,7 @@
 kz\sental\ncasign\pades\model\PadesVerifyResponse.class
 kz\sental\ncasign\pades\service\PdfBoxPadesEmbeddingService$LtvAugmentationResult.class
 kz\sental\ncasign\pades\api\HealthController.class
+kz\sental\ncasign\pades\service\PdfBoxPadesEmbeddingService$TimestampProbe.class
 kz\sental\ncasign\pades\service\PlaceholderPadesEmbeddingService.class
 kz\sental\ncasign\pades\api\PadesPrepareController.class
 kz\sental\ncasign\pades\model\PadesFinalizeResponse.class

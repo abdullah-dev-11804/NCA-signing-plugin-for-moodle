@@ -5,12 +5,17 @@ import kz.gov.pki.kalkan.asn1.ASN1InputStream;
 import kz.gov.pki.kalkan.asn1.ASN1OctetString;
 import kz.gov.pki.kalkan.asn1.DERIA5String;
 import kz.gov.pki.kalkan.asn1.DERObject;
+import kz.gov.pki.kalkan.asn1.DERSet;
+import kz.gov.pki.kalkan.asn1.cms.Attribute;
+import kz.gov.pki.kalkan.asn1.cms.AttributeTable;
+import kz.gov.pki.kalkan.asn1.pkcs.PKCSObjectIdentifiers;
 import kz.gov.pki.kalkan.asn1.x509.AccessDescription;
 import kz.gov.pki.kalkan.asn1.x509.AuthorityInformationAccess;
 import kz.gov.pki.kalkan.asn1.x509.GeneralName;
 import kz.gov.pki.kalkan.asn1.x509.X509Extensions;
 import kz.gov.pki.kalkan.jce.provider.cms.CMSSignedData;
 import kz.gov.pki.kalkan.jce.provider.cms.SignerInformation;
+import kz.gov.pki.kalkan.jce.provider.cms.SignerInformationStore;
 import kz.gov.pki.kalkan.ocsp.BasicOCSPResp;
 import kz.gov.pki.kalkan.ocsp.CertificateID;
 import kz.gov.pki.kalkan.ocsp.OCSPReq;
@@ -18,6 +23,9 @@ import kz.gov.pki.kalkan.ocsp.OCSPReqGenerator;
 import kz.gov.pki.kalkan.ocsp.OCSPResp;
 import kz.gov.pki.kalkan.ocsp.OCSPRespStatus;
 import kz.gov.pki.kalkan.ocsp.SingleResp;
+import kz.gov.pki.kalkan.tsp.TimeStampRequest;
+import kz.gov.pki.kalkan.tsp.TimeStampRequestGenerator;
+import kz.gov.pki.kalkan.tsp.TimeStampResponse;
 import kz.gov.pki.kalkan.tsp.TimeStampToken;
 import kz.gov.pki.provider.utils.TSPUtil;
 import kz.gov.pki.provider.utils.X509Util;
@@ -58,8 +66,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.cert.CertificateFactory;
@@ -83,6 +93,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.ArrayList;
+import java.util.Hashtable;
 import java.util.Set;
 
 @Service
@@ -277,8 +288,10 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 ? null
                 : signingEntity.getCertificateChain().get(0);
             CMSSignedData cms = CMSUtil.createCAdES(signingEntity, session.contentToSign, false, provider);
-            cms = CMSUtil.applyCAdEST(cms, signingEntity, buildTsaProfile(signerCertificate), provider);
+            TSAProfile tsaProfile = buildTsaProfile(signerCertificate);
+            cms = applyCadesTWithoutForcedPolicy(cms, tsaProfile, provider);
             byte[] cmsBytes = cms.getEncoded();
+            TimestampProbe timestampProbe = probeTimestampTokens(cms, provider);
 
             PadesServerSignResponse response = new PadesServerSignResponse();
             response.status = "ok";
@@ -295,7 +308,17 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("pkcs12Alias", alias);
             response.evidence.put("cmsLength", cmsBytes.length);
             response.evidence.put("payloadSha256", sha256Hex(session.contentToSign));
-            response.evidence.put("tsaApplied", true);
+            response.evidence.put("tsaApplied", timestampProbe.tokenCount > 0);
+            response.evidence.put("tsaTokenCount", timestampProbe.tokenCount);
+            if (!timestampProbe.genTimes.isEmpty()) {
+                response.evidence.put("tsaGenTimes", timestampProbe.genTimes);
+            }
+            if (!timestampProbe.authorities.isEmpty()) {
+                response.evidence.put("tsaAuthorities", timestampProbe.authorities);
+            }
+            if (!timestampProbe.errors.isEmpty()) {
+                response.evidence.put("tsaErrors", timestampProbe.errors);
+            }
             return response;
         } catch (Throwable e) {
             throw new IllegalStateException("Unable to sign prepared payload with server PKCS#12: " + rootMessage(e), e);
@@ -510,7 +533,6 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         profile.setTsaURL(resolveTsaUrl(certificate));
         profile.setRequestMethod(KNCAServiceRequestMethod.POST);
         profile.setHashAlgorithm(resolveTsaHashAlgorithm(certificate));
-        profile.setTsaPolicy(resolveTsaPolicy(certificate));
         return profile;
     }
 
@@ -553,6 +575,152 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             return "http://test.pki.gov.kz/tsp/";
         }
         return "http://tsp.pki.gov.kz";
+    }
+
+    private CMSSignedData applyCadesTWithoutForcedPolicy(
+        CMSSignedData cms,
+        TSAProfile tsaProfile,
+        Provider provider
+    ) throws Exception {
+        List<SignerInformation> signerInfos = new ArrayList<>(CMSUtil.getSignerInformations(cms));
+        List<SignerInformation> timestampedSigners = new ArrayList<>(signerInfos.size());
+        for (SignerInformation signerInformation : signerInfos) {
+            timestampedSigners.add(addTimestampTokenWithoutForcedPolicy(signerInformation, tsaProfile, provider));
+        }
+        return CMSSignedData.replaceSigners(cms, new SignerInformationStore(timestampedSigners));
+    }
+
+    private SignerInformation addTimestampTokenWithoutForcedPolicy(
+        SignerInformation signerInformation,
+        TSAProfile tsaProfile,
+        Provider provider
+    ) throws Exception {
+        byte[] signatureBytes = signerInformation.getSignature();
+        TimeStampResponse response = requestTimestampWithoutPolicy(signatureBytes, tsaProfile, provider);
+        TimeStampToken token = response.getTimeStampToken();
+        if (token == null) {
+            throw new IllegalStateException(
+                "TSA response did not contain a timestamp token. status=" +
+                    response.getStatus() +
+                    " failInfo=" + response.getFailInfo() +
+                    " statusString=" + response.getStatusString()
+            );
+        }
+        TSPUtil.validateTimeStampToken(token, signatureBytes, provider);
+
+        Hashtable<Object, Object> attributes = new Hashtable<>();
+        AttributeTable existingUnsignedAttributes = signerInformation.getUnsignedAttributes();
+        if (existingUnsignedAttributes != null) {
+            Hashtable<?, ?> existingTable = existingUnsignedAttributes.toHashtable();
+            if (existingTable != null) {
+                attributes.putAll(existingTable);
+            }
+        }
+
+        try (ASN1InputStream tokenStream = new ASN1InputStream(token.getEncoded())) {
+            Attribute timeStampAttribute = new Attribute(
+                PKCSObjectIdentifiers.id_aa_signatureTimeStampToken,
+                new DERSet(tokenStream.readObject())
+            );
+            attributes.put(timeStampAttribute.getAttrType(), timeStampAttribute);
+        }
+
+        return SignerInformation.replaceUnsignedAttributes(
+            signerInformation,
+            new AttributeTable(attributes)
+        );
+    }
+
+    private TimeStampResponse requestTimestampWithoutPolicy(
+        byte[] data,
+        TSAProfile tsaProfile,
+        Provider provider
+    ) throws Exception {
+        String hashOid = tsaProfile.getHashAlgorithm().getId();
+        MessageDigest digest = MessageDigest.getInstance(hashOid, provider.getName());
+        byte[] hashedData = digest.digest(data);
+
+        TimeStampRequestGenerator requestGenerator = new TimeStampRequestGenerator();
+        requestGenerator.setCertReq(true);
+        BigInteger nonce = BigInteger.valueOf(System.currentTimeMillis());
+        TimeStampRequest request = requestGenerator.generate(hashOid, hashedData, nonce);
+        byte[] requestBytes = request.getEncoded();
+
+        HttpURLConnection connection;
+        String url = tsaProfile.getTsaURL();
+        if (KNCAServiceRequestMethod.POST.equals(tsaProfile.getRequestMethod())) {
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/timestamp-query");
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(requestBytes);
+            }
+        } else {
+            String encodedRequest = URLEncoder.encode(
+                kz.gov.pki.kalkan.util.encoders.Base64.encodeStr(requestBytes),
+                "UTF-8"
+            );
+            String separator = url.endsWith("/") ? "" : "/";
+            connection = (HttpURLConnection) new URL(url + separator + encodedRequest).openConnection();
+        }
+
+        int status = connection.getResponseCode();
+        if (status != 200) {
+            throw new IOException("TSA responder returned HTTP " + status + ".");
+        }
+        String contentType = connection.getContentType();
+        if (!"application/timestamp-reply".equals(contentType)) {
+            throw new IOException("Unexpected TSA content-type: " + contentType);
+        }
+
+        try (InputStream input = connection.getInputStream()) {
+            TimeStampResponse response = new TimeStampResponse(input);
+            response.validate(request);
+            return response;
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private TimestampProbe probeTimestampTokens(CMSSignedData cms, Provider provider) {
+        TimestampProbe probe = new TimestampProbe();
+        try {
+            List<SignerInformation> signerInfos = CMSUtil.getSignerInformations(cms);
+            if (signerInfos == null) {
+                return probe;
+            }
+            for (SignerInformation signerInformation : signerInfos) {
+                try {
+                    TimeStampToken token = CMSUtil.getTimestampToken(signerInformation, provider);
+                    if (token == null) {
+                        continue;
+                    }
+                    probe.tokenCount++;
+                    try {
+                        Date genTime = token.getTimeStampInfo().getGenTime();
+                        if (genTime != null) {
+                            probe.genTimes.add(genTime.toInstant().toString());
+                        }
+                    } catch (Throwable ex) {
+                        probe.errors.add("genTime: " + rootMessage(ex));
+                    }
+                    try {
+                        X509Certificate tsaCertificate = TSPUtil.getTSPCertificate(token, provider);
+                        if (tsaCertificate != null) {
+                            probe.authorities.add(tsaCertificate.getSubjectX500Principal().getName());
+                        }
+                    } catch (Throwable ex) {
+                        probe.errors.add("authority: " + rootMessage(ex));
+                    }
+                } catch (Throwable ex) {
+                    probe.errors.add(rootMessage(ex));
+                }
+            }
+        } catch (Throwable ex) {
+            probe.errors.add("signer infos: " + rootMessage(ex));
+        }
+        return probe;
     }
 
     private String certificateTextMarker(X509Certificate certificate) {
@@ -1504,6 +1672,13 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 // Best effort cleanup.
             }
         }
+    }
+
+    private static final class TimestampProbe {
+        private int tokenCount = 0;
+        private final List<String> genTimes = new ArrayList<>();
+        private final List<String> authorities = new ArrayList<>();
+        private final List<String> errors = new ArrayList<>();
     }
 
     private static final class LtvAugmentationResult {
