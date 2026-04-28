@@ -61,6 +61,42 @@ if ($hassiteconfig) {
         1
     ));
 
+    $settings->add(new admin_setting_heading(
+        'local_ncasign/serversigningheader',
+        get_string('serversigningheader', 'local_ncasign'),
+        get_string('serversigningheader_desc', 'local_ncasign')
+    ));
+
+    $settings->add(new admin_setting_configcheckbox(
+        'local_ncasign/serversigningenabled',
+        get_string('serversigningenabled', 'local_ncasign'),
+        get_string('serversigningenabled_desc', 'local_ncasign'),
+        0
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/serversigningpkcs12path',
+        get_string('serversigningpkcs12path', 'local_ncasign'),
+        get_string('serversigningpkcs12path_desc', 'local_ncasign'),
+        '',
+        PARAM_RAW_TRIMMED
+    ));
+
+    $settings->add(new admin_setting_configpasswordunmask(
+        'local_ncasign/serversigningpkcs12password',
+        get_string('serversigningpkcs12password', 'local_ncasign'),
+        get_string('serversigningpkcs12password_desc', 'local_ncasign'),
+        ''
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/serversigningpkcs12alias',
+        get_string('serversigningpkcs12alias', 'local_ncasign'),
+        get_string('serversigningpkcs12alias_desc', 'local_ncasign'),
+        '',
+        PARAM_RAW_TRIMMED
+    ));
+
     $settings->add(new admin_setting_configtextarea(
         'local_ncasign/autosignnote',
         get_string('autosignnote', 'local_ncasign'),

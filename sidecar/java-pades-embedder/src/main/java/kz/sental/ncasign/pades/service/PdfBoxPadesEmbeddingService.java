@@ -22,6 +22,9 @@ import kz.gov.pki.kalkan.tsp.TimeStampToken;
 import kz.gov.pki.provider.utils.TSPUtil;
 import kz.gov.pki.provider.utils.X509Util;
 import kz.gov.pki.provider.utils.CMSUtil;
+import kz.gov.pki.provider.utils.KeyStoreUtil;
+import kz.gov.pki.provider.utils.model.SigningEntity;
+import kz.gov.pki.kalkan.Storage;
 import kz.sental.ncasign.pades.model.PadesFinalizeRequest;
 import kz.sental.ncasign.pades.model.PadesFinalizeResponse;
 import kz.sental.ncasign.pades.model.PadesPrepareRequest;
@@ -29,6 +32,8 @@ import kz.sental.ncasign.pades.model.PadesPrepareResponse;
 import kz.sental.ncasign.pades.model.SignerPayload;
 import kz.sental.ncasign.pades.model.PadesVerifyRequest;
 import kz.sental.ncasign.pades.model.PadesVerifyResponse;
+import kz.sental.ncasign.pades.model.PadesServerSignRequest;
+import kz.sental.ncasign.pades.model.PadesServerSignResponse;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSBase;
@@ -51,9 +56,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.cert.X509CRL;
+import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.Provider;
 import java.security.Security;
@@ -234,6 +242,50 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         return response;
     }
 
+    @Override
+    public PadesServerSignResponse serverSignPreparedPayload(PadesServerSignRequest request) {
+        if (request == null || request.sessionId == null || request.sessionId.isBlank()) {
+            return PadesServerSignResponse.error("Server signing sessionId is required.");
+        }
+
+        PreparedSigningSession session = sessions.get(request.sessionId);
+        if (session == null) {
+            return PadesServerSignResponse.error("Prepared signing session was not found or has expired.");
+        }
+
+        Provider provider = ensureKalkanProvider();
+        try {
+            KeyStore keyStore = loadPkcs12KeyStore(request.pkcs12Path, request.pkcs12Password, provider);
+            char[] password = request.pkcs12Password == null ? new char[0] : request.pkcs12Password.toCharArray();
+            String alias = resolvePkcs12Alias(keyStore, request.pkcs12Alias);
+            SigningEntity signingEntity = KeyStoreUtil.getSigningEntityDefaultChained(keyStore, alias, password);
+            CMSSignedData cms = CMSUtil.createCAdES(signingEntity, session.contentToSign, false, provider);
+            byte[] cmsBytes = cms.getEncoded();
+            X509Certificate signerCertificate = signingEntity.getCertificateChain().isEmpty()
+                ? null
+                : signingEntity.getCertificateChain().get(0);
+
+            PadesServerSignResponse response = new PadesServerSignResponse();
+            response.status = "ok";
+            response.message = "Prepared payload signed with server-side PKCS#12 key";
+            response.sessionId = request.sessionId;
+            response.fieldName = session.fieldName;
+            response.cmsBase64 = Base64.getEncoder().encodeToString(cmsBytes);
+            response.cmsSha256 = sha256Hex(cmsBytes);
+            response.signingTime = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+            response.certificateInfo = buildCertificateInfo(signerCertificate);
+            response.evidence.put("sessionId", request.sessionId);
+            response.evidence.put("fieldName", session.fieldName);
+            response.evidence.put("pkcs12Path", request.pkcs12Path);
+            response.evidence.put("pkcs12Alias", alias);
+            response.evidence.put("cmsLength", cmsBytes.length);
+            response.evidence.put("payloadSha256", sha256Hex(session.contentToSign));
+            return response;
+        } catch (Throwable e) {
+            throw new IllegalStateException("Unable to sign prepared payload with server PKCS#12: " + rootMessage(e), e);
+        }
+    }
+
     private LtvAugmentationResult augmentPdfWithLtvEvidence(
         byte[] signedPdf,
         List<SignerPayload> signers,
@@ -394,6 +446,54 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                     + rootMessage(e),
                 e
             );
+        }
+    }
+
+    private KeyStore loadPkcs12KeyStore(String pkcs12Path, String pkcs12Password, Provider provider) throws Exception {
+        if (pkcs12Path == null || pkcs12Path.isBlank()) {
+            throw new IllegalArgumentException("PKCS#12 path is empty.");
+        }
+        Path path = Path.of(pkcs12Path);
+        if (!Files.isRegularFile(path) || !Files.isReadable(path)) {
+            throw new IllegalArgumentException("PKCS#12 file is not readable: " + pkcs12Path);
+        }
+        char[] password = pkcs12Password == null ? new char[0] : pkcs12Password.toCharArray();
+        return KeyStoreUtil.getKeyStore(Storage.PKCS12, pkcs12Path, password, provider);
+    }
+
+    private String resolvePkcs12Alias(KeyStore keyStore, String preferredAlias) throws Exception {
+        if (preferredAlias != null && !preferredAlias.isBlank() && keyStore.containsAlias(preferredAlias)) {
+            return preferredAlias;
+        }
+        java.util.Enumeration<String> aliases = keyStore.aliases();
+        while (aliases.hasMoreElements()) {
+            String alias = aliases.nextElement();
+            if (keyStore.isKeyEntry(alias)) {
+                return alias;
+            }
+        }
+        throw new IllegalStateException("No private key entry was found in the PKCS#12 container.");
+    }
+
+    private Map<String, Object> buildCertificateInfo(X509Certificate certificate) {
+        Map<String, Object> info = new LinkedHashMap<>();
+        if (certificate == null) {
+            return info;
+        }
+        info.put("subjectDn", certificate.getSubjectX500Principal().getName());
+        info.put("issuerDn", certificate.getIssuerX500Principal().getName());
+        info.put("serialNumber", certificate.getSerialNumber().toString());
+        info.put("notBefore", DateTimeFormatter.ISO_INSTANT.format(certificate.getNotBefore().toInstant()));
+        info.put("notAfter", DateTimeFormatter.ISO_INSTANT.format(certificate.getNotAfter().toInstant()));
+        info.put("sha256", certificateSha256(certificate));
+        return info;
+    }
+
+    private String certificateSha256(X509Certificate certificate) {
+        try {
+            return sha256Hex(certificate.getEncoded());
+        } catch (Exception e) {
+            return null;
         }
     }
 

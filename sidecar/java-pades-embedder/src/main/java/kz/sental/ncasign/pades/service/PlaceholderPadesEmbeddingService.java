@@ -4,6 +4,8 @@ import kz.sental.ncasign.pades.model.PadesFinalizeRequest;
 import kz.sental.ncasign.pades.model.PadesFinalizeResponse;
 import kz.sental.ncasign.pades.model.PadesPrepareRequest;
 import kz.sental.ncasign.pades.model.PadesPrepareResponse;
+import kz.sental.ncasign.pades.model.PadesServerSignRequest;
+import kz.sental.ncasign.pades.model.PadesServerSignResponse;
 import kz.sental.ncasign.pades.model.PadesVerifyRequest;
 import kz.sental.ncasign.pades.model.PadesVerifyResponse;
 
@@ -28,6 +30,13 @@ public class PlaceholderPadesEmbeddingService implements PadesEmbeddingService {
     public PadesVerifyResponse verifySignedPdf(PadesVerifyRequest request) {
         throw new UnsupportedOperationException(
             "Missing PDF verification engine. A Kalkan-backed verifier must inspect embedded PDF signatures and verify them against signed content bytes."
+        );
+    }
+
+    @Override
+    public PadesServerSignResponse serverSignPreparedPayload(PadesServerSignRequest request) {
+        throw new UnsupportedOperationException(
+            "Missing server-side signer backend. A real implementation must load a configured PKCS#12 container and sign the prepared PAdES payload."
         );
     }
 }

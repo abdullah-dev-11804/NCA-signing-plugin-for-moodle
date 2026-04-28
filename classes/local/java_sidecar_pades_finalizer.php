@@ -172,6 +172,53 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
     }
 
     /**
+     * Sign a prepared PAdES payload using a server-held PKCS#12 container.
+     *
+     * @param array<string,mixed> $preparestate
+     * @param array<string,mixed> $signerconfig
+     * @return array<string,mixed>
+     */
+    public function server_sign_prepared_payload(array $preparestate, array $signerconfig): array {
+        $sessionid = trim((string)($preparestate['sessionid'] ?? ''));
+        if ($sessionid === '') {
+            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'Missing prepared signing session id for server-side signing.');
+        }
+
+        $path = trim((string)($signerconfig['pkcs12path'] ?? ''));
+        if ($path === '') {
+            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'Server-side PKCS#12 path is not configured.');
+        }
+
+        $response = $this->post_json('/api/v1/pades/sign-server', [
+            'sessionId' => $sessionid,
+            'pkcs12Path' => $path,
+            'pkcs12Password' => (string)($signerconfig['pkcs12password'] ?? ''),
+            'pkcs12Alias' => trim((string)($signerconfig['pkcs12alias'] ?? '')),
+        ]);
+
+        $status = strtolower((string)($response['status'] ?? ''));
+        if ($status !== 'ok') {
+            $message = (string)($response['message'] ?? 'PAdES sidecar server-sign returned a non-success response.');
+            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', $message);
+        }
+
+        $cmsbase64 = preg_replace('/\s+/', '', (string)($response['cmsBase64'] ?? '')) ?? '';
+        if ($cmsbase64 === '') {
+            throw new \moodle_exception('verificationfailed', 'local_ncasign', '', 'PAdES sidecar did not return cmsBase64 for server-side signing.');
+        }
+
+        return [
+            'sessionid' => (string)($response['sessionId'] ?? $sessionid),
+            'fieldname' => (string)($response['fieldName'] ?? ($preparestate['fieldname'] ?? '')),
+            'cmsbase64' => $cmsbase64,
+            'cmssha256' => (string)($response['cmsSha256'] ?? ''),
+            'signingtime' => (string)($response['signingTime'] ?? ''),
+            'certificateinfo' => is_array($response['certificateInfo'] ?? null) ? $response['certificateInfo'] : [],
+            'evidence' => is_array($response['evidence'] ?? null) ? $response['evidence'] : [],
+        ];
+    }
+
+    /**
      * @inheritDoc
      */
     public function get_required_embedding_capabilities(): array {

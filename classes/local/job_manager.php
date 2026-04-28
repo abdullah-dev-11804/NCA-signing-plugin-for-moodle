@@ -732,7 +732,14 @@ class job_manager {
      * @param array $meta
      * @return bool
      */
-    public function mark_signer_signed(string $token, string $signedby = 'manual', array $meta = [], array $evidence = []): bool {
+    public function mark_signer_signed(
+        string $token,
+        string $signedby = 'manual',
+        array $meta = [],
+        array $evidence = [],
+        bool $notifynextsigner = true,
+        bool $autocompletion = false
+    ): bool {
         global $DB;
 
         $row = $this->get_signer_by_token($token);
@@ -787,11 +794,13 @@ class job_manager {
                 error_log('local_ncasign: failed to refresh signed PDF artifact after signer update: ' . $e->getMessage());
                 $this->record_finalization_note((int)$signer->jobid, 'Progress/final PDF refresh failed: ' . $e->getMessage());
             }
-            $this->notify_signers_for_job((int)$signer->jobid);
+            if ($notifynextsigner) {
+                $this->notify_signers_for_job((int)$signer->jobid);
+            }
             return true;
         }
 
-        $this->complete_job_if_fully_signed((int)$signer->jobid);
+        $this->complete_job_if_fully_signed((int)$signer->jobid, $autocompletion);
         return true;
     }
 
@@ -801,7 +810,7 @@ class job_manager {
      * @param int $jobid
      * @return void
      */
-    public function complete_job_if_fully_signed(int $jobid): void {
+    public function complete_job_if_fully_signed(int $jobid, bool $auto = false): void {
         global $DB;
 
         $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
@@ -848,13 +857,21 @@ class job_manager {
         // Re-read the job after finalization because generate_signed_pdf_artifact()
         // persists finalhash/finalizationevidence and the pre-finalization object is stale.
         $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
-        $job->status = self::JOB_COMPLETED_MANUAL;
-        $job->manualcompleted = time();
-        $job->autosignnote = null;
+        if ($auto) {
+            $job->status = self::JOB_COMPLETED_AUTO;
+            $job->autosigned = time();
+            $job->manualcompleted = null;
+            $job->autosignnote = (string)get_config('local_ncasign', 'autosignnote');
+        } else {
+            $job->status = self::JOB_COMPLETED_MANUAL;
+            $job->manualcompleted = time();
+            $job->autosigned = null;
+            $job->autosignnote = null;
+        }
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
 
-        $this->send_student_completion_email($job, false);
+        $this->send_student_completion_email($job, $auto);
     }
 
     /**
@@ -903,6 +920,13 @@ class job_manager {
 
         $count = 0;
         foreach ($jobs as $job) {
+            if ($this->can_server_autosign()) {
+                if ($this->try_server_autosign_job((int)$job->id)) {
+                    $count++;
+                }
+                continue;
+            }
+
             $signers = $DB->get_records('local_ncasign_signers', ['jobid' => $job->id]);
             foreach ($signers as $signer) {
                 if ($signer->status === self::SIGNER_PENDING) {
@@ -929,6 +953,59 @@ class job_manager {
         }
 
         return $count;
+    }
+
+    /**
+     * Whether a configured server-held PKCS#12 signer is available.
+     *
+     * @return bool
+     */
+    public function can_server_autosign(): bool {
+        $config = $this->get_server_autosign_config();
+        if (!$config['enabled']) {
+            return false;
+        }
+        if ($config['pkcs12path'] === '') {
+            return false;
+        }
+        if (!is_readable($config['pkcs12path'])) {
+            return false;
+        }
+        return trim((string)get_config('local_ncasign', 'padesfinalizerbackend')) === 'java_sidecar';
+    }
+
+    /**
+     * Attempt to server-sign all currently pending signers for a job.
+     *
+     * @param int $jobid
+     * @return bool
+     */
+    public function try_server_autosign_job(int $jobid): bool {
+        global $DB;
+
+        if (!$this->can_server_autosign()) {
+            return false;
+        }
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job || $job->status !== self::JOB_PENDING) {
+            return false;
+        }
+
+        try {
+            $this->ensure_original_pdf_for_job($jobid);
+            $config = $this->get_server_autosign_config();
+            while ($signer = $this->get_active_pending_signer($jobid)) {
+                $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
+                $this->server_sign_active_signer($job, $signer, $config);
+            }
+            $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
+            return in_array((string)$job->status, [self::JOB_COMPLETED_AUTO, self::JOB_COMPLETED_MANUAL], true);
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: server auto-sign failed for job ' . $jobid . ': ' . $e->getMessage());
+            $this->record_finalization_note($jobid, 'Server auto-sign failed: ' . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -961,6 +1038,160 @@ class job_manager {
         global $DB;
 
         return array_values($DB->get_records('local_ncasign_signers', ['jobid' => $jobid], 'signorder ASC, id ASC'));
+    }
+
+    /**
+     * Return server auto-signer configuration.
+     *
+     * @return array<string,mixed>
+     */
+    private function get_server_autosign_config(): array {
+        return [
+            'enabled' => (bool)((int)get_config('local_ncasign', 'serversigningenabled')),
+            'pkcs12path' => trim((string)get_config('local_ncasign', 'serversigningpkcs12path')),
+            'pkcs12password' => (string)get_config('local_ncasign', 'serversigningpkcs12password'),
+            'pkcs12alias' => trim((string)get_config('local_ncasign', 'serversigningpkcs12alias')),
+        ];
+    }
+
+    /**
+     * Server-sign the current active signer using the Java sidecar and configured PKCS#12 container.
+     *
+     * @param \stdClass $job
+     * @param \stdClass $signer
+     * @param array<string,mixed> $config
+     * @return void
+     */
+    private function server_sign_active_signer(\stdClass $job, \stdClass $signer, array $config): void {
+        $signingpayload = $this->get_job_signing_payload_binary((int)$job->id);
+        if (!$signingpayload) {
+            throw new \RuntimeException('No document payload is available for server-side signing.');
+        }
+
+        $finalizer = pades_finalizer_factory::create();
+        if (!($finalizer instanceof java_sidecar_pades_finalizer) || !$finalizer->supports_prepare_phase()) {
+            throw new \RuntimeException('Server-side auto-signing requires the Java sidecar PAdES finalizer backend.');
+        }
+
+        $prepared = $finalizer->prepare([
+            'job' => $job,
+            'originalpdf' => $signingpayload['content'],
+            'originalfilename' => $signingpayload['filename'],
+            'originalsha256' => $signingpayload['sha256'],
+            'manifest' => $this->get_job_finalization_manifest($job),
+            'signer' => $signer,
+            'signers' => $this->get_signer_records((int)$job->id),
+        ]);
+
+        $payloadmode = (string)($prepared['payloadmode'] ?? 'prepared_pdf_dtbs');
+        $payloadb64 = (string)($prepared['signablepayloadb64'] ?? '');
+        $this->store_pending_prepare_state((int)$signer->id, [
+            'sessionid' => (string)($prepared['sessionid'] ?? ''),
+            'fieldname' => (string)($prepared['fieldname'] ?? ''),
+            'payloadmode' => $payloadmode,
+            'signablepayloadb64' => $payloadb64,
+            'signablepayloadsha256' => (string)($prepared['signablepayloadsha256'] ?? ''),
+            'signingtime' => (string)($prepared['signingtime'] ?? ''),
+            'backend' => (string)($prepared['backend'] ?? ''),
+            'documentsha256' => (string)$signingpayload['sha256'],
+            'documentfilename' => (string)$signingpayload['filename'],
+        ]);
+
+        $serverresult = $finalizer->server_sign_prepared_payload([
+            'sessionid' => (string)($prepared['sessionid'] ?? ''),
+            'fieldname' => (string)($prepared['fieldname'] ?? ''),
+        ], $config);
+
+        $cmsbase64 = trim((string)($serverresult['cmsbase64'] ?? ''));
+        if ($cmsbase64 === '') {
+            throw new \RuntimeException('Server-side signing did not return a CMS payload.');
+        }
+
+        $certificateinfo = is_array($serverresult['certificateinfo'] ?? null) ? $serverresult['certificateinfo'] : [];
+        $verification = [
+            'cms_base64' => $cmsbase64,
+            'certificate' => !empty($certificateinfo)
+                ? json_encode($certificateinfo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                : null,
+            'signeriin' => null,
+            'signingtime' => (string)($serverresult['signingtime'] ?? ($prepared['signingtime'] ?? '')),
+            'verifyinfo' => 'Server-side PKCS#12 CMS accepted. Certificate/content validation is deferred to PDF finalization because DSS-prepared PAdES payload validation happens after embedding.',
+            'certificateinfo' => $certificateinfo,
+            'validation' => [
+                'contentcheckskipped' => true,
+                'deferred_to_pades_finalizer' => true,
+                'server_signing' => true,
+                'backend' => 'java_sidecar_pkcs12',
+            ],
+        ];
+
+        $signaturefilename = $this->store_signer_cms_signature((int)$job->id, (int)$signer->id, $cmsbase64);
+        $meta = [
+            'mode' => 'server_pkcs12_real_cms_detached_verified',
+            'signer_order' => (int)$signer->signorder,
+            'signer_name' => (string)($signer->signername ?? $signer->signeremail),
+            'signer_position' => (string)($signer->signerposition ?? ''),
+            'expected_iin' => preg_replace('/\D+/', '', (string)($signer->expectediin ?? '')),
+            'verified_signer_iin' => null,
+            'payload_mode' => $payloadmode,
+            'storage' => 'SERVER_PKCS12',
+            'module' => 'java_sidecar_server_sign',
+            'ip' => null,
+            'nca_response_code' => '200',
+            'nca_message' => 'Server-side signing completed.',
+            'payload_sha256' => (string)($prepared['signablepayloadsha256'] ?? ''),
+            'payload_meta' => [
+                'filename' => (string)$signingpayload['filename'],
+                'sha256' => (string)$signingpayload['sha256'],
+                'filesize' => (int)($signingpayload['filesize'] ?? 0),
+                'sourcearea' => (string)($signingpayload['sourcearea'] ?? ''),
+                'prepare' => [
+                    'sessionid' => (string)($prepared['sessionid'] ?? ''),
+                    'fieldname' => (string)($prepared['fieldname'] ?? ''),
+                    'payloadsha256' => (string)($prepared['signablepayloadsha256'] ?? ''),
+                    'signingtime' => (string)($prepared['signingtime'] ?? ''),
+                    'backend' => (string)($prepared['backend'] ?? ''),
+                ],
+                'server_sign' => [
+                    'fieldname' => (string)($serverresult['fieldname'] ?? ''),
+                    'signingtime' => (string)($serverresult['signingtime'] ?? ''),
+                    'evidence' => $serverresult['evidence'] ?? [],
+                ],
+            ],
+            'cms_sha256' => (string)($serverresult['cmssha256'] ?? hash('sha256', $cmsbase64)),
+            'cms_length' => core_text::strlen($cmsbase64),
+            'cms_preview' => core_text::substr($cmsbase64, 0, 120),
+            'signature_filename' => $signaturefilename,
+            'verification_info' => (string)$verification['verifyinfo'],
+            'certificate_info' => $verification['certificateinfo'],
+            'certificate_validation' => $verification['validation'],
+            'signing_time' => $verification['signingtime'],
+            'server_received_at' => time(),
+        ];
+
+        if (!$this->mark_signer_signed(
+            (string)$signer->token,
+            'server_pkcs12',
+            $meta,
+            [
+                'rawcms' => $cmsbase64,
+                'signercertificate' => $verification['certificate'],
+                'signeriin' => null,
+                'ocspresponse' => null,
+                'signingmethod' => 'server_pkcs12_kalkan_detached_hash_for_pades+deferred_pdf_finalization',
+                'verificationstatus' => 'pades_deferred',
+                'verificationinfo' => json_encode([
+                    'verifyinfo' => $verification['verifyinfo'],
+                    'certificateinfo' => $verification['certificateinfo'],
+                    'validation' => $verification['validation'],
+                    'signingtime' => $verification['signingtime'],
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ],
+            false,
+            true
+        )) {
+            throw new \RuntimeException('The signer was no longer active when server-side signing completed.');
+        }
     }
 
     /**

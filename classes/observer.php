@@ -109,7 +109,13 @@ class observer {
                 }
 
                 try {
-                    $manager->notify_signers_for_job($jobid);
+                    $autosigned = false;
+                    if ($manager->can_server_autosign()) {
+                        $autosigned = $manager->try_server_autosign_job($jobid);
+                    }
+                    if (!$autosigned) {
+                        $manager->notify_signers_for_job($jobid);
+                    }
                 } catch (\Throwable $e) {
                     error_log('local_ncasign: failed to notify signers for job ' . $jobid . ': ' . $e->getMessage());
                 }
@@ -173,7 +179,7 @@ class observer {
 
         $issueid = (int)($event->objectid ?? 0);
         $documenttitle = self::resolve_customcert_document_title($issueid, $cmid, $courseid);
-        $jobid = $manager->create_job($userid, $courseid, $certurl, $signers, null, 'certificate', $documenttitle);
+        $jobid = $manager->create_job($userid, $courseid, $certurl, $signers, null, 'certificate', $documenttitle, false);
         $attached = false;
 
         $generated = self::generate_customcert_pdf_from_issue($issueid, $userid);
@@ -203,6 +209,18 @@ class observer {
 
         if (!$attached) {
             error_log('local_ncasign: no PDF attached for job ' . $jobid . ' from event ' . get_class($event));
+        }
+
+        try {
+            $autosigned = false;
+            if ($attached && $manager->can_server_autosign()) {
+                $autosigned = $manager->try_server_autosign_job($jobid);
+            }
+            if (!$autosigned) {
+                $manager->notify_signers_for_job($jobid);
+            }
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: failed to continue job ' . $jobid . ' after customcert issue event: ' . $e->getMessage());
         }
     }
 
