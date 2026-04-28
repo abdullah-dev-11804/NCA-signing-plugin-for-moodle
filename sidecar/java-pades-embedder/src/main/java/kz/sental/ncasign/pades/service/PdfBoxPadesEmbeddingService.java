@@ -24,7 +24,11 @@ import kz.gov.pki.provider.utils.X509Util;
 import kz.gov.pki.provider.utils.CMSUtil;
 import kz.gov.pki.provider.utils.KeyStoreUtil;
 import kz.gov.pki.provider.utils.model.SigningEntity;
+import kz.gov.pki.provider.utils.model.TSAProfile;
 import kz.gov.pki.kalkan.Storage;
+import kz.gov.pki.reference.TSAPolicy;
+import kz.gov.pki.reference.KNCAServiceRequestMethod;
+import kz.gov.pki.reference.KalkanHashAlgorithm;
 import kz.sental.ncasign.pades.model.PadesFinalizeRequest;
 import kz.sental.ncasign.pades.model.PadesFinalizeResponse;
 import kz.sental.ncasign.pades.model.PadesPrepareRequest;
@@ -269,11 +273,12 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 );
                 signingEntity = KeyStoreUtil.getSigningEntity(keyStore, alias, password);
             }
-            CMSSignedData cms = CMSUtil.createCAdES(signingEntity, session.contentToSign, false, provider);
-            byte[] cmsBytes = cms.getEncoded();
             X509Certificate signerCertificate = signingEntity.getCertificateChain().isEmpty()
                 ? null
                 : signingEntity.getCertificateChain().get(0);
+            CMSSignedData cms = CMSUtil.createCAdES(signingEntity, session.contentToSign, false, provider);
+            cms = CMSUtil.applyCAdEST(cms, signingEntity, buildTsaProfile(signerCertificate), provider);
+            byte[] cmsBytes = cms.getEncoded();
 
             PadesServerSignResponse response = new PadesServerSignResponse();
             response.status = "ok";
@@ -290,6 +295,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             response.evidence.put("pkcs12Alias", alias);
             response.evidence.put("cmsLength", cmsBytes.length);
             response.evidence.put("payloadSha256", sha256Hex(session.contentToSign));
+            response.evidence.put("tsaApplied", true);
             return response;
         } catch (Throwable e) {
             throw new IllegalStateException("Unable to sign prepared payload with server PKCS#12: " + rootMessage(e), e);
@@ -497,6 +503,71 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         info.put("notAfter", DateTimeFormatter.ISO_INSTANT.format(certificate.getNotAfter().toInstant()));
         info.put("sha256", certificateSha256(certificate));
         return info;
+    }
+
+    private TSAProfile buildTsaProfile(X509Certificate certificate) {
+        TSAProfile profile = new TSAProfile();
+        profile.setTsaURL(resolveTsaUrl(certificate));
+        profile.setRequestMethod(KNCAServiceRequestMethod.POST);
+        profile.setHashAlgorithm(resolveTsaHashAlgorithm(certificate));
+        profile.setTsaPolicy(resolveTsaPolicy(certificate));
+        return profile;
+    }
+
+    private KalkanHashAlgorithm resolveTsaHashAlgorithm(X509Certificate certificate) {
+        String algorithm = certificateAlgorithmMarker(certificate);
+        if (algorithm.contains("RSA")) {
+            return KalkanHashAlgorithm.HASH_SHA256;
+        }
+        if (algorithm.contains("2015") || algorithm.contains("3411-2015") || algorithm.contains("GOST34311GT")) {
+            return KalkanHashAlgorithm.HASH_GOST34311GT;
+        }
+        return KalkanHashAlgorithm.HASH_GOST34311;
+    }
+
+    private TSAPolicy resolveTsaPolicy(X509Certificate certificate) {
+        String algorithm = certificateAlgorithmMarker(certificate);
+        if (algorithm.contains("RSA")) {
+            return TSAPolicy.TSA_RSA;
+        }
+        if (algorithm.contains("2015") || algorithm.contains("3411-2015") || algorithm.contains("GOST34311GT")) {
+            return TSAPolicy.TSA_GOST_GT;
+        }
+        return TSAPolicy.TSA_GOST;
+    }
+
+    private String certificateAlgorithmMarker(X509Certificate certificate) {
+        if (certificate == null) {
+            return "";
+        }
+        StringBuilder marker = new StringBuilder();
+        marker.append(certificate.getSigAlgName() == null ? "" : certificate.getSigAlgName()).append('|');
+        marker.append(certificate.getPublicKey() == null ? "" : certificate.getPublicKey().getAlgorithm()).append('|');
+        marker.append(certificate.getSigAlgOID() == null ? "" : certificate.getSigAlgOID());
+        return marker.toString().toUpperCase();
+    }
+
+    private String resolveTsaUrl(X509Certificate certificate) {
+        String marker = certificateTextMarker(certificate);
+        if (marker.contains("TEST")) {
+            return "http://test.pki.gov.kz/tsp/";
+        }
+        return "http://tsp.pki.gov.kz";
+    }
+
+    private String certificateTextMarker(X509Certificate certificate) {
+        if (certificate == null) {
+            return "";
+        }
+        StringBuilder marker = new StringBuilder();
+        if (certificate.getSubjectX500Principal() != null) {
+            marker.append(certificate.getSubjectX500Principal().getName()).append('|');
+        }
+        if (certificate.getIssuerX500Principal() != null) {
+            marker.append(certificate.getIssuerX500Principal().getName()).append('|');
+        }
+        marker.append(certificateAlgorithmMarker(certificate));
+        return marker.toString().toUpperCase();
     }
 
     private String certificateSha256(X509Certificate certificate) {
