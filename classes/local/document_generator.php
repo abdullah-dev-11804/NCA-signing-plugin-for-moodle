@@ -253,12 +253,29 @@ class document_generator {
             throw new \RuntimeException('customcert did not return any PDF bytes.');
         }
 
-        $overlay = $this->overlay_signature_qr_slots_on_pdf(
-            $content,
-            (string)($options['verifyurl'] ?? ''),
-            is_array($options['signers'] ?? null) ? $options['signers'] : [],
-            self::DOC_CUSTOMCERT_TEMPLATE
-        );
+        $overlaywarning = null;
+        try {
+            $overlay = $this->overlay_signature_qr_slots_on_pdf(
+                $content,
+                (string)($options['verifyurl'] ?? ''),
+                is_array($options['signers'] ?? null) ? $options['signers'] : [],
+                self::DOC_CUSTOMCERT_TEMPLATE
+            );
+        } catch (\Throwable $e) {
+            if (strpos($e->getMessage(), 'FPDI for TCPDF is not installed on this Moodle server.') === false) {
+                throw $e;
+            }
+            $overlaywarning = $e->getMessage();
+            $overlay = [
+                'content' => $content,
+                'finalizationmanifest' => [
+                    'source' => 'customcert_runtime_template',
+                    'customcert_templateid' => $templateid,
+                    'qr_overlay' => 'skipped',
+                    'qr_overlay_reason' => 'fpdi_missing',
+                ],
+            ];
+        }
 
         $templatename = (string)$DB->get_field('customcert_templates', 'name', ['id' => $templateid], IGNORE_MISSING);
         $documenttitle = trim((string)($profile['documenttitle'] ?? '')) !== ''
@@ -273,6 +290,7 @@ class document_generator {
             'previewdata' => [
                 'templateid' => $templateid,
                 'overrides' => $overrides,
+                'overlaywarning' => $overlaywarning,
             ] + $documentdata,
             'finalizationmanifest' => array_replace_recursive(
                 (array)$overlay['finalizationmanifest'],
@@ -1529,7 +1547,7 @@ HTML;
             return;
         }
 
-        require_once($CFG->libdir . '/tcpdf/tcpdf.php');
+        require_once($CFG->libdir . '/pdflib.php');
         $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
         if (is_readable($autoload)) {
             require_once($autoload);
@@ -1641,7 +1659,8 @@ HTML;
             'commission_member_2_initials_ss' => 'member2initials',
         ];
 
-        $customfieldmap = (array)((array)($layoutconfig['customcert'] ?? [])['fieldmap'] ?? []);
+        $customcertconfig = (array)($layoutconfig['customcert'] ?? []);
+        $customfieldmap = (array)($customcertconfig['fieldmap'] ?? []);
         foreach ($customfieldmap as $elementname => $sourcefield) {
             $elementname = trim((string)$elementname);
             $sourcefield = trim((string)$sourcefield);

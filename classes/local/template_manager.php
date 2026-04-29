@@ -92,7 +92,8 @@ class template_manager {
      */
     public function hydrate_profile(\stdClass $record): array {
         $layoutconfig = $this->decode_layout_config((string)($record->layoutconfig ?? ''));
-        $customcerttemplateid = (int)((array)($layoutconfig['customcert'] ?? [])['templateid'] ?? 0);
+        $customcertconfig = (array)($layoutconfig['customcert'] ?? []);
+        $customcerttemplateid = (int)($customcertconfig['templateid'] ?? 0);
         if ($customcerttemplateid <= 0 && !empty($record->templatepath)
             && preg_match('/^customcert:(\d+)$/', (string)$record->templatepath, $matches)) {
             $customcerttemplateid = (int)$matches[1];
