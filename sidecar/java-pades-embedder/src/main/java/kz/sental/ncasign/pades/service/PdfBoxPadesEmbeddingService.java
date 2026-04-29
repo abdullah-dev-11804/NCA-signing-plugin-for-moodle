@@ -522,6 +522,10 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         info.put("subjectDn", certificate.getSubjectX500Principal().getName());
         info.put("issuerDn", certificate.getIssuerX500Principal().getName());
         info.put("serialNumber", certificate.getSerialNumber().toString());
+        String iin = extractIinFromCertificate(certificate);
+        if (!iin.isBlank()) {
+            info.put("iin", iin);
+        }
         info.put("notBefore", DateTimeFormatter.ISO_INSTANT.format(certificate.getNotBefore().toInstant()));
         info.put("notAfter", DateTimeFormatter.ISO_INSTANT.format(certificate.getNotAfter().toInstant()));
         info.put("sha256", certificateSha256(certificate));
@@ -863,6 +867,10 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 item.put("certificateSubjectDn", signerCertificate.getSubjectX500Principal().getName());
                 item.put("certificateIssuerDn", signerCertificate.getIssuerX500Principal().getName());
                 item.put("certificateSerialNumber", signerCertificate.getSerialNumber().toString());
+                String iin = extractIinFromCertificate(signerCertificate);
+                if (!iin.isBlank()) {
+                    item.put("certificateIin", iin);
+                }
                 item.put("certificateNotBefore", signerCertificate.getNotBefore().toInstant().toString());
                 item.put("certificateNotAfter", signerCertificate.getNotAfter().toInstant().toString());
             }
@@ -1071,6 +1079,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
                 evidence.signerSubjectDn = signerCertificate.getSubjectX500Principal().getName();
                 evidence.signerIssuerDn = signerCertificate.getIssuerX500Principal().getName();
                 evidence.signerSerialNumber = signerCertificate.getSerialNumber().toString();
+                evidence.signerIin = extractIinFromCertificate(signerCertificate);
                 evidence.signerNotBefore = signerCertificate.getNotBefore().toInstant().toString();
                 evidence.signerNotAfter = signerCertificate.getNotAfter().toInstant().toString();
             }
@@ -1598,6 +1607,76 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         return fallback;
     }
 
+    private String extractIinFromCertificate(X509Certificate certificate) {
+        if (certificate == null || certificate.getSubjectX500Principal() == null) {
+            return "";
+        }
+        String subjectDn = certificate.getSubjectX500Principal().getName();
+        String serialNumberValue = extractDnAttribute(subjectDn, "2.5.4.5");
+        if (serialNumberValue.isBlank()) {
+            serialNumberValue = extractDnAttribute(subjectDn, "SERIALNUMBER");
+        }
+        return serialNumberValue.replaceAll("\\D+", "");
+    }
+
+    private String extractDnAttribute(String dn, String attributeName) {
+        if (dn == null || dn.isBlank() || attributeName == null || attributeName.isBlank()) {
+            return "";
+        }
+        String prefix = attributeName + "=";
+        for (String part : dn.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.regionMatches(true, 0, prefix, 0, prefix.length())) {
+                continue;
+            }
+            String value = trimmed.substring(prefix.length()).trim();
+            if (value.startsWith("#")) {
+                return decodeDerStringHex(value.substring(1));
+            }
+            return value;
+        }
+        return "";
+    }
+
+    private String decodeDerStringHex(String hex) {
+        byte[] der = hexToBytes(hex);
+        if (der.length < 2) {
+            return "";
+        }
+        int length = der[1] & 0xff;
+        int offset = 2;
+        if ((length & 0x80) != 0) {
+            int lengthBytes = length & 0x7f;
+            if (der.length < 2 + lengthBytes) {
+                return "";
+            }
+            length = 0;
+            for (int i = 0; i < lengthBytes; i++) {
+                length = (length << 8) | (der[2 + i] & 0xff);
+            }
+            offset = 2 + lengthBytes;
+        }
+        if (length <= 0 || der.length < offset + length) {
+            return "";
+        }
+        return new String(der, offset, length, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private byte[] hexToBytes(String hex) {
+        if (hex == null) {
+            return new byte[0];
+        }
+        String normalized = hex.replaceAll("[^0-9A-Fa-f]", "");
+        if ((normalized.length() % 2) != 0) {
+            return new byte[0];
+        }
+        byte[] bytes = new byte[normalized.length() / 2];
+        for (int i = 0; i < normalized.length(); i += 2) {
+            bytes[i / 2] = (byte)Integer.parseInt(normalized.substring(i, i + 2), 16);
+        }
+        return bytes;
+    }
+
     private static String sha256Hex(byte[] bytes) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -1714,6 +1793,7 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
         private String signerSubjectDn;
         private String signerIssuerDn;
         private String signerSerialNumber;
+        private String signerIin;
         private String signerNotBefore;
         private String signerNotAfter;
 
@@ -1770,6 +1850,9 @@ public class PdfBoxPadesEmbeddingService implements PadesEmbeddingService {
             }
             if (signerSerialNumber != null && !signerSerialNumber.isBlank()) {
                 item.put("certificateSerialNumber", signerSerialNumber);
+            }
+            if (signerIin != null && !signerIin.isBlank()) {
+                item.put("certificateIin", signerIin);
             }
             if (signerNotBefore != null && !signerNotBefore.isBlank()) {
                 item.put("certificateNotBefore", signerNotBefore);

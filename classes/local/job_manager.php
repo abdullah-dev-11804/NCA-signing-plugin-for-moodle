@@ -581,6 +581,7 @@ class job_manager {
                 'cms_sha256' => !empty($item['cmsSha256']) ? (string)$item['cmsSha256'] : null,
             ];
 
+            $certificateiin = preg_replace('/\D+/', '', (string)($item['certificateIin'] ?? ''));
             if (!empty($item['certificateSubjectDn']) || !empty($item['certificateSerialNumber'])) {
                 $certificate = [
                     'subject' => ['dn' => (string)($item['certificateSubjectDn'] ?? '')],
@@ -589,7 +590,14 @@ class job_manager {
                     'notBefore' => (string)($item['certificateNotBefore'] ?? ''),
                     'notAfter' => (string)($item['certificateNotAfter'] ?? ''),
                 ];
+                if ($certificateiin !== '') {
+                    $certificate['subject']['iin'] = $certificateiin;
+                }
                 $signer->signercertificate = json_encode($certificate, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+            if ($certificateiin !== '') {
+                $signer->signeriin = $certificateiin;
+                $verification['signeriin'] = $certificateiin;
             }
 
             $signer->verificationstatus = !empty($item['valid']) ? 'verified' : (string)($signer->verificationstatus ?? 'pades_deferred');
@@ -1108,12 +1116,13 @@ class job_manager {
         }
 
         $certificateinfo = is_array($serverresult['certificateinfo'] ?? null) ? $serverresult['certificateinfo'] : [];
+        $signeriin = preg_replace('/\D+/', '', (string)($certificateinfo['iin'] ?? ''));
         $verification = [
             'cms_base64' => $cmsbase64,
             'certificate' => !empty($certificateinfo)
                 ? json_encode($certificateinfo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
                 : null,
-            'signeriin' => null,
+            'signeriin' => $signeriin !== '' ? $signeriin : null,
             'signingtime' => (string)($serverresult['signingtime'] ?? ($prepared['signingtime'] ?? '')),
             'verifyinfo' => 'Server-side PKCS#12 CMS accepted. Certificate/content validation is deferred to PDF finalization because DSS-prepared PAdES payload validation happens after embedding.',
             'certificateinfo' => $certificateinfo,
@@ -1132,7 +1141,7 @@ class job_manager {
             'signer_name' => (string)($signer->signername ?? $signer->signeremail),
             'signer_position' => (string)($signer->signerposition ?? ''),
             'expected_iin' => preg_replace('/\D+/', '', (string)($signer->expectediin ?? '')),
-            'verified_signer_iin' => null,
+            'verified_signer_iin' => $signeriin !== '' ? $signeriin : null,
             'payload_mode' => $payloadmode,
             'storage' => 'SERVER_PKCS12',
             'module' => 'java_sidecar_server_sign',
@@ -1176,7 +1185,7 @@ class job_manager {
             [
                 'rawcms' => $cmsbase64,
                 'signercertificate' => $verification['certificate'],
-                'signeriin' => null,
+                'signeriin' => $verification['signeriin'],
                 'ocspresponse' => null,
                 'signingmethod' => 'server_pkcs12_kalkan_detached_hash_for_pades+deferred_pdf_finalization',
                 'verificationstatus' => 'pades_deferred',
