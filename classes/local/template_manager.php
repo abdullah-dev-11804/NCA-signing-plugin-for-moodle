@@ -66,14 +66,16 @@ class template_manager {
         global $DB;
 
         $sql = "SELECT t.*
-                  FROM {local_ncasign_templates} t
-                  JOIN {local_ncasign_template_courses} tc ON tc.templateid = t.id
+                 FROM {local_ncasign_templates} t
+                 JOIN {local_ncasign_template_courses} tc ON tc.templateid = t.id
                  WHERE tc.courseid = :courseid
                    AND t.active = :active
+                   AND t.renderer = :renderer
               ORDER BY t.id ASC";
         $records = $DB->get_records_sql($sql, [
             'courseid' => $courseid,
             'active' => 1,
+            'renderer' => document_generator::DOC_CUSTOMCERT_TEMPLATE,
         ]);
 
         $profiles = [];
@@ -196,8 +198,8 @@ class template_manager {
         $templateid = !empty($profiledata['id']) ? (int)$profiledata['id'] : 0;
         $record = (object)[
             'name' => trim((string)($profiledata['name'] ?? '')),
-            'renderer' => trim((string)($profiledata['renderer'] ?? '')),
-            'documenttype' => trim((string)($profiledata['documenttype'] ?? 'certificate')),
+            'renderer' => document_generator::DOC_CUSTOMCERT_TEMPLATE,
+            'documenttype' => 'certificate',
             'documenttitle' => trim((string)($profiledata['documenttitle'] ?? '')),
             'templatepath' => trim((string)($profiledata['templatepath'] ?? '')),
             'layoutconfig' => trim((string)($profiledata['layoutconfig'] ?? '')),

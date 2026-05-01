@@ -51,8 +51,7 @@ $table = new html_table();
 $table->head = [
     'ID',
     get_string('name'),
-    get_string('documenttype', 'local_ncasign'),
-    get_string('templaterenderer', 'local_ncasign'),
+    get_string('templatecustomcerttemplate', 'local_ncasign'),
     get_string('templatecourses', 'local_ncasign'),
     get_string('templatesigners', 'local_ncasign'),
     get_string('status', 'local_ncasign'),
@@ -71,16 +70,14 @@ foreach ($profiles as $profile) {
     $actions = html_writer::link($editurl, get_string('edit')) . ' | ' .
         html_writer::link($deleteurl, get_string('delete'));
 
-    $rendererlabel = (string)$profile['renderer'];
-    if ($rendererlabel === \local_ncasign\local\document_generator::DOC_CUSTOMCERT_TEMPLATE && !empty($profile['customcerttemplatename'])) {
-        $rendererlabel .= ' (' . (string)$profile['customcerttemplatename'] . ' #' . (int)$profile['customcerttemplateid'] . ')';
-    }
+    $templatelabel = !empty($profile['customcerttemplatename'])
+        ? (string)$profile['customcerttemplatename'] . ' #' . (int)$profile['customcerttemplateid']
+        : '-';
 
     $table->data[] = [
         (int)$profile['id'],
         s((string)$profile['name']),
-        s((string)$profile['documenttype']),
-        s($rendererlabel),
+        s($templatelabel),
         s($courses),
         $signers ? implode('<br>', $signers) : '-',
         !empty($profile['active']) ? get_string('yes') : get_string('no'),
