@@ -956,8 +956,8 @@ CSS;
         return <<<'HTML'
 <div class="doc">
     <div class="doc__org">{{clientcompanyname}}</div>
-    <div class="doc__title">????????? / ???????? ? {{protocolnumber}}</div>
-    <div class="doc__title">?????????????? ????? ???????????? ???? ??????? ?????? ??????? ?????????? ??????? ????????? ??????? ?????????? ?????????? / ????????? ??????????????? ???????? ?? ???????? ?????? ?? ???????????? ? ?????? ????? ??????????</div>
+    <div class="doc__title">Хаттамасы / Протокол № {{protocolnumber}}</div>
+    <div class="doc__title">Жұмыскерлердің еңбек қауіпсіздігі және еңбекті қорғау бойынша білімдерін тексеру жөніндегі емтихан комиссиясы отырысының / заседания экзаменационной комиссии по проверке знаний по безопасности и охране труда работников</div>
 
     <table class="doc__meta">
         <tr>
@@ -967,22 +967,22 @@ CSS;
         </tr>
     </table>
 
-    <div class="doc__section">???????? ?????? / ???????? ? ???????:</div>
-    <div class="doc__line"><span class="doc__line-label">?????? / ????????????:</span> {{chairfull}}</div>
-    <div class="doc__line"><span class="doc__line-label">???????? ???????? / ????? ????????:</span> {{member1full}}</div>
+    <div class="doc__section">Комиссия құрамы / Комиссия в составе:</div>
+    <div class="doc__line"><span class="doc__line-label">Төраға / Председатель:</span> {{chairfull}}</div>
+    <div class="doc__line"><span class="doc__line-label">Комиссия мүшелері / Члены комиссии:</span> {{member1full}}</div>
     <div class="doc__line"><span class="doc__line-label"></span> {{member2full}}</div>
 
     <div class="doc__line">{{orderkz}} / {{orderru}}</div>
-    <div class="doc__line">??????? ??????? ???? ({{protocoltypekz}}) / ??? ???????? ?????? ({{protocoltyperu}})</div>
+    <div class="doc__line">білімін тексеру түрі ({{protocoltypekz}}) / вид проверки знаний ({{protocoltyperu}})</div>
 
     <table class="doc__table">
         <tr>
-            <th>?</th>
-            <th>????, ???, ???????? ??? / ???</th>
-            <th>???? / ???????????</th>
-            <th>???????? / ?????????</th>
-            <th>?????? / ?????????</th>
-            <th>?????????? ?</th>
+            <th>№</th>
+            <th>Тегі, аты, әкесінің аты / ФИО</th>
+            <th>Ұйым / Организация</th>
+            <th>Лауазымы / Должность</th>
+            <th>Нәтиже / Результат</th>
+            <th>Сертификат №</th>
         </tr>
         <tr>
             <td>1</td>
@@ -997,11 +997,11 @@ CSS;
     <div class="doc__footer">
         <table class="doc__sigline">
             <tr>
-                <td class="doc__siglabel">???????? ???????? / ????????????:</td>
+                <td class="doc__siglabel">Комиссия төрағасы / Председатель:</td>
                 <td class="doc__sigvalue">{{chairinitials}}</td>
             </tr>
             <tr>
-                <td class="doc__siglabel">???????? ???????? / ????? ????????:</td>
+                <td class="doc__siglabel">Комиссия мүшелері / Члены комиссии:</td>
                 <td class="doc__sigvalue">{{member1initials}}</td>
             </tr>
             <tr>
@@ -1042,6 +1042,9 @@ HTML;
         }
 
         $text = str_replace("\xc2\xa0", ' ', $text);
+        $text = preg_replace('/&(?:amp;)+/i', '&', $text) ?? $text;
+        $text = preg_replace('/&[a-zA-Z]+;/u', ' ', $text) ?? $text;
+        $text = clean_param($text, PARAM_NOTAGS);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
         return trim($text);
     }
@@ -1285,14 +1288,14 @@ HTML;
         $isrepeat = $this->user_has_previous_completion($userid, $courseid, $completiondate);
         if ($isrepeat) {
             return [
-                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? '?????????')),
-                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? '?????????')),
+                'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? 'қайталама')),
+                'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? 'повторный')),
             ];
         }
 
         return [
-            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? '???????')),
-            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? '?????????')),
+            'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? 'бастапқы')),
+            'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? 'первичный')),
         ];
     }
 
@@ -1305,10 +1308,10 @@ HTML;
      */
     private function resolve_completion_status_text(int $completiondate, array $metadata): string {
         if ($completiondate > 0) {
-            return trim((string)($metadata['status_passed'] ?? '???? / ??????'));
+            return trim((string)($metadata['status_passed'] ?? 'өтті / прошел'));
         }
 
-        return trim((string)($metadata['status_failed'] ?? '????? ?????????? ?????? / ???????? ?????? ?? ??????'));
+        return trim((string)($metadata['status_failed'] ?? 'білім тексеруден өтпеді / проверку знаний не прошел'));
     }
 
     /**
@@ -1384,11 +1387,17 @@ HTML;
      */
     private function format_commission_full_line(array $signer, string $companyname): string {
         $initials = $this->format_signer_initials($signer);
-        $position = html_entity_decode(trim((string)($signer['position'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $companyname = html_entity_decode(trim($companyname), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $position = $this->normalise_render_text((string)($signer['position'] ?? ''));
+        $companyname = $this->normalise_render_text($companyname);
 
         $companysegment = $companyname;
-        if ($position !== '' && $companyname !== '' && mb_stripos($position, $companyname, 0, 'UTF-8') !== false) {
+        $normalisedposition = $this->normalise_company_compare_text($position);
+        $normalisedcompany = $this->normalise_company_compare_text($companyname);
+        if ($position !== '' && $companyname !== '' && (
+            mb_stripos($normalisedposition, $normalisedcompany, 0, 'UTF-8') !== false
+                || (mb_stripos($normalisedposition, 'sental', 0, 'UTF-8') !== false
+                    && mb_stripos($normalisedcompany, 'sental', 0, 'UTF-8') !== false)
+        )) {
             $companysegment = '';
         }
 
@@ -1399,6 +1408,18 @@ HTML;
         ]);
 
         return trim((string)preg_replace('/\s+/u', ' ', implode(' ', $parts)));
+    }
+
+    /**
+     * Normalise company text for duplicate detection.
+     *
+     * @param string $value
+     * @return string
+     */
+    private function normalise_company_compare_text(string $value): string {
+        $value = \core_text::strtolower($this->normalise_render_text($value));
+        $value = preg_replace('/[^\p{L}\p{N}]+/u', '', $value) ?? $value;
+        return trim($value);
     }
 
     /**
@@ -1469,23 +1490,23 @@ HTML;
      */
     private function format_date_kz(int $timestamp): string {
         $months = [
-            1 => '??????',
-            2 => '?????',
-            3 => '??????',
-            4 => '?????',
-            5 => '?????',
-            6 => '??????',
-            7 => '?????',
-            8 => '?????',
-            9 => '????????',
-            10 => '?????',
-            11 => '??????',
-            12 => '?????????',
+            1 => 'қаңтар',
+            2 => 'ақпан',
+            3 => 'наурыз',
+            4 => 'сәуір',
+            5 => 'мамыр',
+            6 => 'маусым',
+            7 => 'шілде',
+            8 => 'тамыз',
+            9 => 'қыркүйек',
+            10 => 'қазан',
+            11 => 'қараша',
+            12 => 'желтоқсан',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '%s ????? "%s" %s',
+            '%s жылғы "%s" %s',
             $datetime->format('Y'),
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m')
@@ -1500,23 +1521,23 @@ HTML;
      */
     private function format_date_ru(int $timestamp): string {
         $months = [
-            1 => '??????',
-            2 => '???????',
-            3 => '?????',
-            4 => '??????',
-            5 => '???',
-            6 => '????',
-            7 => '????',
-            8 => '???????',
-            9 => '????????',
-            10 => '???????',
-            11 => '??????',
-            12 => '???????',
+            1 => 'января',
+            2 => 'февраля',
+            3 => 'марта',
+            4 => 'апреля',
+            5 => 'мая',
+            6 => 'июня',
+            7 => 'июля',
+            8 => 'августа',
+            9 => 'сентября',
+            10 => 'октября',
+            11 => 'ноября',
+            12 => 'декабря',
         ];
         $datetime = $this->get_protocol_datetime($timestamp);
 
         return sprintf(
-            '"%s" %s %s ????',
+            '"%s" %s %s года',
             $datetime->format('d'),
             $months[(int)$datetime->format('n')] ?? $datetime->format('m'),
             $datetime->format('Y')
