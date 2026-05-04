@@ -1750,7 +1750,7 @@ HTML;
         }
 
         if (count($parts) === 2) {
-            return $parts[0] . "\n" . $parts[1];
+            return $parts[0] . ' /' . "\n" . $parts[1];
         }
 
         return $parts[0] . ' / ' . $parts[1] . "\n" . implode(' / ', array_slice($parts, 2));
