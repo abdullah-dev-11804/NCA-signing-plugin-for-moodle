@@ -1695,10 +1695,76 @@ HTML;
             if (!array_key_exists($sourcefield, $documentdata)) {
                 continue;
             }
-            $overrides[$elementname] = (string)$documentdata[$sourcefield];
+            $elementname = \core_text::strtolower(trim((string)$elementname));
+            if ($elementname === '') {
+                continue;
+            }
+
+            $value = (string)$documentdata[$sourcefield];
+            $overrides[$elementname] = $this->format_customcert_override_value($elementname, $value);
+
+            if (!$this->has_suffix($elementname, '_nl')) {
+                $newlinekey = $elementname . '_nl';
+                if (!array_key_exists($newlinekey, $overrides)) {
+                    $overrides[$newlinekey] = $this->format_customcert_override_value($newlinekey, $value);
+                }
+            }
         }
 
         return $overrides;
+    }
+
+    /**
+     * Apply customcert element-name conventions to replacement values.
+     *
+     * @param string $elementname
+     * @param string $value
+     * @return string
+     */
+    private function format_customcert_override_value(string $elementname, string $value): string {
+        $value = $this->normalise_render_text($value);
+        if ($value === '' || !$this->has_suffix($elementname, '_nl')) {
+            return $value;
+        }
+
+        return $this->split_slash_value_for_multiline($value);
+    }
+
+    /**
+     * Split slash-delimited bilingual/comment values for narrow customcert fields.
+     *
+     * @param string $value
+     * @return string
+     */
+    private function split_slash_value_for_multiline(string $value): string {
+        $parts = preg_split('/\s*\/\s*/u', $value);
+        if ($parts === false || count($parts) < 2) {
+            return $value;
+        }
+
+        $parts = array_values(array_filter(array_map('trim', $parts), static function($part): bool {
+            return $part !== '';
+        }));
+        if (count($parts) < 2) {
+            return $value;
+        }
+
+        if (count($parts) === 2) {
+            return $parts[0] . "\n" . $parts[1];
+        }
+
+        return $parts[0] . ' / ' . $parts[1] . "\n" . implode(' / ', array_slice($parts, 2));
+    }
+
+    /**
+     * Check an ASCII suffix without depending on newer string helpers.
+     *
+     * @param string $value
+     * @param string $suffix
+     * @return bool
+     */
+    private function has_suffix(string $value, string $suffix): bool {
+        return $suffix === '' || substr($value, -strlen($suffix)) === $suffix;
     }
 
     /**
