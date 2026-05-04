@@ -12,6 +12,7 @@
 // GNU General Public License for more details.
 
 require_once(__DIR__ . '/../../config.php');
+require_once(__DIR__ . '/classes/form/demo_job_form.php');
 
 use local_ncasign\form\demo_job_form;
 use local_ncasign\local\document_generator;
