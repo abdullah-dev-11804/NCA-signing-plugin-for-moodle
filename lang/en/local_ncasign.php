@@ -15,6 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 $string['pluginname'] = 'NCA Signing';
+$string['error'] = 'Error';
 $string['ncasign:managejobs'] = 'Manage NCA signing jobs';
 
 $string['settingsheader'] = 'NCA signing workflow';
@@ -161,11 +162,31 @@ $string['templateprotocoltyperepeaturu'] = 'Repeat protocol type (RU)';
 $string['templatestatuspassed'] = 'Passed status text';
 $string['templatestatusfailed'] = 'Failed status text';
 $string['templateactive'] = 'Active';
+$string['templateinactive'] = 'Inactive';
+$string['templatedemodata'] = 'Preview demo data';
+$string['templatedemodatajson'] = 'Demo replacement data (JSON)';
+$string['templatedemodatajson_desc'] = 'Optional key/value JSON used only by demo jobs when "Use template demo data" is enabled. Keys can be generated field names or custom text element names.';
+$string['templatedemodatajson_invalid'] = 'Demo replacement data must be a valid JSON object.';
 $string['templateprofilelayoutinvalid'] = 'Layout config must be valid JSON.';
 $string['courseid'] = 'Course ID';
 $string['userid'] = 'User ID (student)';
 $string['signeremails'] = 'Signer emails (comma separated)';
 $string['createjob'] = 'Create job';
+$string['demotemplateprofile'] = 'Template profile';
+$string['demotemplateprofile_firstmapped'] = 'Use first active profile mapped to this course';
+$string['demotemplateprofile_desc'] = 'Choose a specific profile to preview, or leave this as the first active profile mapped to the entered course ID.';
+$string['demotemplateprofile_invalid'] = 'Select a valid template profile.';
+$string['demotsigneremails_desc'] = 'Optional. Leave empty to use the signer sequence from the selected template profile.';
+$string['demotsigneremails_invalid'] = 'Enter valid signer email addresses separated by commas.';
+$string['democertificatepdf'] = 'Certificate PDF override';
+$string['demousedemodata'] = 'Use template demo data';
+$string['demousedemodata_desc'] = 'When enabled, the template profile demo JSON replaces generated field values so admins can preview layout without relying on exact user profile data.';
+$string['demoautosign'] = 'Auto-sign this demo job';
+$string['demoautosign_desc'] = 'When enabled, the server auto-signs the generated preview if server auto-signing is configured. Otherwise the job falls back to normal signer notifications.';
+$string['demouser_invalid'] = 'Enter a valid Moodle user ID.';
+$string['democourse_invalid'] = 'Enter a valid Moodle course ID.';
+$string['demojobcreated'] = 'Demo job created: {$a}';
+$string['demojobcreated_autosigned'] = 'Demo job created and auto-signed: {$a}';
 $string['status'] = 'Status';
 $string['deadline'] = 'Manual deadline';
 $string['manualsigned'] = 'Manual signatures';

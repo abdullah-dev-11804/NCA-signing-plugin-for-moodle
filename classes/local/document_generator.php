@@ -681,7 +681,7 @@ class document_generator {
             $status = $this->resolve_localised_text_variant($status, 'ru');
         }
 
-        return [
+        $documentdata = [
             'clientcompanyname' => $clientcompanyname,
             'protocolnumber' => $protocolnumber,
             'issuedatekz' => $issuedatekz,
@@ -702,6 +702,68 @@ class document_generator {
             'chairinitials' => $this->format_signer_initials($signers[0] ?? []),
             'member1initials' => $this->format_signer_initials($signers[1] ?? []),
             'member2initials' => $this->format_signer_initials($signers[2] ?? []),
+        ];
+
+        if (!empty($options['use_demo_data'])) {
+            $documentdata = $this->apply_demo_data_overrides($documentdata, $layoutconfig, $options);
+        }
+
+        return $documentdata;
+    }
+
+    /**
+     * Apply template-stored demo values for preview jobs only.
+     *
+     * @param array<string,string> $documentdata
+     * @param array<string,mixed> $layoutconfig
+     * @param array<string,mixed> $options
+     * @return array<string,string>
+     */
+    private function apply_demo_data_overrides(array $documentdata, array $layoutconfig, array $options): array {
+        $demodata = $this->get_default_demo_data();
+        if (array_key_exists('demo_data', $layoutconfig) && is_array($layoutconfig['demo_data'])) {
+            $demodata = $layoutconfig['demo_data'];
+        }
+        if (is_array($options['demo_data'] ?? null)) {
+            $demodata = array_replace($demodata, $options['demo_data']);
+        }
+
+        foreach ($demodata as $key => $value) {
+            $key = trim((string)$key);
+            if ($key === '' || is_array($value) || is_object($value)) {
+                continue;
+            }
+            $documentdata[$key] = (string)$value;
+        }
+
+        return $documentdata;
+    }
+
+    /**
+     * Default demo data used before a profile has custom preview values saved.
+     *
+     * @return array<string,string>
+     */
+    private function get_default_demo_data(): array {
+        return [
+            'clientcompanyname' => 'TOO "Demo Client"',
+            'protocolnumber' => 'PRO-1042-0031-20260225-0003',
+            'issuedatekz' => '2026 жылғы "25" ақпан',
+            'issuedateru' => '"25" февраля 2026 года',
+            'chairfull' => 'Aubikerov T.K. - Director TOO "SENTAL"',
+            'member1full' => 'Amirzhanova G.Zh. - Instructor TOO "SENTAL"',
+            'member2full' => 'Mukhtarov A.G. - Training coordinator TOO "SENTAL"',
+            'orderkz' => '2025 жылғы "22" қазан №-2025-03',
+            'orderru' => '"22" октября 2025 года №-2025-03',
+            'protocoltypekz' => 'қайталама',
+            'protocoltyperu' => 'повторный',
+            'userfullname' => 'Ivanov Ivan Ivanych',
+            'userjobtitle' => 'Engineer',
+            'completionstatus' => 'өтті / прошел',
+            'certificatenumber' => 'CER-1042-0031-20260225-0003',
+            'chairinitials' => 'Aubikerov T.K.',
+            'member1initials' => 'Amirzhanova G.Zh.',
+            'member2initials' => 'Mukhtarov A.G.',
         ];
     }
 
@@ -1701,6 +1763,27 @@ HTML;
             }
 
             $value = (string)$documentdata[$sourcefield];
+            $overrides[$elementname] = $this->format_customcert_override_value($elementname, $value);
+
+            if (!$this->has_suffix($elementname, '_nl')) {
+                $newlinekey = $elementname . '_nl';
+                if (!array_key_exists($newlinekey, $overrides)) {
+                    $overrides[$newlinekey] = $this->format_customcert_override_value($newlinekey, $value);
+                }
+            }
+        }
+
+        foreach ($documentdata as $elementname => $value) {
+            if (is_array($value) || is_object($value)) {
+                continue;
+            }
+
+            $elementname = \core_text::strtolower(trim((string)$elementname));
+            if ($elementname === '' || array_key_exists($elementname, $overrides)) {
+                continue;
+            }
+
+            $value = (string)$value;
             $overrides[$elementname] = $this->format_customcert_override_value($elementname, $value);
 
             if (!$this->has_suffix($elementname, '_nl')) {

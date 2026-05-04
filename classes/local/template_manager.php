@@ -109,6 +109,7 @@ class template_manager {
             'templatepath' => (string)($record->templatepath ?? ''),
             'layoutconfig' => $layoutconfig,
             'layoutconfigraw' => (string)($record->layoutconfig ?? ''),
+            'active' => !empty($record->active) ? 1 : 0,
             'courseids' => $this->get_template_course_ids((int)$record->id),
             'signers' => $this->get_template_signers((int)$record->id),
             'customcerttemplateid' => $customcerttemplateid,

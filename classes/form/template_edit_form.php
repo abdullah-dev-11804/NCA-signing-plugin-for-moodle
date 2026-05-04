@@ -95,6 +95,15 @@ class template_edit_form extends \moodleform {
         $this->add_text_element('status_passed', 'templatestatuspassed', 80);
         $this->add_text_element('status_failed', 'templatestatusfailed', 80);
 
+        $mform->addElement('header', 'demodataheader', get_string('templatedemodata', 'local_ncasign'));
+        $mform->setExpanded('demodataheader', false);
+        $mform->addElement('textarea', 'demo_data_json', get_string('templatedemodatajson', 'local_ncasign'), [
+            'rows' => 14,
+            'cols' => 100,
+        ]);
+        $mform->setType('demo_data_json', PARAM_RAW);
+        $mform->addElement('static', 'demo_data_json_desc', '', get_string('templatedemodatajson_desc', 'local_ncasign'));
+
         $this->add_action_buttons(true);
     }
 
@@ -135,6 +144,11 @@ class template_edit_form extends \moodleform {
             $errors['signersraw'] = get_string('templatesigners_invalid', 'local_ncasign');
         }
 
+        $demodatajson = trim((string)($data['demo_data_json'] ?? ''));
+        if ($demodatajson !== '' && !self::is_valid_demo_data_json($demodatajson)) {
+            $errors['demo_data_json'] = get_string('templatedemodatajson_invalid', 'local_ncasign');
+        }
+
         return $errors;
     }
 
@@ -148,6 +162,7 @@ class template_edit_form extends \moodleform {
         $profile = $profile ?? [];
         $layoutconfig = is_array($profile['layoutconfig'] ?? null) ? $profile['layoutconfig'] : [];
         $metadata = (array)($layoutconfig['metadata'] ?? []);
+        $demodata = (array)($layoutconfig['demo_data'] ?? self::get_default_demo_data());
 
         $data = (object)[
             'id' => (int)($profile['id'] ?? 0),
@@ -170,6 +185,8 @@ class template_edit_form extends \moodleform {
             'status_passed' => (string)($metadata['status_passed'] ?? 'өтті / прошел'),
             'status_failed' => (string)($metadata['status_failed'] ?? 'қайта тексеруге жатады / подлежит повторной проверке знаний'),
         ];
+
+        $data->demo_data_json = self::encode_demo_data_json($demodata);
 
         $orderdate = trim((string)($metadata['orderdate'] ?? ''));
         $data->orderdate = $orderdate !== '' ? strtotime($orderdate) : 0;
@@ -206,8 +223,88 @@ class template_edit_form extends \moodleform {
             'status_passed' => trim((string)$data->status_passed),
             'status_failed' => trim((string)$data->status_failed),
         ];
+        $layoutconfig['demo_data'] = self::parse_demo_data_json((string)($data->demo_data_json ?? ''));
 
         return $layoutconfig;
+    }
+
+    /**
+     * Decode demo data JSON into scalar replacement values.
+     *
+     * @param string $json
+     * @return array<string,string>
+     */
+    public static function parse_demo_data_json(string $json): array {
+        $json = trim($json);
+        if ($json === '') {
+            return [];
+        }
+
+        $decoded = json_decode($json);
+        if (!$decoded instanceof \stdClass) {
+            return [];
+        }
+
+        $values = [];
+        foreach (get_object_vars($decoded) as $key => $value) {
+            $key = trim((string)$key);
+            if ($key === '' || is_array($value) || is_object($value)) {
+                continue;
+            }
+            $values[$key] = (string)$value;
+        }
+
+        return $values;
+    }
+
+    /**
+     * Check whether demo JSON is an object.
+     *
+     * @param string $json
+     * @return bool
+     */
+    private static function is_valid_demo_data_json(string $json): bool {
+        $decoded = json_decode($json);
+        return $decoded instanceof \stdClass;
+    }
+
+    /**
+     * Encode demo values for textarea display.
+     *
+     * @param array<string,mixed> $demodata
+     * @return string
+     */
+    private static function encode_demo_data_json(array $demodata): string {
+        $encoded = json_encode($demodata, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return is_string($encoded) ? $encoded : '{}';
+    }
+
+    /**
+     * Default replacement values for template preview/demo jobs.
+     *
+     * @return array<string,string>
+     */
+    private static function get_default_demo_data(): array {
+        return [
+            'clientcompanyname' => 'TOO "Demo Client"',
+            'protocolnumber' => 'PRO-1042-0031-20260225-0003',
+            'issuedatekz' => '2026 жылғы "25" ақпан',
+            'issuedateru' => '"25" февраля 2026 года',
+            'chairfull' => 'Aubikerov T.K. - Director TOO "SENTAL"',
+            'member1full' => 'Amirzhanova G.Zh. - Instructor TOO "SENTAL"',
+            'member2full' => 'Mukhtarov A.G. - Training coordinator TOO "SENTAL"',
+            'orderkz' => '2025 жылғы "22" қазан №-2025-03',
+            'orderru' => '"22" октября 2025 года №-2025-03',
+            'protocoltypekz' => 'қайталама',
+            'protocoltyperu' => 'повторный',
+            'userfullname' => 'Ivanov Ivan Ivanych',
+            'userjobtitle' => 'Engineer',
+            'completionstatus' => 'өтті / прошел',
+            'certificatenumber' => 'CER-1042-0031-20260225-0003',
+            'chairinitials' => 'Aubikerov T.K.',
+            'member1initials' => 'Amirzhanova G.Zh.',
+            'member2initials' => 'Mukhtarov A.G.',
+        ];
     }
 
     /**
