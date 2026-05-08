@@ -180,7 +180,6 @@ $string['democustomcerttemplate_desc'] = 'Select the customcert template to rend
 $string['democustomcerttemplate_invalid'] = 'Select a valid customcert template.';
 $string['demotsigneremails_desc'] = 'Optional. Leave empty to use the signer sequence from the selected template profile.';
 $string['demotsigneremails_invalid'] = 'Enter valid signer email addresses separated by commas.';
-$string['democertificatepdf'] = 'Certificate PDF override';
 $string['demousedemodata'] = 'Use template demo data';
 $string['demousedemodata_desc'] = 'When enabled, the template profile demo JSON replaces generated field values so admins can preview layout without relying on exact user profile data.';
 $string['demoautosign'] = 'Auto-sign this demo job';

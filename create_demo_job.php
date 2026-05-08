@@ -73,19 +73,7 @@ if ($data = $mform->get_data()) {
     $certurl = $manager->build_certificate_url($courseid, $userid);
 
     $attachment = null;
-    $uploadcontent = $mform->get_file_content('certificatepdf');
-    if (is_string($uploadcontent) && $uploadcontent !== '') {
-        $uploadname = $mform->get_new_filename('certificatepdf');
-        $attachment = [
-            'filename' => $uploadname ?: ('certificate_' . $userid . '_' . $courseid . '.pdf'),
-            'content' => $uploadcontent,
-            'source' => 'manual_upload',
-            'manifest' => null,
-            'documenttype' => 'certificate',
-            'documenttitle' => trim((string)($data->documenttitle ?? '')),
-            'profileid' => $selectedprofile ? (int)$selectedprofile['id'] : null,
-        ];
-    } else if ($generationprofile) {
+    if ($generationprofile) {
         try {
             $generator = new document_generator();
             $draft = $generator->generate_draft_from_profile(
@@ -116,7 +104,7 @@ if ($data = $mform->get_data()) {
     }
 
     if (!$attachment) {
-        throw new moodle_exception('error', 'local_ncasign', $url, null, 'No PDF was uploaded and no customcert template could be resolved.');
+        throw new moodle_exception('error', 'local_ncasign', $url, null, 'No customcert template could be resolved.');
     }
 
     $jobid = $manager->create_job(

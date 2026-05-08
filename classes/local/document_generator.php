@@ -234,10 +234,17 @@ class document_generator {
         );
 
         $overrides = $this->build_customcert_text_overrides($documentdata, $layoutconfig);
+        $qroverrides = $this->build_customcert_signer_qr_overrides((string)($options['verifyurl'] ?? ''));
+        $runtimeoverrides = array_replace($qroverrides, $overrides);
+        $signerqrslots = $this->get_customcert_signer_qr_slots(
+            $templateid,
+            (string)($options['verifyurl'] ?? ''),
+            is_array($options['signers'] ?? null) ? $options['signers'] : []
+        );
         $template = $this->load_customcert_template_instance($templateid);
         $content = '';
 
-        customcert_runtime_overrides::push($overrides);
+        customcert_runtime_overrides::push($runtimeoverrides);
         try {
             if (class_exists('\mod_customcert\service\pdf_generation_service')) {
                 $pdfservice = \mod_customcert\service\pdf_generation_service::create();
@@ -254,27 +261,39 @@ class document_generator {
         }
 
         $overlaywarning = null;
-        try {
-            $overlay = $this->overlay_signature_qr_slots_on_pdf(
-                $content,
-                (string)($options['verifyurl'] ?? ''),
-                is_array($options['signers'] ?? null) ? $options['signers'] : [],
-                self::DOC_CUSTOMCERT_TEMPLATE
-            );
-        } catch (\Throwable $e) {
-            if (strpos($e->getMessage(), 'FPDI for TCPDF is not installed on this Moodle server.') === false) {
-                throw $e;
-            }
-            $overlaywarning = $e->getMessage();
+        if ($signerqrslots) {
             $overlay = [
                 'content' => $content,
                 'finalizationmanifest' => [
-                    'source' => 'customcert_runtime_template',
-                    'customcert_templateid' => $templateid,
-                    'qr_overlay' => 'skipped',
-                    'qr_overlay_reason' => 'fpdi_missing',
+                    'version' => 1,
+                    'reservationmode' => 'customcert_signer_qr_elements',
+                    'profile_renderer' => self::DOC_CUSTOMCERT_TEMPLATE,
+                    'signature_slots' => $signerqrslots,
                 ],
             ];
+        } else {
+            try {
+                $overlay = $this->overlay_signature_qr_slots_on_pdf(
+                    $content,
+                    (string)($options['verifyurl'] ?? ''),
+                    is_array($options['signers'] ?? null) ? $options['signers'] : [],
+                    self::DOC_CUSTOMCERT_TEMPLATE
+                );
+            } catch (\Throwable $e) {
+                if (strpos($e->getMessage(), 'FPDI for TCPDF is not installed on this Moodle server.') === false) {
+                    throw $e;
+                }
+                $overlaywarning = $e->getMessage();
+                $overlay = [
+                    'content' => $content,
+                    'finalizationmanifest' => [
+                        'source' => 'customcert_runtime_template',
+                        'customcert_templateid' => $templateid,
+                        'qr_overlay' => 'skipped',
+                        'qr_overlay_reason' => 'fpdi_missing',
+                    ],
+                ];
+            }
         }
 
         $templatename = (string)$DB->get_field('customcert_templates', 'name', ['id' => $templateid], IGNORE_MISSING);
@@ -290,6 +309,7 @@ class document_generator {
             'previewdata' => [
                 'templateid' => $templateid,
                 'overrides' => $overrides,
+                'qroverrides' => $qroverrides,
                 'overlaywarning' => $overlaywarning,
             ] + $documentdata,
             'finalizationmanifest' => array_replace_recursive(
@@ -298,6 +318,7 @@ class document_generator {
                     'source' => 'customcert_runtime_template',
                     'customcert_templateid' => $templateid,
                     'customcert_text_overrides' => array_keys($overrides),
+                    'customcert_qr_overrides' => array_keys($qroverrides),
                 ]
             ),
         ];
@@ -1702,6 +1723,93 @@ HTML;
         } catch (\Throwable $e) {
             throw new \RuntimeException('Failed to load customcert template ' . $templateid . ': ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Build runtime QR overrides for named customcert QR elements.
+     *
+     * @param string $verifyurl
+     * @return array<string,string>
+     */
+    private function build_customcert_signer_qr_overrides(string $verifyurl): array {
+        $verifyurl = trim($verifyurl);
+        if ($verifyurl === '') {
+            return [];
+        }
+
+        $overrides = [];
+        for ($i = 1; $i <= 3; $i++) {
+            $overrides['qr_signer_' . $i] = $verifyurl . '&signer=' . $i;
+        }
+
+        return $overrides;
+    }
+
+    /**
+     * Return customcert QR element slots for signer QR elements in the template.
+     *
+     * @param int $templateid
+     * @param string $verifyurl
+     * @param array<int,array<string,mixed>> $signers
+     * @return array<int,array<string,mixed>>
+     */
+    private function get_customcert_signer_qr_slots(int $templateid, string $verifyurl, array $signers): array {
+        global $DB;
+
+        if ($templateid <= 0 || trim($verifyurl) === '') {
+            return [];
+        }
+
+        $manager = $DB->get_manager();
+        if (!$manager->table_exists(new \xmldb_table('customcert_pages'))
+            || !$manager->table_exists(new \xmldb_table('customcert_elements'))) {
+            return [];
+        }
+
+        $params = [
+            'templateid' => $templateid,
+            'element' => 'qrcode',
+            'qr1' => 'qr_signer_1',
+            'qr2' => 'qr_signer_2',
+            'qr3' => 'qr_signer_3',
+        ];
+        $sql = "SELECT e.id, e.name, e.posx, e.posy, e.data, p.sequence AS pagesequence
+                  FROM {customcert_elements} e
+                  JOIN {customcert_pages} p ON p.id = e.pageid
+                 WHERE p.templateid = :templateid
+                   AND e.element = :element
+                   AND LOWER(e.name) IN (:qr1, :qr2, :qr3)
+              ORDER BY p.sequence ASC, e.sequence ASC, e.id ASC";
+        $records = $DB->get_records_sql($sql, $params);
+
+        $slots = [];
+        foreach ($records as $record) {
+            $name = \core_text::strtolower(trim((string)$record->name));
+            if (!preg_match('/^qr_signer_([123])$/', $name, $matches)) {
+                continue;
+            }
+
+            $signerorder = (int)$matches[1];
+            $data = json_decode((string)($record->data ?? ''), true);
+            $width = is_array($data) && !empty($data['width']) ? (float)$data['width'] : 26.0;
+            $height = is_array($data) && !empty($data['height']) ? (float)$data['height'] : $width;
+            $signer = $signers[$signerorder - 1] ?? [];
+
+            $slots[] = [
+                'name' => $name,
+                'page' => ((int)($record->pagesequence ?? 0)) + 1,
+                'x' => round((float)($record->posx ?? 0), 2),
+                'y' => round((float)($record->posy ?? 0), 2),
+                'w' => round($width, 2),
+                'h' => round($height, 2),
+                'type' => 'customcert_signer_qr',
+                'label' => trim((string)($signer['name'] ?? ('Signer ' . $signerorder))),
+                'payload' => $verifyurl . '&signer=' . $signerorder,
+                'reserved_bytes' => null,
+            ];
+        }
+
+        return $slots;
     }
 
     /**

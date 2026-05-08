@@ -67,11 +67,6 @@ class demo_job_form extends \moodleform {
         $mform->setType('signeremails', PARAM_RAW_TRIMMED);
         $mform->addElement('static', 'signeremails_desc', '', get_string('demotsigneremails_desc', 'local_ncasign'));
 
-        $mform->addElement('filepicker', 'certificatepdf', get_string('democertificatepdf', 'local_ncasign'), null, [
-            'accepted_types' => ['.pdf', 'application/pdf'],
-            'maxbytes' => 0,
-        ]);
-
         $mform->addElement('advcheckbox', 'usedemodata', get_string('demousedemodata', 'local_ncasign'));
         $mform->setType('usedemodata', PARAM_BOOL);
         $mform->setDefault('usedemodata', 1);

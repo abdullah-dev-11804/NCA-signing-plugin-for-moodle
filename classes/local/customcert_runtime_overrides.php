@@ -16,10 +16,10 @@ namespace local_ncasign\local;
 defined('MOODLE_INTERNAL') || die();
 
 /**
- * Request-scoped runtime overrides for customcert text elements.
+ * Request-scoped runtime overrides for customcert elements.
  *
- * This allows ncasign to render a customcert template with per-document text
- * values without mutating the saved customcert template definition.
+ * This allows ncasign to render a customcert template with per-document values
+ * without mutating the saved customcert template definition.
  */
 class customcert_runtime_overrides {
     /** @var array<int, array<string, string>> */
