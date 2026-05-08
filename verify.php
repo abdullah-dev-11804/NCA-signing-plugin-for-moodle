@@ -30,9 +30,12 @@ $manager = new \local_ncasign\local\job_manager();
 $expectedchecksum = $manager->get_verification_checksum($documentuuid);
 
 echo $OUTPUT->header();
+echo local_ncasign_verify_styles();
+echo html_writer::start_div('local-ncasign-verify');
 
 if (!hash_equals($expectedchecksum, $checksum)) {
     echo $OUTPUT->notification(get_string('verifyinvalidlink', 'local_ncasign'), 'notifyproblem');
+    echo html_writer::end_div();
     echo $OUTPUT->footer();
     exit;
 }
@@ -40,6 +43,7 @@ if (!hash_equals($expectedchecksum, $checksum)) {
 $job = $manager->get_job_by_documentuuid($documentuuid);
 if (!$job) {
     echo $OUTPUT->notification(get_string('verifynotfound', 'local_ncasign'), 'notifyproblem');
+    echo html_writer::end_div();
     echo $OUTPUT->footer();
     exit;
 }
@@ -47,6 +51,7 @@ if (!$job) {
 $job = $manager->ensure_job_verification_metadata((int)$job->id);
 if (!$job) {
     echo $OUTPUT->notification(get_string('verifynotfound', 'local_ncasign'), 'notifyproblem');
+    echo html_writer::end_div();
     echo $OUTPUT->footer();
     exit;
 }
@@ -88,17 +93,13 @@ if ($storedhash !== '' && $currenthash !== '') {
     $integrityclass = 'warning';
 }
 
-$stylemap = [
-    'success' => 'background:#e8f5e9;border:1px solid #2e7d32;color:#1b5e20;padding:16px;border-radius:6px;margin:16px 0;',
-    'error' => 'background:#fdecea;border:1px solid #c62828;color:#b71c1c;padding:16px;border-radius:6px;margin:16px 0;',
-    'warning' => 'background:#fff4e5;border:1px solid #ef6c00;color:#8d4b00;padding:16px;border-radius:6px;margin:16px 0;',
-];
-
-echo html_writer::tag('h2', get_string('verifytitle', 'local_ncasign'));
+echo html_writer::start_div('ncasign-verify-hero');
+echo html_writer::tag('div', get_string('verifytitle', 'local_ncasign'), ['class' => 'ncasign-verify-title']);
+echo html_writer::tag('div', s((string)$job->documentuuid), ['class' => 'ncasign-verify-id']);
+echo html_writer::end_div();
 echo html_writer::div(
     html_writer::tag('strong', s($integritylabel)),
-    '',
-    ['style' => $stylemap[$integrityclass]]
+    'ncasign-status ncasign-status-' . $integrityclass
 );
 
 $documentrows = [
@@ -110,28 +111,21 @@ $documentrows = [
     get_string('verifyorganisation', 'local_ncasign') => format_string($SITE->fullname, true, ['context' => $context]),
 ];
 echo html_writer::tag('h3', get_string('verifydocumentinfo', 'local_ncasign'));
-echo html_writer::table(local_ncasign_build_verify_table($documentrows));
+echo local_ncasign_render_verify_table($documentrows);
 
 $userrows = [
     get_string('verifyfullname', 'local_ncasign') => $student ? s(local_ncasign_safe_fullname($student)) : '-',
     get_string('verifycompletiondate', 'local_ncasign') => $completiondate ? userdate($completiondate) : '-',
 ];
 echo html_writer::tag('h3', get_string('verifyuserinfo', 'local_ncasign'));
-echo html_writer::table(local_ncasign_build_verify_table($userrows));
+echo local_ncasign_render_verify_table($userrows);
 
 $signers = $DB->get_records('local_ncasign_signers', ['jobid' => (int)$job->id], 'signorder ASC, id ASC');
 echo html_writer::tag('h3', get_string('verifysignatures', 'local_ncasign'));
 if (!$signers) {
     echo html_writer::div(get_string('verifynosigners', 'local_ncasign'));
 } else {
-    $table = new html_table();
-    $table->head = [
-        '#',
-        get_string('verifyfullname', 'local_ncasign'),
-        get_string('verifyposition', 'local_ncasign'),
-        get_string('verificationstatuslabel', 'local_ncasign'),
-        get_string('verifysignedat', 'local_ncasign'),
-    ];
+    $signercards = '';
 
     foreach ($signers as $index => $signer) {
         $signername = trim((string)($signer->signername ?? $signer->signeremail));
@@ -144,16 +138,16 @@ if (!$signers) {
             }
         }
 
-        $table->data[] = [
-            (int)($signer->signorder ?: ($index + 1)),
-            s($signername),
-            s($position),
-            s(local_ncasign_format_public_signer_status((string)$signer->status)),
-            !empty($signer->signedat) ? userdate((int)$signer->signedat) : '-',
-        ];
+        $signercards .= local_ncasign_render_signer_card([
+            '#' => (string)(int)($signer->signorder ?: ($index + 1)),
+            get_string('verifyfullname', 'local_ncasign') => s($signername),
+            get_string('verifyposition', 'local_ncasign') => s($position),
+            get_string('verificationstatuslabel', 'local_ncasign') => s(local_ncasign_format_public_signer_status((string)$signer->status)),
+            get_string('verifysignedat', 'local_ncasign') => !empty($signer->signedat) ? userdate((int)$signer->signedat) : '-',
+        ]);
     }
 
-    echo html_writer::table($table);
+    echo html_writer::div($signercards, 'ncasign-signer-grid');
 
     echo html_writer::tag('h3', get_string('verifycryptodetails', 'local_ncasign'));
     foreach ($signers as $index => $signer) {
@@ -196,9 +190,9 @@ if (!$signers) {
         echo html_writer::tag(
             'h4',
             s(((int)($signer->signorder ?: ($index + 1))) . '. ' . $signername),
-            ['style' => 'margin-top:20px;']
+            ['class' => 'ncasign-subheading']
         );
-        echo html_writer::table(local_ncasign_build_verify_table($rows));
+        echo local_ncasign_render_verify_table($rows);
     }
 }
 
@@ -208,9 +202,188 @@ $integrityrows = [
     get_string('verifycurrenthash', 'local_ncasign') => $currenthash !== '' ? s($currenthash) : '-',
 ];
 echo html_writer::tag('h3', get_string('verifyintegrity', 'local_ncasign'));
-echo html_writer::table(local_ncasign_build_verify_table($integrityrows));
+echo local_ncasign_render_verify_table($integrityrows);
 
+echo html_writer::end_div();
 echo $OUTPUT->footer();
+
+/**
+ * Render responsive verification page CSS.
+ *
+ * @return string
+ */
+function local_ncasign_verify_styles(): string {
+    return html_writer::tag('style', '
+.local-ncasign-verify {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 0 12px 28px;
+}
+.local-ncasign-verify * {
+    box-sizing: border-box;
+}
+.ncasign-verify-hero {
+    padding: 18px 0 8px;
+}
+.ncasign-verify-title {
+    font-size: 1.65rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+.ncasign-verify-id {
+    margin-top: 8px;
+    color: #5f6368;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-wrap: anywhere;
+}
+.ncasign-status {
+    padding: 14px 16px;
+    border-radius: 8px;
+    margin: 14px 0 18px;
+    font-size: 1rem;
+}
+.ncasign-status-success {
+    background: #e8f5e9;
+    border: 1px solid #2e7d32;
+    color: #1b5e20;
+}
+.ncasign-status-error {
+    background: #fdecea;
+    border: 1px solid #c62828;
+    color: #b71c1c;
+}
+.ncasign-status-warning {
+    background: #fff4e5;
+    border: 1px solid #ef6c00;
+    color: #8d4b00;
+}
+.local-ncasign-verify h3 {
+    margin: 24px 0 10px;
+    font-size: 1.18rem;
+}
+.ncasign-subheading {
+    margin: 18px 0 8px;
+    font-size: 1rem;
+}
+.ncasign-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid #d9dee3;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    background: #fff;
+}
+.local-ncasign-verify .ncasign-verify-table {
+    width: 100%;
+    margin: 0;
+    table-layout: fixed;
+}
+.local-ncasign-verify .ncasign-verify-table td {
+    padding: 10px 12px;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.local-ncasign-verify .ncasign-verify-table td:first-child {
+    width: 34%;
+    color: #4b5563;
+}
+.ncasign-signer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+}
+.ncasign-signer-card {
+    border: 1px solid #d9dee3;
+    border-radius: 8px;
+    padding: 12px;
+    background: #fff;
+}
+.ncasign-signer-row {
+    display: grid;
+    grid-template-columns: 42% 58%;
+    gap: 8px;
+    padding: 5px 0;
+    overflow-wrap: anywhere;
+}
+.ncasign-signer-label {
+    color: #4b5563;
+    font-weight: 600;
+}
+@media (max-width: 640px) {
+    .local-ncasign-verify {
+        padding: 0 4px 22px;
+    }
+    .ncasign-verify-title {
+        font-size: 1.25rem;
+    }
+    .ncasign-status {
+        padding: 12px;
+        margin: 12px 0 16px;
+    }
+    .local-ncasign-verify h3 {
+        font-size: 1.05rem;
+        margin-top: 20px;
+    }
+    .local-ncasign-verify .ncasign-verify-table,
+    .local-ncasign-verify .ncasign-verify-table tbody,
+    .local-ncasign-verify .ncasign-verify-table tr,
+    .local-ncasign-verify .ncasign-verify-table td {
+        display: block;
+        width: 100%;
+    }
+    .local-ncasign-verify .ncasign-verify-table tr {
+        border-bottom: 1px solid #edf0f2;
+        padding: 8px 0;
+    }
+    .local-ncasign-verify .ncasign-verify-table tr:last-child {
+        border-bottom: 0;
+    }
+    .local-ncasign-verify .ncasign-verify-table td {
+        border: 0;
+        padding: 4px 10px;
+    }
+    .local-ncasign-verify .ncasign-verify-table td:first-child {
+        width: 100%;
+    }
+    .ncasign-signer-grid {
+        grid-template-columns: 1fr;
+    }
+    .ncasign-signer-row {
+        grid-template-columns: 1fr;
+        gap: 2px;
+    }
+}', ['type' => 'text/css']);
+}
+
+/**
+ * Render a responsive verification details table.
+ *
+ * @param array $rows
+ * @return string
+ */
+function local_ncasign_render_verify_table(array $rows): string {
+    return html_writer::div(html_writer::table(local_ncasign_build_verify_table($rows)), 'ncasign-table-wrap');
+}
+
+/**
+ * Render a signer summary card.
+ *
+ * @param array $rows
+ * @return string
+ */
+function local_ncasign_render_signer_card(array $rows): string {
+    $content = '';
+    foreach ($rows as $label => $value) {
+        $content .= html_writer::div(
+            html_writer::div(s((string)$label), 'ncasign-signer-label') .
+            html_writer::div($value, 'ncasign-signer-value'),
+            'ncasign-signer-row'
+        );
+    }
+
+    return html_writer::div($content, 'ncasign-signer-card');
+}
 
 /**
  * Render a simple two-column verification details table.
