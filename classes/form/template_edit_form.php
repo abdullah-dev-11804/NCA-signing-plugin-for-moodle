@@ -92,6 +92,9 @@ class template_edit_form extends \moodleform {
         $this->add_text_element('protocoltype_initial_ru', 'templateprotocoltypeinitialru', 40);
         $this->add_text_element('protocoltype_repeat_kz', 'templateprotocoltyperepeatkz', 40);
         $this->add_text_element('protocoltype_repeat_ru', 'templateprotocoltyperepeaturu', 40);
+        $this->add_text_element('protocoltype_extraordinary_kz', 'templateprotocoltypeextraordinarykz', 40);
+        $this->add_text_element('protocoltype_extraordinary_ru', 'templateprotocoltypeextraordinaryru', 40);
+        $this->add_text_element('validityperioddays', 'templatevalidityperioddays', 20);
         $this->add_text_element('status_passed', 'templatestatuspassed', 80);
         $this->add_text_element('status_failed', 'templatestatusfailed', 80);
 
@@ -185,6 +188,9 @@ class template_edit_form extends \moodleform {
             'status_passed' => (string)($metadata['status_passed'] ?? 'өтті / прошел'),
             'status_failed' => (string)($metadata['status_failed'] ?? 'қайта тексеруге жатады / подлежит повторной проверке знаний'),
         ];
+        $data->protocoltype_extraordinary_kz = (string)($metadata['protocoltype_extraordinary_kz'] ?? 'кезектен тыс');
+        $data->protocoltype_extraordinary_ru = (string)($metadata['protocoltype_extraordinary_ru'] ?? 'внеочередной');
+        $data->validityperioddays = (string)($metadata['validityperioddays'] ?? '');
 
         $data->demo_data_json = self::encode_demo_data_json($demodata);
 
@@ -220,6 +226,9 @@ class template_edit_form extends \moodleform {
             'protocoltype_initial_ru' => trim((string)$data->protocoltype_initial_ru),
             'protocoltype_repeat_kz' => trim((string)$data->protocoltype_repeat_kz),
             'protocoltype_repeat_ru' => trim((string)$data->protocoltype_repeat_ru),
+            'protocoltype_extraordinary_kz' => trim((string)$data->protocoltype_extraordinary_kz),
+            'protocoltype_extraordinary_ru' => trim((string)$data->protocoltype_extraordinary_ru),
+            'validityperioddays' => preg_replace('/\D+/', '', (string)($data->validityperioddays ?? '')),
             'status_passed' => trim((string)$data->status_passed),
             'status_failed' => trim((string)$data->status_failed),
         ];

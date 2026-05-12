@@ -692,11 +692,16 @@ class document_generator {
         $status = $this->resolve_completion_status_text($completiondate, $metadata);
         $orderref = $this->build_order_reference_pair($metadata, $outputlanguage);
         $signers = is_array($options['signers'] ?? null) ? $options['signers'] : [];
+        $validitydays = $this->resolve_course_validity_period_days($courseid, $metadata);
+        $expirytimestamp = $this->calculate_expiry_timestamp($completiondate, $validitydays);
 
         $issuedatekz = !empty($options['issuedatekz']) ? (string)$options['issuedatekz'] : $this->format_date_kz($completiondate);
         $issuedateru = !empty($options['issuedateru']) ? (string)$options['issuedateru'] : $this->format_date_ru($completiondate);
+        $expirydateru = $expirytimestamp > 0 ? $this->format_date_ru($expirytimestamp) : '';
+        $expirydatekz = $expirytimestamp > 0 ? $this->format_date_kz($expirytimestamp) : '';
         if ($outputlanguage === 'ru') {
             $issuedatekz = $issuedateru;
+            $expirydatekz = $expirydateru;
             $protocoltype['kz'] = (string)($protocoltype['ru'] ?? '');
             $protocoltype['ru'] = (string)($protocoltype['ru'] ?? '');
             $status = $this->resolve_localised_text_variant($status, 'ru');
@@ -707,6 +712,10 @@ class document_generator {
             'protocolnumber' => $protocolnumber,
             'issuedatekz' => $issuedatekz,
             'issuedateru' => $issuedateru,
+            'expirydatekz' => $expirydatekz,
+            'expirydateru' => $expirydateru,
+            'expirydateiso' => $expirytimestamp > 0 ? $this->get_protocol_datetime($expirytimestamp)->format('Y-m-d') : '',
+            'validityperioddays' => $validitydays > 0 ? (string)$validitydays : '',
             'chairfull' => !empty($options['chairfull'])
                 ? (string)$options['chairfull']
                 : $this->format_commission_full_line($signers[0] ?? [], $sentalcompanyname),
