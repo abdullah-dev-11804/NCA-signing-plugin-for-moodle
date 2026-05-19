@@ -29,7 +29,6 @@ class demo_job_form extends \moodleform {
     public function definition(): void {
         $mform = $this->_form;
         $profileoptions = (array)($this->_customdata['profileoptions'] ?? []);
-        $templateoptions = (array)($this->_customdata['customcerttemplates'] ?? []);
 
         $mform->addElement('header', 'demoheader', get_string('createdemojob', 'local_ncasign'));
 
@@ -49,16 +48,6 @@ class demo_job_form extends \moodleform {
         );
         $mform->setType('templateprofileid', PARAM_INT);
         $mform->addElement('static', 'templateprofileid_desc', '', get_string('demotemplateprofile_desc', 'local_ncasign'));
-
-        $mform->addElement(
-            'select',
-            'customcerttemplateid',
-            get_string('templatecustomcerttemplate', 'local_ncasign'),
-            [0 => get_string('templatecustomcerttemplate_none', 'local_ncasign')] + $templateoptions
-        );
-        $mform->setType('customcerttemplateid', PARAM_INT);
-        $mform->addRule('customcerttemplateid', get_string('required'), 'required', null, 'client');
-        $mform->addElement('static', 'customcerttemplateid_desc', '', get_string('democustomcerttemplate_desc', 'local_ncasign'));
 
         $mform->addElement('text', 'documenttitle', get_string('documenttitle', 'local_ncasign'), ['size' => 80]);
         $mform->setType('documenttitle', PARAM_TEXT);
@@ -105,13 +94,6 @@ class demo_job_form extends \moodleform {
         $templateprofileid = (int)($data['templateprofileid'] ?? 0);
         if ($templateprofileid > 0 && !$DB->record_exists('local_ncasign_templates', ['id' => $templateprofileid])) {
             $errors['templateprofileid'] = get_string('demotemplateprofile_invalid', 'local_ncasign');
-        }
-
-        $customcerttemplateid = (int)($data['customcerttemplateid'] ?? 0);
-        if ($customcerttemplateid <= 0
-            || !$DB->get_manager()->table_exists('customcert_templates')
-            || !$DB->record_exists('customcert_templates', ['id' => $customcerttemplateid])) {
-            $errors['customcerttemplateid'] = get_string('democustomcerttemplate_invalid', 'local_ncasign');
         }
 
         foreach (self::parse_signer_emails((string)($data['signeremails'] ?? '')) as $email => $valid) {

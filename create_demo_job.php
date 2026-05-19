@@ -33,7 +33,6 @@ $PAGE->set_heading(get_string('createdemojob', 'local_ncasign'));
 
 $templatemanager = new template_manager();
 $profiles = $templatemanager->get_all_profiles();
-$customcerttemplates = $templatemanager->get_available_customcert_templates();
 $profileoptions = [];
 foreach ($profiles as $profile) {
     $courseids = !empty($profile['courseids']) && is_array($profile['courseids'])
@@ -48,7 +47,6 @@ foreach ($profiles as $profile) {
 
 $mform = new demo_job_form($url, [
     'profileoptions' => $profileoptions,
-    'customcerttemplates' => $customcerttemplates,
 ]);
 $mform->set_data((object)[
     'userid' => optional_param('userid', 0, PARAM_INT),
@@ -64,9 +62,8 @@ if ($data = $mform->get_data()) {
     $manager = new job_manager();
     $userid = (int)$data->userid;
     $courseid = (int)$data->courseid;
-    $customcerttemplateid = (int)$data->customcerttemplateid;
     $selectedprofile = resolve_demo_profile($templatemanager, (int)$data->templateprofileid, $courseid);
-    $generationprofile = build_demo_generation_profile($selectedprofile, $customcerttemplateid, (string)($data->documenttitle ?? ''));
+    $generationprofile = build_demo_generation_profile($selectedprofile, (string)($data->documenttitle ?? ''));
     $signers = resolve_demo_signers((string)($data->signeremails ?? ''), $selectedprofile);
     $documentuuid = $manager->create_document_uuid();
     $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
@@ -181,32 +178,19 @@ function resolve_demo_profile(template_manager $templatemanager, int $templatepr
  * Build the profile used for this demo generation.
  *
  * @param array<string,mixed>|null $profile
- * @param int $customcerttemplateid
  * @param string $documenttitle
- * @return array<string,mixed>
+ * @return array<string,mixed>|null
  */
-function build_demo_generation_profile(?array $profile, int $customcerttemplateid, string $documenttitle): array {
-    $profile = $profile ?? [
-        'name' => 'Customcert demo preview',
-        'renderer' => document_generator::DOC_CUSTOMCERT_TEMPLATE,
-        'documenttype' => 'certificate',
-        'documenttitle' => '',
-        'templatepath' => '',
-        'layoutconfig' => [],
-        'signers' => [],
-    ];
+function build_demo_generation_profile(?array $profile, string $documenttitle): ?array {
+    if (!$profile) {
+        return null;
+    }
 
     $profile['renderer'] = document_generator::DOC_CUSTOMCERT_TEMPLATE;
     $profile['documenttype'] = 'certificate';
     if (trim($documenttitle) !== '') {
         $profile['documenttitle'] = trim($documenttitle);
     }
-
-    $layoutconfig = is_array($profile['layoutconfig'] ?? null) ? $profile['layoutconfig'] : [];
-    $layoutconfig['customcert']['templateid'] = $customcerttemplateid;
-    $profile['layoutconfig'] = $layoutconfig;
-    $profile['templatepath'] = 'customcert:' . $customcerttemplateid;
-    $profile['customcerttemplateid'] = $customcerttemplateid;
 
     return $profile;
 }

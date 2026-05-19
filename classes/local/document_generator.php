@@ -688,12 +688,18 @@ class document_generator {
             'dolzhnost',
             'lauazym',
         ], $outputlanguage === 'ru' ? 'Сотрудник' : 'Қызметкер / Сотрудник'));
-        $protocoltype = $this->resolve_protocol_type_pair($userid, $courseid, $completiondate, $metadata);
         $status = $this->resolve_completion_status_text($completiondate, $metadata);
         $orderref = $this->build_order_reference_pair($metadata, $outputlanguage);
         $signers = is_array($options['signers'] ?? null) ? $options['signers'] : [];
         $validitydays = $this->resolve_course_validity_period_days($courseid, $metadata);
         $expirytimestamp = $this->calculate_expiry_timestamp($completiondate, $validitydays);
+        $protocoltype = $this->resolve_validity_aware_protocol_type_pair(
+            $userid,
+            $courseid,
+            $completiondate,
+            $metadata,
+            $validitydays
+        );
 
         $issuedatekz = !empty($options['issuedatekz']) ? (string)$options['issuedatekz'] : $this->format_date_kz($completiondate);
         $issuedateru = !empty($options['issuedateru']) ? (string)$options['issuedateru'] : $this->format_date_ru($completiondate);
@@ -1365,6 +1371,172 @@ HTML;
             'kz' => trim($this->format_date_kz($timestamp) . ($ordernumber !== '' ? ' ' . $ordernumber : '')),
             'ru' => $ru,
         ];
+    }
+
+    /**
+     * Resolve the protocol type using previous document expiry when course validity is configured.
+     *
+     * @param int $userid
+     * @param int $courseid
+     * @param int $completiondate
+     * @param array<string, mixed> $metadata
+     * @param int $validitydays
+     * @return array{kz:string,ru:string}
+     */
+    private function resolve_validity_aware_protocol_type_pair(
+        int $userid,
+        int $courseid,
+        int $completiondate,
+        array $metadata,
+        int $validitydays
+    ): array {
+        $previousissue = $this->resolve_previous_document_issue_timestamp($userid, $courseid, $completiondate);
+        if ($previousissue <= 0) {
+            return [
+                'kz' => trim((string)($metadata['protocoltype_initial_kz'] ?? 'бастапқы')),
+                'ru' => trim((string)($metadata['protocoltype_initial_ru'] ?? 'первичный')),
+            ];
+        }
+
+        if ($validitydays > 0) {
+            $previousexpiry = $this->calculate_expiry_timestamp($previousissue, $validitydays);
+            $repeatwindowstarts = $previousexpiry > 0 ? $previousexpiry - (30 * DAYSECS) : 0;
+            if ($previousexpiry > 0 && $completiondate > 0 && $completiondate < $repeatwindowstarts) {
+                return [
+                    'kz' => trim((string)($metadata['protocoltype_extraordinary_kz'] ?? 'кезектен тыс')),
+                    'ru' => trim((string)($metadata['protocoltype_extraordinary_ru'] ?? 'внеочередной')),
+                ];
+            }
+        }
+
+        return [
+            'kz' => trim((string)($metadata['protocoltype_repeat_kz'] ?? 'қайталама')),
+            'ru' => trim((string)($metadata['protocoltype_repeat_ru'] ?? 'повторный')),
+        ];
+    }
+
+    /**
+     * Resolve validity period days from the course custom field, falling back to template metadata.
+     *
+     * @param int $courseid
+     * @param array<string, mixed> $metadata
+     * @return int
+     */
+    private function resolve_course_validity_period_days(int $courseid, array $metadata): int {
+        global $DB;
+
+        $fallback = $this->normalise_positive_day_count($metadata['validityperioddays'] ?? ($metadata['validity_period'] ?? ''));
+        if ($courseid <= 0) {
+            return $fallback;
+        }
+
+        $manager = $DB->get_manager();
+        if (!$manager->table_exists(new \xmldb_table('customfield_field'))
+            || !$manager->table_exists(new \xmldb_table('customfield_data'))) {
+            return $fallback;
+        }
+
+        $value = $DB->get_field_sql(
+            "SELECT d.value
+               FROM {customfield_data} d
+               JOIN {customfield_field} f ON f.id = d.fieldid
+              WHERE d.instanceid = :courseid
+                AND f.shortname = :shortname
+                AND f.component = :component
+                AND f.area = :area",
+            [
+                'courseid' => $courseid,
+                'shortname' => 'validity_period',
+                'component' => 'core_course',
+                'area' => 'course',
+            ],
+            IGNORE_MULTIPLE
+        );
+
+        $days = $this->normalise_positive_day_count($value);
+        return $days > 0 ? $days : $fallback;
+    }
+
+    /**
+     * Calculate expiry as issue date plus validity period.
+     *
+     * @param int $issuetimestamp
+     * @param int $validitydays
+     * @return int
+     */
+    private function calculate_expiry_timestamp(int $issuetimestamp, int $validitydays): int {
+        if ($issuetimestamp <= 0 || $validitydays <= 0) {
+            return 0;
+        }
+
+        return $this->get_protocol_datetime($issuetimestamp)
+            ->modify('+' . $validitydays . ' days')
+            ->getTimestamp();
+    }
+
+    /**
+     * Resolve the previous issued document/completion timestamp for this user and course.
+     *
+     * @param int $userid
+     * @param int $courseid
+     * @param int $completiondate
+     * @return int
+     */
+    private function resolve_previous_document_issue_timestamp(int $userid, int $courseid, int $completiondate): int {
+        global $DB;
+
+        if ($userid <= 0 || $courseid <= 0 || $completiondate <= 0) {
+            return 0;
+        }
+
+        $manager = $DB->get_manager();
+        if ($manager->table_exists(new \xmldb_table('local_ncasign_jobs'))) {
+            $previousjobtime = (int)$DB->get_field_sql(
+                "SELECT MAX(timecreated)
+                   FROM {local_ncasign_jobs}
+                  WHERE userid = :userid
+                    AND courseid = :courseid
+                    AND timecreated > 0
+                    AND timecreated < :currentissue",
+                [
+                    'userid' => $userid,
+                    'courseid' => $courseid,
+                    'currentissue' => $completiondate,
+                ]
+            );
+            if ($previousjobtime > 0) {
+                return $previousjobtime;
+            }
+        }
+
+        if (!$this->user_has_previous_completion($userid, $courseid, $completiondate)) {
+            return 0;
+        }
+
+        return (int)$DB->get_field_sql(
+            "SELECT MAX(timecompleted)
+               FROM {course_completions}
+              WHERE userid = :userid
+                AND course = :courseid
+                AND timecompleted > 0
+                AND timecompleted < :currentissue",
+            [
+                'userid' => $userid,
+                'courseid' => $courseid,
+                'currentissue' => $completiondate,
+            ]
+        );
+    }
+
+    /**
+     * Convert configured validity text to a positive day count.
+     *
+     * @param mixed $value
+     * @return int
+     */
+    private function normalise_positive_day_count($value): int {
+        $digits = preg_replace('/\D+/', '', (string)$value) ?? '';
+        return $digits === '' ? 0 : max(0, (int)$digits);
     }
 
     /**
