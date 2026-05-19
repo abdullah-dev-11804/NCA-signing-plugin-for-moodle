@@ -108,20 +108,10 @@ class observer {
                     continue;
                 }
 
-                $autosigned = false;
-                if ($manager->can_server_autosign()) {
-                    try {
-                        $autosigned = $manager->try_server_autosign_job($jobid);
-                    } catch (\Throwable $e) {
-                        error_log('local_ncasign: auto-sign attempt failed for job ' . $jobid . ': ' . $e->getMessage());
-                    }
-                }
-                if (!$autosigned) {
-                    try {
-                        $manager->notify_signers_for_job($jobid);
-                    } catch (\Throwable $e) {
-                        error_log('local_ncasign: failed to notify signers for job ' . $jobid . ': ' . $e->getMessage());
-                    }
+                try {
+                    $manager->notify_signers_for_job($jobid);
+                } catch (\Throwable $e) {
+                    error_log('local_ncasign: failed to notify signers for job ' . $jobid . ': ' . $e->getMessage());
                 }
             }
         } finally {
@@ -215,20 +205,10 @@ class observer {
             error_log('local_ncasign: no PDF attached for job ' . $jobid . ' from event ' . get_class($event));
         }
 
-        $autosigned = false;
-        if ($attached && $manager->can_server_autosign()) {
-            try {
-                $autosigned = $manager->try_server_autosign_job($jobid);
-            } catch (\Throwable $e) {
-                error_log('local_ncasign: auto-sign attempt failed for job ' . $jobid . ' after customcert issue event: ' . $e->getMessage());
-            }
-        }
-        if (!$autosigned) {
-            try {
-                $manager->notify_signers_for_job($jobid);
-            } catch (\Throwable $e) {
-                error_log('local_ncasign: failed to continue job ' . $jobid . ' after customcert issue event: ' . $e->getMessage());
-            }
+        try {
+            $manager->notify_signers_for_job($jobid);
+        } catch (\Throwable $e) {
+            error_log('local_ncasign: failed to continue job ' . $jobid . ' after customcert issue event: ' . $e->getMessage());
         }
     }
 
