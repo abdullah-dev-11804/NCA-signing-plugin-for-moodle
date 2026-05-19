@@ -64,97 +64,100 @@ if ($data = $mform->get_data()) {
     $selectedprofile = resolve_demo_profile($templatemanager, (int)$data->templateprofileid);
     $courseid = resolve_first_profile_courseid($selectedprofile);
     if ($courseid <= 0) {
-        throw new moodle_exception('error', 'local_ncasign', $url, null, get_string('demotemplateprofile_nocourse', 'local_ncasign'));
-    }
+        \core\notification::error(get_string('demotemplateprofile_nocourse', 'local_ncasign'));
+    } else {
+        $generationprofile = build_demo_generation_profile($selectedprofile, (string)($data->documenttitle ?? ''));
+        $signers = resolve_demo_signers((string)($data->signeremails ?? ''), $selectedprofile);
+        $documentuuid = $manager->create_document_uuid();
+        $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
+        $certurl = $manager->build_certificate_url($courseid, $userid);
 
-    $generationprofile = build_demo_generation_profile($selectedprofile, (string)($data->documenttitle ?? ''));
-    $signers = resolve_demo_signers((string)($data->signeremails ?? ''), $selectedprofile);
-    $documentuuid = $manager->create_document_uuid();
-    $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
-    $certurl = $manager->build_certificate_url($courseid, $userid);
+        $attachment = null;
+        if ($generationprofile) {
+            try {
+                $generator = new document_generator();
+                $draft = $generator->generate_draft_from_profile(
+                    $userid,
+                    $courseid,
+                    $generationprofile,
+                    [
+                        'documentuuid' => $documentuuid,
+                        'verifyurl' => $verifyurl,
+                        'signers' => $signers,
+                        'use_demo_data' => !empty($data->usedemodata),
+                    ]
+                );
+                $attachment = [
+                    'filename' => (string)$draft['filename'],
+                    'content' => (string)$draft['content'],
+                    'source' => 'local_generated_demo_draft',
+                    'manifest' => !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
+                        ? $draft['finalizationmanifest']
+                        : null,
+                    'documenttype' => (string)($draft['documenttype'] ?? 'certificate'),
+                    'documenttitle' => (string)($draft['documenttitle'] ?? ($data->documenttitle ?? '')),
+                    'profileid' => $selectedprofile ? (int)$selectedprofile['id'] : null,
+                ];
+            } catch (Throwable $e) {
+                \core\notification::error(get_string('demodraftgenerationfailed', 'local_ncasign', $e->getMessage()));
+            }
+        }
 
-    $attachment = null;
-    if ($generationprofile) {
-        try {
-            $generator = new document_generator();
-            $draft = $generator->generate_draft_from_profile(
+        if (!$attachment) {
+            if (!$generationprofile) {
+                \core\notification::error(get_string('democustomcerttemplatemissing', 'local_ncasign'));
+            }
+        } else {
+
+            $jobid = $manager->create_job(
                 $userid,
                 $courseid,
-                $generationprofile,
-                [
-                    'documentuuid' => $documentuuid,
-                    'verifyurl' => $verifyurl,
-                    'signers' => $signers,
-                    'use_demo_data' => !empty($data->usedemodata),
-                ]
+                $certurl,
+                $signers,
+                null,
+                (string)$attachment['documenttype'],
+                (string)$attachment['documenttitle'],
+                false,
+                $attachment['profileid'],
+                $documentuuid
             );
-            $attachment = [
-                'filename' => (string)$draft['filename'],
-                'content' => (string)$draft['content'],
-                'source' => 'local_generated_demo_draft',
-                'manifest' => !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
-                    ? $draft['finalizationmanifest']
-                    : null,
-                'documenttype' => (string)($draft['documenttype'] ?? 'certificate'),
-                'documenttitle' => (string)($draft['documenttitle'] ?? ($data->documenttitle ?? '')),
-                'profileid' => $selectedprofile ? (int)$selectedprofile['id'] : null,
-            ];
-        } catch (Throwable $e) {
-            throw new moodle_exception('error', 'local_ncasign', $url, null, 'Demo draft generation failed: ' . $e->getMessage());
+
+            if ($attachment['source'] === 'local_generated_demo_draft') {
+                $storage = new document_storage();
+                $storedpath = $storage->store_pending_draft($jobid, (string)$attachment['filename'], (string)$attachment['content']);
+                $source = 'local_generated_demo_draft:' . $storedpath;
+            } else {
+                $source = (string)$attachment['source'];
+            }
+
+            $manager->attach_certificate_binary_to_job(
+                $jobid,
+                (string)$attachment['filename'],
+                (string)$attachment['content'],
+                $source,
+                $attachment['manifest']
+            );
+
+            $autosigned = false;
+            if (!empty($data->autosigndemo) && $manager->can_server_autosign()) {
+                try {
+                    $autosigned = $manager->try_server_autosign_job($jobid);
+                } catch (Throwable $e) {
+                    error_log('local_ncasign: demo auto-sign failed for job ' . $jobid . ': ' . $e->getMessage());
+                }
+            }
+
+            if (!$autosigned) {
+                $manager->notify_signers_for_job($jobid);
+            }
+
+            redirect(
+                new moodle_url('/local/ncasign/job.php', ['id' => $jobid]),
+                get_string($autosigned ? 'demojobcreated_autosigned' : 'demojobcreated', 'local_ncasign', $jobid),
+                2
+            );
         }
     }
-
-    if (!$attachment) {
-        throw new moodle_exception('error', 'local_ncasign', $url, null, 'No customcert template could be resolved.');
-    }
-
-    $jobid = $manager->create_job(
-        $userid,
-        $courseid,
-        $certurl,
-        $signers,
-        null,
-        (string)$attachment['documenttype'],
-        (string)$attachment['documenttitle'],
-        false,
-        $attachment['profileid'],
-        $documentuuid
-    );
-
-    if ($attachment['source'] === 'local_generated_demo_draft') {
-        $storage = new document_storage();
-        $storedpath = $storage->store_pending_draft($jobid, (string)$attachment['filename'], (string)$attachment['content']);
-        $source = 'local_generated_demo_draft:' . $storedpath;
-    } else {
-        $source = (string)$attachment['source'];
-    }
-
-    $manager->attach_certificate_binary_to_job(
-        $jobid,
-        (string)$attachment['filename'],
-        (string)$attachment['content'],
-        $source,
-        $attachment['manifest']
-    );
-
-    $autosigned = false;
-    if (!empty($data->autosigndemo) && $manager->can_server_autosign()) {
-        try {
-            $autosigned = $manager->try_server_autosign_job($jobid);
-        } catch (Throwable $e) {
-            error_log('local_ncasign: demo auto-sign failed for job ' . $jobid . ': ' . $e->getMessage());
-        }
-    }
-
-    if (!$autosigned) {
-        $manager->notify_signers_for_job($jobid);
-    }
-
-    redirect(
-        new moodle_url('/local/ncasign/job.php', ['id' => $jobid]),
-        get_string($autosigned ? 'demojobcreated_autosigned' : 'demojobcreated', 'local_ncasign', $jobid),
-        2
-    );
 }
 
 echo $OUTPUT->header();
