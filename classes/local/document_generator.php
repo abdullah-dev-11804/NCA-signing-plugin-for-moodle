@@ -241,6 +241,15 @@ class document_generator {
             (string)($options['verifyurl'] ?? ''),
             is_array($options['signers'] ?? null) ? $options['signers'] : []
         );
+        $requiredqrslots = min(3, max(1, count(is_array($options['signers'] ?? null) ? $options['signers'] : [])));
+        $missingqrslots = $this->get_missing_customcert_signer_qr_slot_names($signerqrslots, $requiredqrslots);
+        if ($missingqrslots) {
+            throw new \RuntimeException(
+                'The selected customcert template is missing signer QR placeholder elements. ' .
+                'Add QR code elements named ' . implode(', ', $missingqrslots) .
+                ' to the customcert template so ncasign knows where to place signer verification QR codes.'
+            );
+        }
         $template = $this->load_customcert_template_instance($templateid);
         $content = '';
 
@@ -261,40 +270,15 @@ class document_generator {
         }
 
         $overlaywarning = null;
-        if ($signerqrslots) {
-            $overlay = [
-                'content' => $content,
-                'finalizationmanifest' => [
-                    'version' => 1,
-                    'reservationmode' => 'customcert_signer_qr_elements',
-                    'profile_renderer' => self::DOC_CUSTOMCERT_TEMPLATE,
-                    'signature_slots' => $signerqrslots,
-                ],
-            ];
-        } else {
-            try {
-                $overlay = $this->overlay_signature_qr_slots_on_pdf(
-                    $content,
-                    (string)($options['verifyurl'] ?? ''),
-                    is_array($options['signers'] ?? null) ? $options['signers'] : [],
-                    self::DOC_CUSTOMCERT_TEMPLATE
-                );
-            } catch (\Throwable $e) {
-                if (strpos($e->getMessage(), 'FPDI for TCPDF is not installed on this Moodle server.') === false) {
-                    throw $e;
-                }
-                $overlaywarning = $e->getMessage();
-                $overlay = [
-                    'content' => $content,
-                    'finalizationmanifest' => [
-                        'source' => 'customcert_runtime_template',
-                        'customcert_templateid' => $templateid,
-                        'qr_overlay' => 'skipped',
-                        'qr_overlay_reason' => 'fpdi_missing',
-                    ],
-                ];
-            }
-        }
+        $overlay = [
+            'content' => $content,
+            'finalizationmanifest' => [
+                'version' => 1,
+                'reservationmode' => 'customcert_signer_qr_elements',
+                'profile_renderer' => self::DOC_CUSTOMCERT_TEMPLATE,
+                'signature_slots' => $signerqrslots,
+            ],
+        ];
 
         $templatename = (string)$DB->get_field('customcert_templates', 'name', ['id' => $templateid], IGNORE_MISSING);
         $documenttitle = trim((string)($profile['documenttitle'] ?? '')) !== ''
@@ -2012,6 +1996,33 @@ HTML;
         }
 
         return $slots;
+    }
+
+    /**
+     * Return required signer QR placeholder names that are missing from the customcert template.
+     *
+     * @param array<int,array<string,mixed>> $slots
+     * @param int $requiredcount
+     * @return array<int,string>
+     */
+    private function get_missing_customcert_signer_qr_slot_names(array $slots, int $requiredcount): array {
+        $present = [];
+        foreach ($slots as $slot) {
+            $name = \core_text::strtolower(trim((string)($slot['name'] ?? '')));
+            if ($name !== '') {
+                $present[$name] = true;
+            }
+        }
+
+        $missing = [];
+        for ($i = 1; $i <= $requiredcount; $i++) {
+            $name = 'qr_signer_' . $i;
+            if (empty($present[$name])) {
+                $missing[] = $name;
+            }
+        }
+
+        return $missing;
     }
 
     /**
