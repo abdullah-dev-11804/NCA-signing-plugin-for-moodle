@@ -104,10 +104,21 @@ class job_manager {
             'autosignnote' => null,
         ];
         $jobid = $DB->insert_record('local_ncasign_jobs', $job);
+        error_log(
+            'local_ncasign: create_job inserted job ' . $jobid .
+            ', userid=' . $userid .
+            ', courseid=' . $courseid .
+            ', templateprofileid=' . ($templateprofileid === null ? 'null' : (string)$templateprofileid) .
+            ', manualdeadline=' . $job->manualdeadline .
+            ', input_signer_count=' . count($signers) .
+            ', sendnotifications=' . ($sendnotifications ? '1' : '0')
+        );
 
         $signorder = 1;
+        $insertedsigners = 0;
         foreach ($signers as $signer) {
             if (empty($signer['email'])) {
+                error_log('local_ncasign: create_job skipped signer without email for job ' . $jobid);
                 continue;
             }
             $token = $this->generate_unique_token();
@@ -136,8 +147,16 @@ class job_manager {
                 'signmeta' => null,
             ];
             $DB->insert_record('local_ncasign_signers', $record);
+            $insertedsigners++;
+            error_log(
+                'local_ncasign: create_job inserted signer order=' . $signorder .
+                ' for job ' . $jobid .
+                ', email=' . trim($signer['email']) .
+                ', name=' . trim((string)($signer['name'] ?? $signer['email']))
+            );
             $signorder++;
         }
+        error_log('local_ncasign: create_job inserted ' . $insertedsigners . ' signer row(s) for job ' . $jobid);
 
         if ($sendnotifications) {
             $this->notify_signers_for_job($jobid);
@@ -718,18 +737,44 @@ class job_manager {
 
         $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
         if (!$job) {
+            error_log('local_ncasign: notify_signers_for_job could not find job ' . $jobid);
             return;
         }
 
         $signer = $this->get_active_pending_signer($jobid);
         if (!$signer || !empty($signer->notifiedat)) {
+            if (!$signer) {
+                $pendingcount = $DB->count_records('local_ncasign_signers', ['jobid' => $jobid, 'status' => self::SIGNER_PENDING]);
+                error_log(
+                    'local_ncasign: notify_signers_for_job found no active pending signer for job ' . $jobid .
+                    ', pending_count=' . $pendingcount
+                );
+            } else {
+                error_log(
+                    'local_ncasign: notify_signers_for_job active signer already notified for job ' . $jobid .
+                    ', signer_id=' . (int)$signer->id .
+                    ', email=' . (string)$signer->signeremail .
+                    ', notifiedat=' . (string)$signer->notifiedat
+                );
+            }
             return;
         }
 
+        error_log(
+            'local_ncasign: notify_signers_for_job sending email for job ' . $jobid .
+            ', signer_id=' . (int)$signer->id .
+            ', order=' . (int)$signer->signorder .
+            ', email=' . (string)$signer->signeremail
+        );
         $this->send_signer_email($signer, $job, (string)($signer->signername ?? $signer->signeremail));
         $signer->notifiedat = time();
         $signer->timemodified = time();
         $DB->update_record('local_ncasign_signers', $signer);
+        error_log(
+            'local_ncasign: notify_signers_for_job marked signer notified for job ' . $jobid .
+            ', signer_id=' . (int)$signer->id .
+            ', notifiedat=' . (string)$signer->notifiedat
+        );
     }
 
     /**
@@ -1338,6 +1383,7 @@ class job_manager {
         global $CFG;
 
         if (empty($signer->signeremail)) {
+            error_log('local_ncasign: send_signer_email skipped empty signer email for job ' . (int)$job->id);
             return;
         }
 
@@ -1382,7 +1428,13 @@ class job_manager {
             'deleted' => 0,
         ];
         $from = core_user::get_support_user();
-        email_to_user($to, $from, $subject, $message);
+        $sent = email_to_user($to, $from, $subject, $message);
+        error_log(
+            'local_ncasign: send_signer_email result for job ' . (int)$job->id .
+            ', signer_id=' . (int)$signer->id .
+            ', email=' . (string)$signer->signeremail .
+            ', result=' . var_export($sent, true)
+        );
     }
 
     /**

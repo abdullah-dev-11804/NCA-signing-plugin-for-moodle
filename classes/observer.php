@@ -51,11 +51,22 @@ class observer {
             error_log('local_ncasign: no mapped template profiles found for course ' . $courseid . ', user ' . $userid);
             return;
         }
+        error_log(
+            'local_ncasign: course completion observer found ' . count($profiles) .
+            ' mapped template profile(s) for course ' . $courseid . ', user ' . $userid
+        );
         $generator = new document_generator();
         ob_start();
         try {
             foreach ($profiles as $profile) {
                 $signers = $profile['signers'] ?? [];
+                error_log(
+                    'local_ncasign: processing profile id=' . (string)($profile['id'] ?? 'none') .
+                    ', name=' . (string)($profile['name'] ?? 'unknown') .
+                    ', active=' . (!empty($profile['active']) ? '1' : '0') .
+                    ', signer_count=' . (is_array($signers) ? count($signers) : 0) .
+                    ', signer_emails=' . self::debug_signer_emails(is_array($signers) ? $signers : [])
+                );
                 if (!$signers) {
                     error_log('local_ncasign: template profile has no configured signers; skipping profile ' . (string)($profile['name'] ?? 'unknown'));
                     continue;
@@ -89,6 +100,13 @@ class observer {
                     !empty($profile['id']) ? (int)$profile['id'] : null,
                     $documentuuid
                 );
+                error_log(
+                    'local_ncasign: created signing job ' . $jobid .
+                    ' for course ' . $courseid .
+                    ', user ' . $userid .
+                    ', profile id=' . (string)($profile['id'] ?? 'none') .
+                    ', signer_count=' . count($signers)
+                );
 
                 try {
                     $storage = new document_storage();
@@ -102,6 +120,11 @@ class observer {
                             ? $draft['finalizationmanifest']
                             : null
                     );
+                    error_log(
+                        'local_ncasign: attached generated draft to job ' . $jobid .
+                        ', filename=' . (string)$draft['filename'] .
+                        ', bytes=' . strlen((string)$draft['content'])
+                    );
                 } catch (\Throwable $e) {
                     self::delete_job($jobid);
                     error_log('local_ncasign: failed to persist generated draft for job ' . $jobid . ': ' . $e->getMessage());
@@ -109,6 +132,7 @@ class observer {
                 }
 
                 try {
+                    error_log('local_ncasign: notifying active manual signer for job ' . $jobid);
                     $manager->notify_signers_for_job($jobid);
                 } catch (\Throwable $e) {
                     error_log('local_ncasign: failed to notify signers for job ' . $jobid . ': ' . $e->getMessage());
@@ -559,5 +583,23 @@ class observer {
 
         $DB->delete_records('local_ncasign_signers', ['jobid' => $jobid]);
         $DB->delete_records('local_ncasign_jobs', ['id' => $jobid]);
+    }
+
+    /**
+     * Return signer emails for safe debug logging.
+     *
+     * @param array<int,array<string,mixed>> $signers
+     * @return string
+     */
+    private static function debug_signer_emails(array $signers): string {
+        $emails = [];
+        foreach ($signers as $signer) {
+            $email = trim((string)($signer['email'] ?? ''));
+            if ($email !== '') {
+                $emails[] = $email;
+            }
+        }
+
+        return $emails ? implode(',', $emails) : '-';
     }
 }
