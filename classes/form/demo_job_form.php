@@ -36,17 +36,14 @@ class demo_job_form extends \moodleform {
         $mform->setType('userid', PARAM_INT);
         $mform->addRule('userid', get_string('required'), 'required', null, 'client');
 
-        $mform->addElement('text', 'courseid', get_string('courseid', 'local_ncasign'), ['size' => 12]);
-        $mform->setType('courseid', PARAM_INT);
-        $mform->addRule('courseid', get_string('required'), 'required', null, 'client');
-
         $mform->addElement(
             'select',
             'templateprofileid',
             get_string('demotemplateprofile', 'local_ncasign'),
-            [0 => get_string('demotemplateprofile_firstmapped', 'local_ncasign')] + $profileoptions
+            [0 => get_string('choosedots')] + $profileoptions
         );
         $mform->setType('templateprofileid', PARAM_INT);
+        $mform->addRule('templateprofileid', get_string('required'), 'required', null, 'client');
         $mform->addElement('static', 'templateprofileid_desc', '', get_string('demotemplateprofile_desc', 'local_ncasign'));
 
         $mform->addElement('text', 'documenttitle', get_string('documenttitle', 'local_ncasign'), ['size' => 80]);
@@ -86,13 +83,8 @@ class demo_job_form extends \moodleform {
             $errors['userid'] = get_string('demouser_invalid', 'local_ncasign');
         }
 
-        $courseid = (int)($data['courseid'] ?? 0);
-        if ($courseid <= 0 || !$DB->record_exists('course', ['id' => $courseid])) {
-            $errors['courseid'] = get_string('democourse_invalid', 'local_ncasign');
-        }
-
         $templateprofileid = (int)($data['templateprofileid'] ?? 0);
-        if ($templateprofileid > 0 && !$DB->record_exists('local_ncasign_templates', ['id' => $templateprofileid])) {
+        if ($templateprofileid <= 0 || !$DB->record_exists('local_ncasign_templates', ['id' => $templateprofileid])) {
             $errors['templateprofileid'] = get_string('demotemplateprofile_invalid', 'local_ncasign');
         }
 

@@ -50,7 +50,7 @@ $mform = new demo_job_form($url, [
 ]);
 $mform->set_data((object)[
     'userid' => optional_param('userid', 0, PARAM_INT),
-    'courseid' => optional_param('courseid', 0, PARAM_INT),
+    'templateprofileid' => optional_param('templateprofileid', 0, PARAM_INT),
     'usedemodata' => 1,
 ]);
 
@@ -61,8 +61,12 @@ if ($mform->is_cancelled()) {
 if ($data = $mform->get_data()) {
     $manager = new job_manager();
     $userid = (int)$data->userid;
-    $courseid = (int)$data->courseid;
-    $selectedprofile = resolve_demo_profile($templatemanager, (int)$data->templateprofileid, $courseid);
+    $selectedprofile = resolve_demo_profile($templatemanager, (int)$data->templateprofileid);
+    $courseid = resolve_first_profile_courseid($selectedprofile);
+    if ($courseid <= 0) {
+        throw new moodle_exception('error', 'local_ncasign', $url, null, get_string('demotemplateprofile_nocourse', 'local_ncasign'));
+    }
+
     $generationprofile = build_demo_generation_profile($selectedprofile, (string)($data->documenttitle ?? ''));
     $signers = resolve_demo_signers((string)($data->signeremails ?? ''), $selectedprofile);
     $documentuuid = $manager->create_document_uuid();
@@ -162,16 +166,31 @@ echo $OUTPUT->footer();
  *
  * @param template_manager $templatemanager
  * @param int $templateprofileid
- * @param int $courseid
  * @return array<string,mixed>|null
  */
-function resolve_demo_profile(template_manager $templatemanager, int $templateprofileid, int $courseid): ?array {
-    if ($templateprofileid > 0) {
-        return $templatemanager->get_profile($templateprofileid);
+function resolve_demo_profile(template_manager $templatemanager, int $templateprofileid): ?array {
+    return $templateprofileid > 0 ? $templatemanager->get_profile($templateprofileid) : null;
+}
+
+/**
+ * Resolve the first mapped course id from a template profile.
+ *
+ * @param array<string,mixed>|null $profile
+ * @return int
+ */
+function resolve_first_profile_courseid(?array $profile): int {
+    if (!$profile || empty($profile['courseids']) || !is_array($profile['courseids'])) {
+        return 0;
     }
 
-    $profiles = $templatemanager->get_course_template_profiles($courseid);
-    return $profiles ? reset($profiles) : null;
+    foreach ($profile['courseids'] as $courseid) {
+        $courseid = (int)$courseid;
+        if ($courseid > 0) {
+            return $courseid;
+        }
+    }
+
+    return 0;
 }
 
 /**
