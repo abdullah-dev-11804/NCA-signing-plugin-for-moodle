@@ -1436,20 +1436,41 @@ HTML;
             return $fallback;
         }
 
+        $fieldtable = new \xmldb_table('customfield_field');
+        $categorytable = new \xmldb_table('customfield_category');
+        $joins = ["JOIN {customfield_field} f ON f.id = d.fieldid"];
+        $conditions = [
+            'd.instanceid = :courseid',
+            'f.shortname = :shortname',
+        ];
+        $params = [
+            'courseid' => $courseid,
+            'shortname' => 'validity_period',
+        ];
+
+        if ($manager->field_exists($fieldtable, new \xmldb_field('component'))
+            && $manager->field_exists($fieldtable, new \xmldb_field('area'))) {
+            $conditions[] = 'f.component = :component';
+            $conditions[] = 'f.area = :area';
+            $params['component'] = 'core_course';
+            $params['area'] = 'course';
+        } else if ($manager->table_exists($categorytable)
+            && $manager->field_exists($fieldtable, new \xmldb_field('categoryid'))
+            && $manager->field_exists($categorytable, new \xmldb_field('component'))
+            && $manager->field_exists($categorytable, new \xmldb_field('area'))) {
+            $joins[] = "JOIN {customfield_category} cfc ON cfc.id = f.categoryid";
+            $conditions[] = 'cfc.component = :component';
+            $conditions[] = 'cfc.area = :area';
+            $params['component'] = 'core_course';
+            $params['area'] = 'course';
+        }
+
         $value = $DB->get_field_sql(
             "SELECT d.value
                FROM {customfield_data} d
-               JOIN {customfield_field} f ON f.id = d.fieldid
-              WHERE d.instanceid = :courseid
-                AND f.shortname = :shortname
-                AND f.component = :component
-                AND f.area = :area",
-            [
-                'courseid' => $courseid,
-                'shortname' => 'validity_period',
-                'component' => 'core_course',
-                'area' => 'course',
-            ],
+               " . implode("\n               ", $joins) . "
+              WHERE " . implode("\n                AND ", $conditions),
+            $params,
             IGNORE_MULTIPLE
         );
 
