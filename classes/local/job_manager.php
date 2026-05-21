@@ -45,6 +45,12 @@ class job_manager {
     public const SIGNER_SIGNED = 'signed_manual';
     /** @var string */
     public const SIGNER_SKIPPED = 'skipped_auto';
+    /** @var string */
+    public const JOB_ORIGIN_COURSE_COMPLETION = 'course_completion';
+    /** @var string */
+    public const JOB_ORIGIN_DEMO = 'demo_job';
+    /** @var string */
+    public const JOB_ORIGIN_CUSTOMCERT_ISSUE = 'customcert_issue';
 
     /**
      * Create a signing job and notify signers.
@@ -72,7 +78,8 @@ class job_manager {
         string $documenttitle = '',
         bool $sendnotifications = true,
         ?int $templateprofileid = null,
-        ?string $documentuuid = null
+        ?string $documentuuid = null,
+        string $origin = self::JOB_ORIGIN_COURSE_COMPLETION
     ): int {
         global $DB;
 
@@ -88,6 +95,7 @@ class job_manager {
             'userid' => $userid,
             'courseid' => $courseid,
             'templateprofileid' => $templateprofileid,
+            'origin' => $this->normalise_job_origin($origin),
             'documentuuid' => $documentuuid ?: $this->generate_document_uuid(),
             'documenttype' => $this->normalise_document_type($documenttype),
             'documenttitle' => trim($documenttitle) !== '' ? trim($documenttitle) : null,
@@ -109,6 +117,7 @@ class job_manager {
             ', userid=' . $userid .
             ', courseid=' . $courseid .
             ', templateprofileid=' . ($templateprofileid === null ? 'null' : (string)$templateprofileid) .
+            ', origin=' . $job->origin .
             ', manualdeadline=' . $job->manualdeadline .
             ', input_signer_count=' . count($signers) .
             ', sendnotifications=' . ($sendnotifications ? '1' : '0')
@@ -2097,6 +2106,23 @@ class job_manager {
         }
 
         return 'certificate';
+    }
+
+    /**
+     * Normalise stored job origin.
+     *
+     * @param string $origin
+     * @return string
+     */
+    private function normalise_job_origin(string $origin): string {
+        $origin = strtolower(trim($origin));
+        $allowed = [
+            self::JOB_ORIGIN_COURSE_COMPLETION,
+            self::JOB_ORIGIN_DEMO,
+            self::JOB_ORIGIN_CUSTOMCERT_ISSUE,
+        ];
+
+        return in_array($origin, $allowed, true) ? $origin : self::JOB_ORIGIN_COURSE_COMPLETION;
     }
 
     /**

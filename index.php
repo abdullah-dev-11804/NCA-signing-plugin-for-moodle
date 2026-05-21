@@ -44,6 +44,7 @@ $table->head = [
     'ID',
     get_string('userid', 'local_ncasign'),
     get_string('courseid', 'local_ncasign'),
+    get_string('joborigin', 'local_ncasign'),
     get_string('status', 'local_ncasign'),
     get_string('deadline', 'local_ncasign'),
     get_string('manualsigned', 'local_ncasign'),
@@ -63,6 +64,7 @@ foreach ($jobs as $job) {
         (int)$job->id,
         (int)$job->userid,
         (int)$job->courseid,
+        local_ncasign_render_origin_badge((string)($job->origin ?? 'course_completion')),
         local_ncasign_render_job_status_badge($job, $signedcount, $totalcount),
         userdate((int)$job->manualdeadline),
         "{$signedcount}/{$totalcount}",
@@ -137,6 +139,24 @@ function local_ncasign_render_artifacts(int $jobid): string {
     }
 
     return implode(' | ', $links);
+}
+
+/**
+ * Render a job origin badge.
+ *
+ * @param string $origin
+ * @return string
+ */
+function local_ncasign_render_origin_badge(string $origin): string {
+    $origin = strtolower(trim($origin));
+    if ($origin === \local_ncasign\local\job_manager::JOB_ORIGIN_DEMO) {
+        return local_ncasign_badge(get_string('origin_demo_job', 'local_ncasign'), '#fff3cd', '#664d03');
+    }
+    if ($origin === \local_ncasign\local\job_manager::JOB_ORIGIN_CUSTOMCERT_ISSUE) {
+        return local_ncasign_badge(get_string('origin_customcert_issue', 'local_ncasign'), '#cff4fc', '#055160');
+    }
+
+    return local_ncasign_badge(get_string('origin_course_completion', 'local_ncasign'), '#d1e7dd', '#0f5132');
 }
 
 /**

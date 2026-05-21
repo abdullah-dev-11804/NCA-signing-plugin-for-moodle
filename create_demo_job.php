@@ -119,7 +119,8 @@ if ($data = $mform->get_data()) {
                 (string)$attachment['documenttitle'],
                 false,
                 $attachment['profileid'],
-                $documentuuid
+                $documentuuid,
+                job_manager::JOB_ORIGIN_DEMO
             );
 
             if ($attachment['source'] === 'local_generated_demo_draft') {

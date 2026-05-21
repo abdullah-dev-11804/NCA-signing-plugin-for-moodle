@@ -98,7 +98,8 @@ class observer {
                     (string)($draft['documenttitle'] ?? ($profile['documenttitle'] ?? 'Course document')),
                     false,
                     !empty($profile['id']) ? (int)$profile['id'] : null,
-                    $documentuuid
+                    $documentuuid,
+                    job_manager::JOB_ORIGIN_COURSE_COMPLETION
                 );
                 error_log(
                     'local_ncasign: created signing job ' . $jobid .
@@ -197,7 +198,19 @@ class observer {
 
         $issueid = (int)($event->objectid ?? 0);
         $documenttitle = self::resolve_customcert_document_title($issueid, $cmid, $courseid);
-        $jobid = $manager->create_job($userid, $courseid, $certurl, $signers, null, 'certificate', $documenttitle, false);
+        $jobid = $manager->create_job(
+            $userid,
+            $courseid,
+            $certurl,
+            $signers,
+            null,
+            'certificate',
+            $documenttitle,
+            false,
+            null,
+            null,
+            job_manager::JOB_ORIGIN_CUSTOMCERT_ISSUE
+        );
         $attached = false;
 
         $generated = self::generate_customcert_pdf_from_issue($issueid, $userid);

@@ -250,5 +250,61 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026040300, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026052100) {
+        $table = new xmldb_table('local_ncasign_jobs');
+
+        $field = new xmldb_field('origin', XMLDB_TYPE_CHAR, '30', null, XMLDB_NOTNULL, null, 'course_completion', 'templateprofileid');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $index = new xmldb_index('origin_idx', XMLDB_INDEX_NOTUNIQUE, ['origin']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        $DB->set_field('local_ncasign_jobs', 'origin', 'course_completion', ['origin' => '']);
+
+        $sources = $DB->get_records_sql(
+            "SELECT DISTINCT itemid
+               FROM {files}
+              WHERE component = :component
+                AND filearea = :filearea
+                AND filename <> :dot
+                AND " . $DB->sql_like('source', ':source', false),
+            [
+                'component' => 'local_ncasign',
+                'filearea' => 'originalpdf',
+                'dot' => '.',
+                'source' => 'local_generated_demo_draft:%',
+            ]
+        );
+        foreach ($sources as $source) {
+            $DB->set_field('local_ncasign_jobs', 'origin', 'demo_job', ['id' => (int)$source->itemid]);
+        }
+
+        $sources = $DB->get_records_sql(
+            "SELECT DISTINCT itemid
+               FROM {files}
+              WHERE component = :component
+                AND filearea = :filearea
+                AND filename <> :dot
+                AND (" . $DB->sql_like('source', ':sourcea', false) . "
+                 OR " . $DB->sql_like('source', ':sourceb', false) . ")",
+            [
+                'component' => 'local_ncasign',
+                'filearea' => 'originalpdf',
+                'dot' => '.',
+                'sourcea' => 'mod_customcert_generated%',
+                'sourceb' => 'mod_customcert_filearea%',
+            ]
+        );
+        foreach ($sources as $source) {
+            $DB->set_field('local_ncasign_jobs', 'origin', 'customcert_issue', ['id' => (int)$source->itemid]);
+        }
+
+        upgrade_plugin_savepoint(true, 2026052100, 'local', 'ncasign');
+    }
+
     return true;
 }
