@@ -1625,8 +1625,9 @@ HTML;
     private function resolve_user_full_name(int $userid, \stdClass $user): string {
         $parts = [];
         foreach (['lastname', 'firstname'] as $field) {
-            if (!empty($user->{$field})) {
-                $parts[] = trim((string)$user->{$field});
+            $value = trim((string)($user->{$field} ?? ''));
+            if ($value !== '') {
+                $parts[] = $value;
             }
         }
 
@@ -1636,15 +1637,12 @@ HTML;
             'middle_name',
             'otchestvo',
         ], trim((string)($user->middlename ?? '')));
+        $patronymic = trim($patronymic);
         if ($patronymic !== '') {
             $parts[] = $patronymic;
         }
 
-        if (!$parts) {
-            return $this->format_person_name($user);
-        }
-
-        return implode(' ', $parts);
+        return trim((string)preg_replace('/\s+/u', ' ', implode(' ', $parts)));
     }
 
     /**
