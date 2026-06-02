@@ -75,7 +75,12 @@ foreach ($jobs as $job) {
     ];
 }
 
-echo html_writer::div(html_writer::table($table), 'ncasign-jobs-scroll');
+echo html_writer::div(
+    html_writer::div(html_writer::div('', 'ncasign-jobs-scrollbar-spacer'), 'ncasign-jobs-scrollbar') .
+    html_writer::div(html_writer::table($table), 'ncasign-jobs-scroll'),
+    'ncasign-jobs-table-shell'
+);
+echo local_ncasign_index_scripts();
 echo $OUTPUT->footer();
 
 /**
@@ -85,14 +90,24 @@ echo $OUTPUT->footer();
  */
 function local_ncasign_index_styles(): string {
     return html_writer::tag('style', '
-.ncasign-jobs-scroll {
+.ncasign-jobs-table-shell {
     margin-top: 1rem;
+}
+.ncasign-jobs-scrollbar {
     overflow-x: auto;
-    transform: rotateX(180deg);
+    overflow-y: hidden;
+    height: 18px;
+    margin-bottom: 4px;
+}
+.ncasign-jobs-scrollbar-spacer {
+    height: 1px;
+    min-width: 980px;
+}
+.ncasign-jobs-scroll {
+    overflow-x: auto;
 }
 .ncasign-jobs-scroll > table {
     min-width: 980px;
-    transform: rotateX(180deg);
 }
 .ncasign-jobs-scroll th,
 .ncasign-jobs-scroll td {
@@ -103,6 +118,45 @@ function local_ncasign_index_styles(): string {
     min-width: 260px;
 }
 ');
+}
+
+/**
+ * Return page-local behaviour.
+ *
+ * @return string
+ */
+function local_ncasign_index_scripts(): string {
+    return html_writer::script("
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.ncasign-jobs-table-shell').forEach(function(shell) {
+        var top = shell.querySelector('.ncasign-jobs-scrollbar');
+        var spacer = shell.querySelector('.ncasign-jobs-scrollbar-spacer');
+        var body = shell.querySelector('.ncasign-jobs-scroll');
+        var table = body ? body.querySelector('table') : null;
+        if (!top || !spacer || !body || !table) {
+            return;
+        }
+
+        var syncWidth = function() {
+            spacer.style.width = table.scrollWidth + 'px';
+        };
+        var syncing = false;
+        var sync = function(source, target) {
+            if (syncing) {
+                return;
+            }
+            syncing = true;
+            target.scrollLeft = source.scrollLeft;
+            syncing = false;
+        };
+
+        syncWidth();
+        window.addEventListener('resize', syncWidth);
+        top.addEventListener('scroll', function() { sync(top, body); });
+        body.addEventListener('scroll', function() { sync(body, top); });
+    });
+});
+");
 }
 
 /**
