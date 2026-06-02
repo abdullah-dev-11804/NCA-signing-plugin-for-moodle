@@ -36,6 +36,7 @@ echo $OUTPUT->single_button(
     new moodle_url('/local/ncasign/create_demo_job.php'),
     get_string('createdemojob', 'local_ncasign')
 );
+echo local_ncasign_index_styles();
 
 $jobs = $DB->get_records('local_ncasign_jobs', null, 'id DESC', '*', 0, 200);
 
@@ -74,8 +75,35 @@ foreach ($jobs as $job) {
     ];
 }
 
-echo html_writer::table($table);
+echo html_writer::div(html_writer::table($table), 'ncasign-jobs-scroll');
 echo $OUTPUT->footer();
+
+/**
+ * Return page-local styles.
+ *
+ * @return string
+ */
+function local_ncasign_index_styles(): string {
+    return html_writer::tag('style', '
+.ncasign-jobs-scroll {
+    margin-top: 1rem;
+    overflow-x: auto;
+    transform: rotateX(180deg);
+}
+.ncasign-jobs-scroll > table {
+    min-width: 980px;
+    transform: rotateX(180deg);
+}
+.ncasign-jobs-scroll th,
+.ncasign-jobs-scroll td {
+    white-space: nowrap;
+}
+.ncasign-jobs-scroll td:last-child {
+    white-space: normal;
+    min-width: 260px;
+}
+');
+}
 
 /**
  * Render artifact links for a signing job.

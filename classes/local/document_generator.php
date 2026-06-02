@@ -2183,22 +2183,51 @@ HTML;
     private function resolve_user_profile_value(int $userid, array $shortnames, string $default): string {
         global $DB;
 
+        $wanted = [];
         foreach ($shortnames as $shortname) {
-            $sql = "SELECT d.data
-                      FROM {user_info_data} d
-                      JOIN {user_info_field} f ON f.id = d.fieldid
-                     WHERE d.userid = :userid
-                       AND " . $DB->sql_compare_text('f.shortname') . " = :shortname";
-            $value = $DB->get_field_sql($sql, [
-                'userid' => $userid,
-                'shortname' => $shortname,
-            ], IGNORE_MISSING);
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
+            $normalised = $this->normalise_profile_shortname((string)$shortname);
+            if ($normalised !== '') {
+                $wanted[$normalised] = true;
+            }
+        }
+        if (!$wanted) {
+            return $default;
+        }
+
+        $sql = "SELECT d.id, f.shortname, d.data
+                  FROM {user_info_data} d
+                  JOIN {user_info_field} f ON f.id = d.fieldid
+                 WHERE d.userid = :userid";
+        $records = $DB->get_records_sql($sql, ['userid' => $userid]);
+        foreach ($shortnames as $shortname) {
+            $normalised = $this->normalise_profile_shortname((string)$shortname);
+            if ($normalised === '' || empty($wanted[$normalised])) {
+                continue;
+            }
+
+            foreach ($records as $record) {
+                if ($this->normalise_profile_shortname((string)($record->shortname ?? '')) !== $normalised) {
+                    continue;
+                }
+
+                $value = trim((string)($record->data ?? ''));
+                if ($value !== '') {
+                    return $value;
+                }
             }
         }
 
         return $default;
+    }
+
+    /**
+     * Normalise custom profile shortnames for tolerant matching.
+     *
+     * @param string $shortname
+     * @return string
+     */
+    private function normalise_profile_shortname(string $shortname): string {
+        return \core_text::strtolower(ltrim(trim($shortname), ':'));
     }
 
     /**
