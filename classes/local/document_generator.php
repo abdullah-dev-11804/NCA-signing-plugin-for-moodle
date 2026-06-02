@@ -753,6 +753,9 @@ class document_generator {
             if ($key === '' || is_array($value) || is_object($value)) {
                 continue;
             }
+            if (in_array(\core_text::strtolower($key), ['userfullname', 'user_full_name'], true)) {
+                continue;
+            }
             $documentdata[$key] = (string)$value;
         }
 
@@ -1632,8 +1635,8 @@ HTML;
         }
 
         $patronymic = $this->resolve_user_profile_value($userid, [
-            'patronymic',
             'middlename',
+            'patronymic',
             'middle_name',
             'otchestvo',
         ], trim((string)($user->middlename ?? '')));

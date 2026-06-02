@@ -125,7 +125,7 @@ class job_manager {
 
         $signorder = 1;
         $insertedsigners = 0;
-        foreach ($signers as $signer) {
+        foreach ($this->order_signers_for_commission_workflow($signers) as $signer) {
             if (empty($signer['email'])) {
                 error_log('local_ncasign: create_job skipped signer without email for job ' . $jobid);
                 continue;
@@ -172,6 +172,28 @@ class job_manager {
         }
 
         return (int)$jobid;
+    }
+
+    /**
+     * Return signers in the required email/signing workflow sequence.
+     *
+     * Template profiles keep the historical role order used by document rendering:
+     * chair, member 1, member 2. The signing workflow must email member 1, then
+     * member 2, then chair.
+     *
+     * @param array<int,array<string,mixed>> $signers
+     * @return array<int,array<string,mixed>>
+     */
+    private function order_signers_for_commission_workflow(array $signers): array {
+        $signers = array_values($signers);
+        if (count($signers) < 3) {
+            return $signers;
+        }
+
+        return array_merge(
+            [$signers[1], $signers[2], $signers[0]],
+            array_slice($signers, 3)
+        );
     }
 
     /**
@@ -2161,5 +2183,4 @@ class job_manager {
         return $token;
     }
 }
-
 
