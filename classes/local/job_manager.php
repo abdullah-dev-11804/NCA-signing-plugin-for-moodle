@@ -1689,6 +1689,7 @@ class job_manager {
             $targetuserid = (int)($issue->userid ?? $userid);
             $content = null;
             $restoredelements = $this->temporarily_apply_customcert_user_full_name((int)$customcert->templateid, $targetuserid);
+            $restoremiddlename = $this->temporarily_apply_user_table_middlename_from_profile($targetuserid);
 
             try {
                 if (method_exists($template, 'generate_pdf')) {
@@ -1699,6 +1700,7 @@ class job_manager {
                 }
             } finally {
                 $this->restore_customcert_text_overrides($restoredelements);
+                $this->restore_user_table_middlename($restoremiddlename);
             }
 
             if (!is_string($content) || $content === '') {
@@ -1823,6 +1825,59 @@ class job_manager {
     }
 
     /**
+     * Temporarily put the custom profile middle name into mdl_user.middlename for Customcert rendering.
+     *
+     * @param int $userid
+     * @return array{userid:int,original:string}|null
+     */
+    private function temporarily_apply_user_table_middlename_from_profile(int $userid): ?array {
+        global $DB;
+
+        if ($userid <= 0) {
+            return null;
+        }
+
+        $current = $DB->get_field('user', 'middlename', ['id' => $userid], IGNORE_MISSING);
+        if ($current === false) {
+            return null;
+        }
+
+        $profilemiddlename = $this->resolve_custom_profile_middlename($userid);
+        $DB->set_field('user', 'middlename', $profilemiddlename, ['id' => $userid]);
+
+        error_log(
+            'NCASIGN_CANARY user_table_middlename_temp_override' .
+            ' userid=' . $userid .
+            ' original_present=' . (trim((string)$current) !== '' ? '1' : '0') .
+            ' profile_present=' . ($profilemiddlename !== '' ? '1' : '0') .
+            ' profile_length=' . \core_text::strlen($profilemiddlename) .
+            ' profile_hash=' . ($profilemiddlename !== '' ? hash('sha256', $profilemiddlename) : '-')
+        );
+
+        return [
+            'userid' => $userid,
+            'original' => (string)$current,
+        ];
+    }
+
+    /**
+     * Restore mdl_user.middlename after temporary PDF rendering override.
+     *
+     * @param array{userid:int,original:string}|null $restore
+     * @return void
+     */
+    private function restore_user_table_middlename(?array $restore): void {
+        global $DB;
+
+        if (empty($restore['userid'])) {
+            return;
+        }
+
+        $DB->set_field('user', 'middlename', (string)($restore['original'] ?? ''), ['id' => (int)$restore['userid']]);
+        error_log('NCASIGN_CANARY user_table_middlename_temp_override_restored userid=' . (int)$restore['userid']);
+    }
+
+    /**
      * Restore temporarily changed customcert text element values.
      *
      * @param array<int,string> $restoredelements
@@ -1850,16 +1905,7 @@ class job_manager {
             return '';
         }
 
-        $middlename = '';
-        $sql = "SELECT d.data
-                  FROM {user_info_data} d
-                  JOIN {user_info_field} f ON f.id = d.fieldid
-                 WHERE d.userid = :userid
-                   AND " . $DB->sql_compare_text('f.shortname') . " = :shortname";
-        $record = $DB->get_record_sql($sql, ['userid' => $userid, 'shortname' => 'middlename'], IGNORE_MISSING);
-        if ($record) {
-            $middlename = trim((string)($record->data ?? ''));
-        }
+        $middlename = $this->resolve_custom_profile_middlename($userid);
 
         $parts = [];
         foreach (['lastname', 'firstname'] as $field) {
@@ -1873,6 +1919,25 @@ class job_manager {
         }
 
         return trim((string)preg_replace('/\s+/u', ' ', implode(' ', $parts)));
+    }
+
+    /**
+     * Resolve the custom profile field shortname middlename.
+     *
+     * @param int $userid
+     * @return string
+     */
+    private function resolve_custom_profile_middlename(int $userid): string {
+        global $DB;
+
+        $sql = "SELECT d.data
+                  FROM {user_info_data} d
+                  JOIN {user_info_field} f ON f.id = d.fieldid
+                 WHERE d.userid = :userid
+                   AND " . $DB->sql_compare_text('f.shortname') . " = :shortname";
+        $record = $DB->get_record_sql($sql, ['userid' => $userid, 'shortname' => 'middlename'], IGNORE_MISSING);
+
+        return $record ? trim((string)($record->data ?? '')) : '';
     }
 
     /**

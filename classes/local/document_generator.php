@@ -278,9 +278,11 @@ class document_generator {
         $template = $this->load_customcert_template_instance($templateid);
         $content = '';
         $restoredelements = [];
+        $restoremiddlename = null;
 
         customcert_runtime_overrides::push($runtimeoverrides);
         try {
+            $restoremiddlename = $this->temporarily_apply_user_table_middlename_from_profile($userid);
             $restoredelements = $this->temporarily_apply_customcert_text_overrides($templateid, $runtimeoverrides);
             if (method_exists($template, 'generate_pdf')) {
                 error_log('NCASIGN_CANARY generate_customcert_template_document using_template_generate_pdf userid=' . $userid);
@@ -292,6 +294,7 @@ class document_generator {
             }
         } finally {
             $this->restore_customcert_text_overrides($restoredelements);
+            $this->restore_user_table_middlename($restoremiddlename);
             customcert_runtime_overrides::pop();
         }
 
@@ -2128,6 +2131,64 @@ HTML;
         $name = \core_text::strtolower(trim($name));
         $name = preg_replace('/[\s\-]+/u', '_', $name) ?? $name;
         return trim($name, '_');
+    }
+
+    /**
+     * Temporarily put the custom profile middle name into mdl_user.middlename for Customcert rendering.
+     *
+     * Some Customcert elements call fullname($user) or read $user->middlename after
+     * generate_pdf() reloads the user from mdl_user. This keeps the generated PDF aligned
+     * with NCA Sign's custom profile-field source without permanently changing the user.
+     *
+     * @param int $userid
+     * @return array{userid:int,original:string}|null
+     */
+    private function temporarily_apply_user_table_middlename_from_profile(int $userid): ?array {
+        global $DB;
+
+        if ($userid <= 0) {
+            return null;
+        }
+
+        $current = $DB->get_field('user', 'middlename', ['id' => $userid], IGNORE_MISSING);
+        if ($current === false) {
+            return null;
+        }
+
+        $profilemiddlename = $this->resolve_user_profile_value($userid, ['middlename'], '');
+        $profilemiddlename = trim($profilemiddlename);
+        $DB->set_field('user', 'middlename', $profilemiddlename, ['id' => $userid]);
+
+        error_log(
+            'NCASIGN_CANARY user_table_middlename_temp_override' .
+            ' userid=' . $userid .
+            ' original_present=' . (trim((string)$current) !== '' ? '1' : '0') .
+            ' profile_present=' . ($profilemiddlename !== '' ? '1' : '0') .
+            ' profile_length=' . \core_text::strlen($profilemiddlename) .
+            ' profile_hash=' . ($profilemiddlename !== '' ? hash('sha256', $profilemiddlename) : '-')
+        );
+
+        return [
+            'userid' => $userid,
+            'original' => (string)$current,
+        ];
+    }
+
+    /**
+     * Restore mdl_user.middlename after temporary PDF rendering override.
+     *
+     * @param array{userid:int,original:string}|null $restore
+     * @return void
+     */
+    private function restore_user_table_middlename(?array $restore): void {
+        global $DB;
+
+        if (empty($restore['userid'])) {
+            return;
+        }
+
+        $DB->set_field('user', 'middlename', (string)($restore['original'] ?? ''), ['id' => (int)$restore['userid']]);
+        error_log('NCASIGN_CANARY user_table_middlename_temp_override_restored userid=' . (int)$restore['userid']);
     }
 
     /**
