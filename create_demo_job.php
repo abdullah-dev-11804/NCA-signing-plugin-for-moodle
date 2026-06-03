@@ -14,6 +14,10 @@
 require_once(__DIR__ . '/../../config.php');
 require_once(__DIR__ . '/classes/form/demo_job_form.php');
 
+ini_set('log_errors', '1');
+ini_set('error_log', '/tmp/ncasign-debug.log');
+error_log('NCASIGN_CANARY forced log file active');
+
 use local_ncasign\form\demo_job_form;
 use local_ncasign\local\document_generator;
 use local_ncasign\local\document_storage;
