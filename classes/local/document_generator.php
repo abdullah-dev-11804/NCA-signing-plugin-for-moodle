@@ -280,11 +280,13 @@ class document_generator {
 
         customcert_runtime_overrides::push($runtimeoverrides);
         try {
-            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+            if (method_exists($template, 'generate_pdf')) {
+                error_log('NCASIGN_CANARY generate_customcert_template_document using_template_generate_pdf userid=' . $userid);
+                $content = (string)$template->generate_pdf(false, $userid, true);
+            } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+                error_log('NCASIGN_CANARY generate_customcert_template_document using_pdf_generation_service userid=' . $userid);
                 $pdfservice = \mod_customcert\service\pdf_generation_service::create();
                 $content = (string)$pdfservice->generate_pdf($template, false, $userid, true);
-            } else if (method_exists($template, 'generate_pdf')) {
-                $content = (string)$template->generate_pdf(false, $userid, true);
             }
         } finally {
             customcert_runtime_overrides::pop();

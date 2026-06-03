@@ -438,11 +438,11 @@ class observer {
             $userid = (int)($issue->userid ?? $fallbackuserid);
             $content = null;
 
-            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+            if (method_exists($template, 'generate_pdf')) {
+                $content = $template->generate_pdf(false, $userid, true);
+            } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
                 $pdfservice = \mod_customcert\service\pdf_generation_service::create();
                 $content = $pdfservice->generate_pdf($template, false, $userid, true);
-            } else if (method_exists($template, 'generate_pdf')) {
-                $content = $template->generate_pdf(false, $userid, true);
             }
 
             if (!is_string($content) || $content === '') {
@@ -480,11 +480,11 @@ class observer {
             }
 
             $content = null;
-            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+            if (method_exists($template, 'generate_pdf')) {
+                $content = $template->generate_pdf(false, $userid, true);
+            } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
                 $pdfservice = \mod_customcert\service\pdf_generation_service::create();
                 $content = $pdfservice->generate_pdf($template, false, $userid, true);
-            } else if (method_exists($template, 'generate_pdf')) {
-                $content = $template->generate_pdf(false, $userid, true);
             }
 
             if (!is_string($content) || $content === '') {

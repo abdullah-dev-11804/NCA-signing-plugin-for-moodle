@@ -1689,11 +1689,11 @@ class job_manager {
             $targetuserid = (int)($issue->userid ?? $userid);
             $content = null;
 
-            if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+            if (method_exists($template, 'generate_pdf')) {
+                $content = $template->generate_pdf(false, $targetuserid, true);
+            } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
                 $pdfservice = \mod_customcert\service\pdf_generation_service::create();
                 $content = $pdfservice->generate_pdf($template, false, $targetuserid, true);
-            } else if (method_exists($template, 'generate_pdf')) {
-                $content = $template->generate_pdf(false, $targetuserid, true);
             }
 
             if (!is_string($content) || $content === '') {
@@ -2183,4 +2183,3 @@ class job_manager {
         return $token;
     }
 }
-
