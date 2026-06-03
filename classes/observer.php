@@ -660,9 +660,6 @@ class observer {
         if ($record) {
             $middlename = trim((string)($record->data ?? ''));
         }
-        if ($middlename === '') {
-            $middlename = trim((string)($user->middlename ?? ''));
-        }
 
         $parts = [];
         foreach (['lastname', 'firstname'] as $field) {

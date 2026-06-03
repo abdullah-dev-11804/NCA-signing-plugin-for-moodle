@@ -1669,7 +1669,7 @@ HTML;
             'patronymic',
             'middle_name',
             'otchestvo',
-        ], trim((string)($user->middlename ?? '')));
+        ], '');
         $patronymic = trim($patronymic);
         error_log(
             'local_ncasign debug: resolve_user_full_name' .
