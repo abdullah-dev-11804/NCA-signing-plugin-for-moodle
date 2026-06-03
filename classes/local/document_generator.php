@@ -277,9 +277,11 @@ class document_generator {
         }
         $template = $this->load_customcert_template_instance($templateid);
         $content = '';
+        $restoredelements = [];
 
         customcert_runtime_overrides::push($runtimeoverrides);
         try {
+            $restoredelements = $this->temporarily_apply_customcert_text_overrides($templateid, $runtimeoverrides);
             if (method_exists($template, 'generate_pdf')) {
                 error_log('NCASIGN_CANARY generate_customcert_template_document using_template_generate_pdf userid=' . $userid);
                 $content = (string)$template->generate_pdf(false, $userid, true);
@@ -289,6 +291,7 @@ class document_generator {
                 $content = (string)$pdfservice->generate_pdf($template, false, $userid, true);
             }
         } finally {
+            $this->restore_customcert_text_overrides($restoredelements);
             customcert_runtime_overrides::pop();
         }
 
@@ -2040,6 +2043,112 @@ HTML;
         }
 
         return $slots;
+    }
+
+    /**
+     * Temporarily write text override values into customcert text elements before PDF rendering.
+     *
+     * This is a fallback for servers where the modified customcert text element is not the
+     * class actually used during PDF generation. The original values are restored immediately.
+     *
+     * @param int $templateid
+     * @param array<string,string> $overrides
+     * @return array<int,string>
+     */
+    private function temporarily_apply_customcert_text_overrides(int $templateid, array $overrides): array {
+        global $DB;
+
+        if ($templateid <= 0 || !$overrides) {
+            return [];
+        }
+
+        $manager = $DB->get_manager();
+        if (!$manager->table_exists(new \xmldb_table('customcert_pages'))
+            || !$manager->table_exists(new \xmldb_table('customcert_elements'))) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($overrides as $key => $value) {
+            $key = $this->normalise_customcert_element_name((string)$key);
+            if ($key !== '') {
+                $normalised[$key] = (string)$value;
+            }
+        }
+        if (!$normalised) {
+            return [];
+        }
+
+        $sql = "SELECT e.id, e.name, e.element, e.data
+                  FROM {customcert_elements} e
+                  JOIN {customcert_pages} p ON p.id = e.pageid
+                 WHERE p.templateid = :templateid
+                   AND " . $DB->sql_compare_text('e.element') . " = :element";
+        $elements = $DB->get_records_sql($sql, [
+            'templateid' => $templateid,
+            'element' => 'text',
+        ]);
+
+        $restore = [];
+        $matched = [];
+        $scanned = [];
+        foreach ($elements as $element) {
+            $rawname = (string)($element->name ?? '');
+            $name = $this->normalise_customcert_element_name($rawname);
+            $scanned[] = trim($rawname) . ':' . $name;
+            if ($name === '' || !array_key_exists($name, $normalised)) {
+                continue;
+            }
+
+            $value = (string)$normalised[$name];
+            $restore[(int)$element->id] = (string)($element->data ?? '');
+            $DB->set_field('customcert_elements', 'data', $value, ['id' => (int)$element->id]);
+            $matched[] = $name . '#' . (int)$element->id;
+        }
+
+        error_log(
+            'NCASIGN_CANARY customcert_text_element_temp_overrides' .
+            ' templateid=' . $templateid .
+            ' matched_count=' . count($matched) .
+            ' matched=' . implode(',', $matched) .
+            ' scanned=' . implode('|', $scanned) .
+            ' has_user_full_name=' . (array_key_exists('user_full_name', $normalised) ? '1' : '0')
+        );
+
+        return $restore;
+    }
+
+    /**
+     * Normalise customcert element names for matching saved template names to overrides.
+     *
+     * @param string $name
+     * @return string
+     */
+    private function normalise_customcert_element_name(string $name): string {
+        $name = \core_text::strtolower(trim($name));
+        $name = preg_replace('/[\s\-]+/u', '_', $name) ?? $name;
+        return trim($name, '_');
+    }
+
+    /**
+     * Restore customcert text element data after temporary rendering overrides.
+     *
+     * @param array<int,string> $restoredelements
+     * @return void
+     */
+    private function restore_customcert_text_overrides(array $restoredelements): void {
+        global $DB;
+
+        foreach ($restoredelements as $elementid => $data) {
+            $DB->set_field('customcert_elements', 'data', (string)$data, ['id' => (int)$elementid]);
+        }
+
+        if ($restoredelements) {
+            error_log(
+                'NCASIGN_CANARY customcert_text_element_temp_overrides_restored' .
+                ' restored_count=' . count($restoredelements)
+            );
+        }
     }
 
     /**

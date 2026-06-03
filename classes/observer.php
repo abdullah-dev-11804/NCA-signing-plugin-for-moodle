@@ -437,12 +437,17 @@ class observer {
             }
             $userid = (int)($issue->userid ?? $fallbackuserid);
             $content = null;
+            $restoredelements = self::temporarily_apply_customcert_user_full_name((int)$customcert->templateid, $userid);
 
-            if (method_exists($template, 'generate_pdf')) {
-                $content = $template->generate_pdf(false, $userid, true);
-            } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
-                $pdfservice = \mod_customcert\service\pdf_generation_service::create();
-                $content = $pdfservice->generate_pdf($template, false, $userid, true);
+            try {
+                if (method_exists($template, 'generate_pdf')) {
+                    $content = $template->generate_pdf(false, $userid, true);
+                } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+                    $pdfservice = \mod_customcert\service\pdf_generation_service::create();
+                    $content = $pdfservice->generate_pdf($template, false, $userid, true);
+                }
+            } finally {
+                self::restore_customcert_text_overrides($restoredelements);
             }
 
             if (!is_string($content) || $content === '') {
@@ -480,11 +485,16 @@ class observer {
             }
 
             $content = null;
-            if (method_exists($template, 'generate_pdf')) {
-                $content = $template->generate_pdf(false, $userid, true);
-            } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
-                $pdfservice = \mod_customcert\service\pdf_generation_service::create();
-                $content = $pdfservice->generate_pdf($template, false, $userid, true);
+            $restoredelements = self::temporarily_apply_customcert_user_full_name($templateid, $userid);
+            try {
+                if (method_exists($template, 'generate_pdf')) {
+                    $content = $template->generate_pdf(false, $userid, true);
+                } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
+                    $pdfservice = \mod_customcert\service\pdf_generation_service::create();
+                    $content = $pdfservice->generate_pdf($template, false, $userid, true);
+                }
+            } finally {
+                self::restore_customcert_text_overrides($restoredelements);
             }
 
             if (!is_string($content) || $content === '') {
@@ -541,6 +551,131 @@ class observer {
             error_log('local_ncasign: failed to load customcert template ' . $templateid . ': ' . $e->getMessage());
             return null;
         }
+    }
+
+    /**
+     * Temporarily set the customcert text element named user_full_name for direct issue rendering.
+     *
+     * @param int $templateid
+     * @param int $userid
+     * @return array<int,string>
+     */
+    private static function temporarily_apply_customcert_user_full_name(int $templateid, int $userid): array {
+        global $DB;
+
+        $value = self::resolve_customcert_user_full_name($userid);
+        if ($templateid <= 0 || $value === '') {
+            return [];
+        }
+
+        $manager = $DB->get_manager();
+        if (!$manager->table_exists(new \xmldb_table('customcert_pages'))
+            || !$manager->table_exists(new \xmldb_table('customcert_elements'))) {
+            return [];
+        }
+
+        $sql = "SELECT e.id, e.name, e.data
+                  FROM {customcert_elements} e
+                  JOIN {customcert_pages} p ON p.id = e.pageid
+                 WHERE p.templateid = :templateid
+                   AND " . $DB->sql_compare_text('e.element') . " = :element";
+        $elements = $DB->get_records_sql($sql, [
+            'templateid' => $templateid,
+            'element' => 'text',
+        ]);
+
+        $restore = [];
+        $scanned = [];
+        foreach ($elements as $element) {
+            $rawname = (string)($element->name ?? '');
+            $name = self::normalise_customcert_element_name($rawname);
+            $scanned[] = trim($rawname) . ':' . $name;
+            if ($name !== 'user_full_name') {
+                continue;
+            }
+            $restore[(int)$element->id] = (string)($element->data ?? '');
+            $DB->set_field('customcert_elements', 'data', $value, ['id' => (int)$element->id]);
+        }
+
+        error_log(
+            'NCASIGN_CANARY customcert_issue_user_full_name_temp_override' .
+            ' templateid=' . $templateid .
+            ' userid=' . $userid .
+            ' matched_count=' . count($restore) .
+            ' scanned=' . implode('|', $scanned) .
+            ' value_length=' . \core_text::strlen($value) .
+            ' value_hash=' . hash('sha256', $value)
+        );
+
+        return $restore;
+    }
+
+    /**
+     * Normalise customcert element names for matching saved template names to overrides.
+     *
+     * @param string $name
+     * @return string
+     */
+    private static function normalise_customcert_element_name(string $name): string {
+        $name = \core_text::strtolower(trim($name));
+        $name = preg_replace('/[\s\-]+/u', '_', $name) ?? $name;
+        return trim($name, '_');
+    }
+
+    /**
+     * Restore temporarily changed customcert text element values.
+     *
+     * @param array<int,string> $restoredelements
+     * @return void
+     */
+    private static function restore_customcert_text_overrides(array $restoredelements): void {
+        global $DB;
+
+        foreach ($restoredelements as $elementid => $data) {
+            $DB->set_field('customcert_elements', 'data', (string)$data, ['id' => (int)$elementid]);
+        }
+    }
+
+    /**
+     * Resolve the certificate owner full name using custom profile field shortname middlename.
+     *
+     * @param int $userid
+     * @return string
+     */
+    private static function resolve_customcert_user_full_name(int $userid): string {
+        global $DB;
+
+        $user = $DB->get_record('user', ['id' => $userid], 'id,firstname,lastname,middlename', IGNORE_MISSING);
+        if (!$user) {
+            return '';
+        }
+
+        $middlename = '';
+        $sql = "SELECT d.data
+                  FROM {user_info_data} d
+                  JOIN {user_info_field} f ON f.id = d.fieldid
+                 WHERE d.userid = :userid
+                   AND " . $DB->sql_compare_text('f.shortname') . " = :shortname";
+        $record = $DB->get_record_sql($sql, ['userid' => $userid, 'shortname' => 'middlename'], IGNORE_MISSING);
+        if ($record) {
+            $middlename = trim((string)($record->data ?? ''));
+        }
+        if ($middlename === '') {
+            $middlename = trim((string)($user->middlename ?? ''));
+        }
+
+        $parts = [];
+        foreach (['lastname', 'firstname'] as $field) {
+            $value = trim((string)($user->{$field} ?? ''));
+            if ($value !== '') {
+                $parts[] = $value;
+            }
+        }
+        if ($middlename !== '') {
+            $parts[] = $middlename;
+        }
+
+        return trim((string)preg_replace('/\s+/u', ' ', implode(' ', $parts)));
     }
 
     /**
