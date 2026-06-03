@@ -63,6 +63,14 @@ if ($data = $mform->get_data()) {
     $userid = (int)$data->userid;
     $selectedprofile = resolve_demo_profile($templatemanager, (int)$data->templateprofileid);
     $courseid = resolve_first_profile_courseid($selectedprofile);
+    error_log(
+        'NCASIGN_CANARY create_demo_job submitted' .
+        ' userid=' . $userid .
+        ' profileid=' . (int)($data->templateprofileid ?? 0) .
+        ' resolved_courseid=' . $courseid .
+        ' usedemodata=' . (!empty($data->usedemodata) ? '1' : '0') .
+        ' autosign=' . (!empty($data->autosigndemo) ? '1' : '0')
+    );
     if ($courseid <= 0) {
         \core\notification::error(get_string('demotemplateprofile_nocourse', 'local_ncasign'));
     } else {
@@ -76,6 +84,14 @@ if ($data = $mform->get_data()) {
         if ($generationprofile) {
             try {
                 $generator = new document_generator();
+                error_log(
+                    'NCASIGN_CANARY create_demo_job before_generate' .
+                    ' userid=' . $userid .
+                    ' courseid=' . $courseid .
+                    ' renderer=' . (string)($generationprofile['renderer'] ?? '') .
+                    ' customcerttemplateid=' . (int)($generationprofile['customcerttemplateid'] ?? 0) .
+                    ' signer_count=' . count($signers)
+                );
                 $draft = $generator->generate_draft_from_profile(
                     $userid,
                     $courseid,
@@ -86,6 +102,20 @@ if ($data = $mform->get_data()) {
                         'signers' => $signers,
                         'use_demo_data' => !empty($data->usedemodata),
                     ]
+                );
+                error_log(
+                    'NCASIGN_CANARY create_demo_job after_generate' .
+                    ' userid=' . $userid .
+                    ' filename=' . (string)($draft['filename'] ?? '') .
+                    ' bytes=' . strlen((string)($draft['content'] ?? '')) .
+                    ' preview_userfullname_present=' .
+                    (!empty($draft['previewdata']['userfullname']) ? '1' : '0') .
+                    ' preview_userfullname_length=' .
+                    \core_text::strlen((string)($draft['previewdata']['userfullname'] ?? '')) .
+                    ' preview_userfullname_hash=' .
+                    (!empty($draft['previewdata']['userfullname'])
+                        ? hash('sha256', (string)$draft['previewdata']['userfullname'])
+                        : '-')
                 );
                 $attachment = [
                     'filename' => (string)$draft['filename'],

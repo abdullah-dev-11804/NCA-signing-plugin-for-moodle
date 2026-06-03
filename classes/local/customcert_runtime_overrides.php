@@ -41,6 +41,20 @@ class customcert_runtime_overrides {
             $normalised[$key] = (string)$value;
         }
         self::$stack[] = $normalised;
+        error_log(
+            'NCASIGN_CANARY customcert_runtime_overrides push' .
+            ' depth=' . count(self::$stack) .
+            ' key_count=' . count($normalised) .
+            ' has_user_full_name=' . (array_key_exists('user_full_name', $normalised) ? '1' : '0') .
+            ' user_full_name_length=' .
+            (array_key_exists('user_full_name', $normalised)
+                ? \core_text::strlen((string)$normalised['user_full_name'])
+                : 0) .
+            ' user_full_name_hash=' .
+            (array_key_exists('user_full_name', $normalised)
+                ? hash('sha256', (string)$normalised['user_full_name'])
+                : '-')
+        );
     }
 
     /**
@@ -68,10 +82,26 @@ class customcert_runtime_overrides {
 
         for ($i = count(self::$stack) - 1; $i >= 0; $i--) {
             if (array_key_exists($key, self::$stack[$i])) {
+                if ($key === 'user_full_name') {
+                    error_log(
+                        'NCASIGN_CANARY customcert_runtime_overrides hit' .
+                        ' element=' . $elementname .
+                        ' depth=' . count(self::$stack) .
+                        ' value_length=' . \core_text::strlen((string)self::$stack[$i][$key]) .
+                        ' value_hash=' . hash('sha256', (string)self::$stack[$i][$key])
+                    );
+                }
                 return self::$stack[$i][$key];
             }
         }
 
+        if ($key === 'user_full_name') {
+            error_log(
+                'NCASIGN_CANARY customcert_runtime_overrides miss' .
+                ' element=' . $elementname .
+                ' depth=' . count(self::$stack)
+            );
+        }
         return null;
     }
 

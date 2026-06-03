@@ -71,6 +71,14 @@ class document_generator {
         array $options = []
     ): array {
         $renderer = (string)($profile['renderer'] ?? self::DOC_ENGINEER_PROTOCOL);
+        error_log(
+            'NCASIGN_CANARY generate_draft_from_profile' .
+            ' userid=' . $userid .
+            ' courseid=' . $courseid .
+            ' renderer=' . $renderer .
+            ' profileid=' . (int)($profile['id'] ?? 0) .
+            ' use_demo_data=' . (!empty($options['use_demo_data']) ? '1' : '0')
+        );
         if ($renderer === self::DOC_ENGINEER_PROTOCOL) {
             return $this->generate_engineer_protocol($userid, $courseid, $options, $profile);
         }
@@ -209,6 +217,13 @@ class document_generator {
         if ($templateid <= 0) {
             throw new \RuntimeException('No customcert template id is configured for this profile.');
         }
+        error_log(
+            'NCASIGN_CANARY generate_customcert_template_document start' .
+            ' userid=' . $userid .
+            ' courseid=' . $courseid .
+            ' templateid=' . $templateid .
+            ' use_demo_data=' . (!empty($options['use_demo_data']) ? '1' : '0')
+        );
 
         $user = $DB->get_record('user', ['id' => $userid], 'id,firstname,lastname,middlename,alternatename', MUST_EXIST);
         $course = $DB->get_record('course', ['id' => $courseid], 'id,fullname,shortname', MUST_EXIST);
