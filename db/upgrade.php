@@ -306,5 +306,24 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026052100, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026060400) {
+        $table = new xmldb_table('local_ncasign_number_counters');
+
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('countertype', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('counterdate', XMLDB_TYPE_CHAR, '8', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('currentvalue', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_index('counter_date_uix', XMLDB_INDEX_UNIQUE, ['countertype', 'counterdate']);
+
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026060400, 'local', 'ncasign');
+    }
+
     return true;
 }

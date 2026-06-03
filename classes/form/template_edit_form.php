@@ -310,6 +310,7 @@ class template_edit_form extends \moodleform {
             'userjobtitle' => 'Engineer',
             'completionstatus' => 'өтті / прошел',
             'certificatenumber' => 'CER-1042-0031-20260225-0003',
+            'bookid' => 'CID-1042-0031-20260225-0003',
             'chairinitials' => 'Aubikerov T.K.',
             'member1initials' => 'Amirzhanova G.Zh.',
             'member2initials' => 'Mukhtarov A.G.',

@@ -59,6 +59,21 @@
         <INDEX NAME="active_idx" UNIQUE="false" FIELDS="active"/>
       </INDEXES>
     </TABLE>
+    <TABLE NAME="local_ncasign_number_counters" COMMENT="Daily generated document number counters">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="countertype" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="counterdate" TYPE="char" LENGTH="8" NOTNULL="true" DEFAULT=""/>
+        <FIELD NAME="currentvalue" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="counter_date_uix" UNIQUE="true" FIELDS="countertype, counterdate"/>
+      </INDEXES>
+    </TABLE>
     <TABLE NAME="local_ncasign_template_courses" COMMENT="Course to template profile mappings">
       <FIELDS>
         <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>

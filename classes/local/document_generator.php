@@ -577,6 +577,7 @@ class document_generator {
             'userjobtitle' => (string)($documentdata['userjobtitle'] ?? ''),
             'completionstatus' => (string)($documentdata['completionstatus'] ?? ''),
             'certificatenumber' => (string)($documentdata['certificatenumber'] ?? ''),
+            'bookid' => (string)($documentdata['bookid'] ?? ''),
             'chairinitials' => (string)($documentdata['chairinitials'] ?? ''),
             'member1initials' => (string)($documentdata['member1initials'] ?? ''),
             'member2initials' => (string)($documentdata['member2initials'] ?? ''),
@@ -682,11 +683,18 @@ class document_generator {
         $metadata = (array)($layoutconfig['metadata'] ?? []);
         $outputlanguage = $this->resolve_template_output_language($metadata);
         $documenttimestamp = !empty($options['documenttimestamp']) ? (int)$options['documenttimestamp'] : time();
-        $dailysequence = !empty($options['dailysequence'])
+        $protocolsequence = !empty($options['dailysequence'])
             ? max(1, (int)$options['dailysequence'])
             : $this->build_daily_sequence_number($documenttimestamp, 'protocol');
-        $protocolnumber = (string)($options['protocolnumber'] ?? $this->build_protocol_number($courseid, $userid, $documenttimestamp, $dailysequence));
-        $certificatenumber = (string)($options['certificatenumber'] ?? $this->build_certificate_number($courseid, $userid, $documenttimestamp, $dailysequence));
+        $certificatesequence = !empty($options['certificatesequence'])
+            ? max(1, (int)$options['certificatesequence'])
+            : $this->build_daily_sequence_number($documenttimestamp, 'certificate');
+        $booksequence = !empty($options['booksequence'])
+            ? max(1, (int)$options['booksequence'])
+            : $this->build_daily_sequence_number($documenttimestamp, 'book');
+        $protocolnumber = (string)($options['protocolnumber'] ?? $this->build_protocol_number($courseid, $userid, $documenttimestamp, $protocolsequence));
+        $certificatenumber = (string)($options['certificatenumber'] ?? $this->build_certificate_number($courseid, $userid, $documenttimestamp, $certificatesequence));
+        $bookid = (string)($options['bookid'] ?? ($options['book_id'] ?? $this->build_book_id($courseid, $userid, $documenttimestamp, $booksequence)));
         $sentalcompanyname = trim((string)($options['sentalcompanyname'] ?? ($metadata['sentalcompanyname'] ?? ''))) !== ''
             ? trim((string)($options['sentalcompanyname'] ?? $metadata['sentalcompanyname']))
             : 'ТОО "SENTAL"';
@@ -752,6 +760,7 @@ class document_generator {
             'userjobtitle' => $userjobtitle,
             'completionstatus' => $status,
             'certificatenumber' => $certificatenumber,
+            'bookid' => $bookid,
             'chairinitials' => $this->format_signer_initials($signers[0] ?? []),
             'member1initials' => $this->format_signer_initials($signers[1] ?? []),
             'member2initials' => $this->format_signer_initials($signers[2] ?? []),
@@ -786,7 +795,16 @@ class document_generator {
             if ($key === '' || is_array($value) || is_object($value)) {
                 continue;
             }
-            if (in_array(\core_text::strtolower($key), ['userfullname', 'user_full_name'], true)) {
+            if (in_array(\core_text::strtolower($key), [
+                'userfullname',
+                'user_full_name',
+                'protocolnumber',
+                'protocol_number',
+                'certificatenumber',
+                'certificate_number',
+                'bookid',
+                'book_id',
+            ], true)) {
                 continue;
             }
             $documentdata[$key] = (string)$value;
@@ -817,6 +835,7 @@ class document_generator {
             'userjobtitle' => 'Engineer',
             'completionstatus' => 'өтті / прошел',
             'certificatenumber' => 'CER-1042-0031-20260225-0003',
+            'bookid' => 'CID-1042-0031-20260225-0003',
             'chairinitials' => 'Aubikerov T.K.',
             'member1initials' => 'Amirzhanova G.Zh.',
             'member2initials' => 'Mukhtarov A.G.',
@@ -1222,6 +1241,19 @@ HTML;
     }
 
     /**
+     * Build a stable course completion book id.
+     *
+     * @param int $courseid
+     * @param int $userid
+     * @param int $timestamp
+     * @param int|null $sequence
+     * @return string
+     */
+    private function build_book_id(int $courseid, int $userid, int $timestamp, ?int $sequence = null): string {
+        return $this->build_document_number('CID', $courseid, $userid, $timestamp, $sequence);
+    }
+
+    /**
      * Build a numbered document reference.
      *
      * @param string $prefix
@@ -1357,15 +1389,98 @@ HTML;
     private function build_daily_sequence_number(int $timestamp, string $documenttype): int {
         global $DB;
 
+        $countertype = $this->normalise_number_counter_type($documenttype);
+        $manager = $DB->get_manager();
+        if ($manager->table_exists(new \xmldb_table('local_ncasign_number_counters'))) {
+            return $this->reserve_daily_sequence_number($timestamp, $countertype);
+        }
+
+        return $this->build_daily_sequence_number_from_jobs($timestamp, $countertype) + 1;
+    }
+
+    /**
+     * Reserve the next sequence number for a counter type/date.
+     *
+     * @param int $timestamp
+     * @param string $countertype
+     * @return int
+     */
+    private function reserve_daily_sequence_number(int $timestamp, string $countertype): int {
+        global $DB;
+
+        $counterdate = $this->get_protocol_datetime($timestamp)->format('Ymd');
+        $params = [
+            'countertype' => $countertype,
+            'counterdate' => $counterdate,
+        ];
+        $now = time();
+
+        try {
+            $counter = $DB->get_record('local_ncasign_number_counters', $params, '*', IGNORE_MISSING);
+            if (!$counter) {
+                $counter = (object)[
+                    'countertype' => $countertype,
+                    'counterdate' => $counterdate,
+                    'currentvalue' => $this->build_daily_sequence_number_from_jobs($timestamp, $countertype),
+                    'timemodified' => $now,
+                ];
+                $counter->id = $DB->insert_record('local_ncasign_number_counters', $counter);
+            }
+
+            $counter->currentvalue = ((int)$counter->currentvalue) + 1;
+            $counter->timemodified = $now;
+            $DB->update_record('local_ncasign_number_counters', $counter);
+
+            return (int)$counter->currentvalue;
+        } catch (\dml_write_exception $e) {
+            $counter = $DB->get_record('local_ncasign_number_counters', $params, '*', MUST_EXIST);
+            $counter->currentvalue = ((int)$counter->currentvalue) + 1;
+            $counter->timemodified = $now;
+            $DB->update_record('local_ncasign_number_counters', $counter);
+
+            return (int)$counter->currentvalue;
+        }
+    }
+
+    /**
+     * Build the legacy job-count sequence seed for a counter type/date.
+     *
+     * @param int $timestamp
+     * @param string $countertype
+     * @return int
+     */
+    private function build_daily_sequence_number_from_jobs(int $timestamp, string $countertype): int {
+        global $DB;
+
         $daystart = $this->get_protocol_datetime($timestamp)->setTime(0, 0, 0);
         $dayend = $daystart->modify('+1 day');
-        $count = (int)$DB->count_records_select('local_ncasign_jobs', 'documenttype = :documenttype AND timecreated >= :start AND timecreated < :end', [
-            'documenttype' => $documenttype === 'certificate' ? 'certificate' : 'protocol',
+
+        $legacydocumenttype = $countertype === 'certificate' ? 'certificate' : 'protocol';
+
+        return (int)$DB->count_records_select('local_ncasign_jobs', 'documenttype = :documenttype AND timecreated >= :start AND timecreated < :end', [
+            'documenttype' => $legacydocumenttype,
             'start' => $daystart->getTimestamp(),
             'end' => $dayend->getTimestamp(),
         ]);
+    }
 
-        return $count + 1;
+    /**
+     * Normalise document number counter names.
+     *
+     * @param string $documenttype
+     * @return string
+     */
+    private function normalise_number_counter_type(string $documenttype): string {
+        $documenttype = \core_text::strtolower(trim($documenttype));
+
+        if (in_array($documenttype, ['cer', 'certificate', 'certificate_number'], true)) {
+            return 'certificate';
+        }
+        if (in_array($documenttype, ['cid', 'book', 'book_id', 'course_completion_book'], true)) {
+            return 'book';
+        }
+
+        return 'protocol';
     }
 
     /**
@@ -2097,16 +2212,19 @@ HTML;
         $scanned = [];
         foreach ($elements as $element) {
             $rawname = (string)($element->name ?? '');
+            $rawdata = (string)($element->data ?? '');
             $name = $this->normalise_customcert_element_name($rawname);
-            $scanned[] = trim($rawname) . ':' . $name;
-            if ($name === '' || !array_key_exists($name, $normalised)) {
+            $datakey = $this->normalise_customcert_element_name($rawdata);
+            $overridekey = array_key_exists($name, $normalised) ? $name : $datakey;
+            $scanned[] = trim($rawname) . ':' . $name . ':' . $datakey;
+            if ($overridekey === '' || !array_key_exists($overridekey, $normalised)) {
                 continue;
             }
 
-            $value = (string)$normalised[$name];
+            $value = (string)$normalised[$overridekey];
             $restore[(int)$element->id] = (string)($element->data ?? '');
             $DB->set_field('customcert_elements', 'data', $value, ['id' => (int)$element->id]);
-            $matched[] = $name . '#' . (int)$element->id;
+            $matched[] = $overridekey . '#' . (int)$element->id;
         }
 
         error_log(
@@ -2267,6 +2385,10 @@ HTML;
             'user_job_title' => 'userjobtitle',
             'course_completion_status' => 'completionstatus',
             'certificate_number' => 'certificatenumber',
+            'document_number_cer' => 'certificatenumber',
+            'book_id' => 'bookid',
+            'course_completion_book_id' => 'bookid',
+            'document_number_cid' => 'bookid',
             'commision_chair_initials_ss' => 'chairinitials',
             'comission_chair_initials_ss' => 'chairinitials',
             'commission_chair_initials_ss' => 'chairinitials',
