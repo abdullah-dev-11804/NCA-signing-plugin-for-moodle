@@ -311,8 +311,8 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
 
         if (!$dbman->table_exists($table)) {
             $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
-            $table->add_field('countertype', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, '');
-            $table->add_field('counterdate', XMLDB_TYPE_CHAR, '8', null, XMLDB_NOTNULL, null, '');
+            $table->add_field('countertype', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, null);
+            $table->add_field('counterdate', XMLDB_TYPE_CHAR, '8', null, XMLDB_NOTNULL, null, null);
             $table->add_field('currentvalue', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
             $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
 
