@@ -234,6 +234,16 @@ class document_generator {
         );
 
         $overrides = $this->build_customcert_text_overrides($documentdata, $layoutconfig);
+        if (array_key_exists('user_full_name', $overrides)) {
+            error_log(
+                'local_ncasign debug: customcert user_full_name override prepared' .
+                ' userid=' . $userid .
+                ' length=' . \core_text::strlen((string)$overrides['user_full_name']) .
+                ' value_hash=' . hash('sha256', (string)$overrides['user_full_name'])
+            );
+        } else {
+            error_log('local_ncasign debug: customcert user_full_name override missing userid=' . $userid);
+        }
         $qroverrides = $this->build_customcert_signer_qr_overrides((string)($options['verifyurl'] ?? ''));
         $runtimeoverrides = array_replace($qroverrides, $overrides);
         $signerqrslots = $this->get_customcert_signer_qr_slots(
@@ -1641,6 +1651,16 @@ HTML;
             'otchestvo',
         ], trim((string)($user->middlename ?? '')));
         $patronymic = trim($patronymic);
+        error_log(
+            'local_ncasign debug: resolve_user_full_name' .
+            ' userid=' . $userid .
+            ' lastname_present=' . (!empty($user->lastname) ? '1' : '0') .
+            ' firstname_present=' . (!empty($user->firstname) ? '1' : '0') .
+            ' builtin_middlename_present=' . (!empty($user->middlename) ? '1' : '0') .
+            ' resolved_middle_present=' . ($patronymic !== '' ? '1' : '0') .
+            ' resolved_middle_length=' . \core_text::strlen($patronymic) .
+            ' resolved_middle_hash=' . ($patronymic !== '' ? hash('sha256', $patronymic) : '-')
+        );
         if ($patronymic !== '') {
             $parts[] = $patronymic;
         }
@@ -2199,6 +2219,19 @@ HTML;
                   JOIN {user_info_field} f ON f.id = d.fieldid
                  WHERE d.userid = :userid";
         $records = $DB->get_records_sql($sql, ['userid' => $userid]);
+        $available = [];
+        foreach ($records as $record) {
+            $available[] = (string)($record->shortname ?? '') . ':' .
+                ($this->normalise_profile_shortname((string)($record->shortname ?? ''))) . ':' .
+                (trim((string)($record->data ?? '')) !== '' ? 'hasdata' : 'empty');
+        }
+        error_log(
+            'local_ncasign debug: resolve_user_profile_value scan' .
+            ' userid=' . $userid .
+            ' requested=' . implode(',', array_map('strval', $shortnames)) .
+            ' record_count=' . count($records) .
+            ' available=' . implode('|', $available)
+        );
         foreach ($shortnames as $shortname) {
             $normalised = $this->normalise_profile_shortname((string)$shortname);
             if ($normalised === '' || empty($wanted[$normalised])) {
@@ -2212,11 +2245,26 @@ HTML;
 
                 $value = trim((string)($record->data ?? ''));
                 if ($value !== '') {
+                    error_log(
+                        'local_ncasign debug: resolve_user_profile_value matched' .
+                        ' userid=' . $userid .
+                        ' requested=' . (string)$shortname .
+                        ' record_shortname=' . (string)($record->shortname ?? '') .
+                        ' value_length=' . \core_text::strlen($value) .
+                        ' value_hash=' . hash('sha256', $value)
+                    );
                     return $value;
                 }
             }
         }
 
+        error_log(
+            'local_ncasign debug: resolve_user_profile_value fallback' .
+            ' userid=' . $userid .
+            ' requested=' . implode(',', array_map('strval', $shortnames)) .
+            ' default_present=' . (trim($default) !== '' ? '1' : '0') .
+            ' default_length=' . \core_text::strlen(trim($default))
+        );
         return $default;
     }
 
