@@ -1711,7 +1711,7 @@ class job_manager {
     }
 
     /**
-     * Load mod_customcert template object across plugin versions.
+     * Load mod_customcert template object directly from the template record.
      *
      * @param int $templateid
      * @return object|null
@@ -1724,18 +1724,24 @@ class job_manager {
         }
 
         try {
-            if (method_exists('\mod_customcert\template', 'load')) {
-                return \mod_customcert\template::load($templateid);
-            }
-            if (method_exists('\mod_customcert\template', 'instance')) {
-                return \mod_customcert\template::instance($templateid);
-            }
             $templaterecord = $DB->get_record('customcert_templates', ['id' => $templateid], '*', IGNORE_MISSING);
             if (!$templaterecord) {
                 error_log('local_ncasign: customcert template record not found id=' . $templateid);
                 return null;
             }
-            return new \mod_customcert\template($templaterecord);
+            $template = new \mod_customcert\template($templaterecord);
+            $generatepdffile = '-';
+            if (method_exists($template, 'generate_pdf')) {
+                $method = new \ReflectionMethod($template, 'generate_pdf');
+                $generatepdffile = (string)$method->getFileName();
+            }
+            error_log(
+                'NCASIGN_CANARY get_customcert_template_instance direct' .
+                ' templateid=' . $templateid .
+                ' class=' . get_class($template) .
+                ' generate_pdf_file=' . $generatepdffile
+            );
+            return $template;
         } catch (\Throwable $e) {
             error_log('local_ncasign: failed to load customcert template ' . $templateid . ': ' . $e->getMessage());
             return null;
