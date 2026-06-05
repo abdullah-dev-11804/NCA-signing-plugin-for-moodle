@@ -34,21 +34,46 @@ class observer {
      * @return void
      */
     public static function course_completed(\core\event\course_completed $event): void {
+        self::ensure_course_completion_debug_log();
+        error_log(
+            'NCASIGN_CANARY course_completed entered' .
+            ' event=' . get_class($event) .
+            ' courseid=' . (int)($event->courseid ?? 0) .
+            ' relateduserid=' . (int)($event->relateduserid ?? 0) .
+            ' userid=' . (int)($event->userid ?? 0)
+        );
+
         if (!(int)get_config('local_ncasign', 'enabled')) {
+            error_log('NCASIGN_CANARY course_completed skipped plugin_disabled');
             return;
         }
 
         $courseid = (int)$event->courseid;
         $userid = (int)$event->relateduserid;
         if (!$courseid || !$userid) {
+            error_log(
+                'NCASIGN_CANARY course_completed skipped missing_ids' .
+                ' courseid=' . $courseid .
+                ' userid=' . $userid
+            );
             return;
         }
 
         $manager = new job_manager();
         $templatemanager = new template_manager();
+        error_log(
+            'NCASIGN_CANARY course_completed before_profile_lookup' .
+            ' courseid=' . $courseid .
+            ' userid=' . $userid
+        );
         $profiles = $templatemanager->get_course_template_profiles($courseid);
         if (!$profiles) {
             error_log('local_ncasign: no mapped template profiles found for course ' . $courseid . ', user ' . $userid);
+            error_log(
+                'NCASIGN_CANARY course_completed no_profiles' .
+                ' courseid=' . $courseid .
+                ' userid=' . $userid
+            );
             return;
         }
         error_log(
@@ -67,27 +92,74 @@ class observer {
                     ', signer_count=' . (is_array($signers) ? count($signers) : 0) .
                     ', signer_emails=' . self::debug_signer_emails(is_array($signers) ? $signers : [])
                 );
+                error_log(
+                    'NCASIGN_CANARY course_completed profile_start' .
+                    ' courseid=' . $courseid .
+                    ' userid=' . $userid .
+                    ' profileid=' . (int)($profile['id'] ?? 0) .
+                    ' renderer=' . (string)($profile['renderer'] ?? '') .
+                    ' customcerttemplateid=' . (int)($profile['customcerttemplateid'] ?? 0) .
+                    ' active=' . (!empty($profile['active']) ? '1' : '0') .
+                    ' signer_count=' . (is_array($signers) ? count($signers) : 0) .
+                    ' signer_emails=' . self::debug_signer_emails(is_array($signers) ? $signers : [])
+                );
                 if (!$signers) {
                     error_log('local_ncasign: template profile has no configured signers; skipping profile ' . (string)($profile['name'] ?? 'unknown'));
+                    error_log(
+                        'NCASIGN_CANARY course_completed profile_skipped_no_signers' .
+                        ' profileid=' . (int)($profile['id'] ?? 0)
+                    );
                     continue;
                 }
 
                 $documentuuid = $manager->create_document_uuid();
                 $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
                 try {
+                    error_log(
+                        'NCASIGN_CANARY course_completed before_generate' .
+                        ' userid=' . $userid .
+                        ' courseid=' . $courseid .
+                        ' profileid=' . (int)($profile['id'] ?? 0) .
+                        ' customcerttemplateid=' . (int)($profile['customcerttemplateid'] ?? 0) .
+                        ' documentuuid=' . $documentuuid
+                    );
                     $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile, [
                         'documentuuid' => $documentuuid,
                         'verifyurl' => $verifyurl,
                         'signers' => $signers,
                     ]);
+                    error_log(
+                        'NCASIGN_CANARY course_completed after_generate' .
+                        ' userid=' . $userid .
+                        ' courseid=' . $courseid .
+                        ' profileid=' . (int)($profile['id'] ?? 0) .
+                        ' filename=' . (string)($draft['filename'] ?? '') .
+                        ' bytes=' . strlen((string)($draft['content'] ?? '')) .
+                        ' documenttype=' . (string)($draft['documenttype'] ?? '') .
+                        ' documenttitle=' . (string)($draft['documenttitle'] ?? '')
+                    );
                 } catch (\Throwable $e) {
                     error_log(
                         'local_ncasign: failed to generate draft on course completion for profile ' .
                         (string)($profile['name'] ?? 'unknown') . ': ' . $e->getMessage()
                     );
+                    error_log(
+                        'NCASIGN_CANARY course_completed generate_failed' .
+                        ' profileid=' . (int)($profile['id'] ?? 0) .
+                        ' message=' . $e->getMessage() .
+                        ' file=' . $e->getFile() .
+                        ' line=' . $e->getLine()
+                    );
                     continue;
                 }
 
+                error_log(
+                    'NCASIGN_CANARY course_completed before_create_job' .
+                    ' userid=' . $userid .
+                    ' courseid=' . $courseid .
+                    ' profileid=' . (int)($profile['id'] ?? 0) .
+                    ' signer_count=' . count($signers)
+                );
                 $jobid = $manager->create_job(
                     $userid,
                     $courseid,
@@ -102,6 +174,13 @@ class observer {
                     job_manager::JOB_ORIGIN_COURSE_COMPLETION
                 );
                 error_log(
+                    'NCASIGN_CANARY course_completed after_create_job' .
+                    ' jobid=' . $jobid .
+                    ' userid=' . $userid .
+                    ' courseid=' . $courseid .
+                    ' profileid=' . (int)($profile['id'] ?? 0)
+                );
+                error_log(
                     'local_ncasign: created signing job ' . $jobid .
                     ' for course ' . $courseid .
                     ', user ' . $userid .
@@ -110,6 +189,13 @@ class observer {
                 );
 
                 try {
+                    error_log(
+                        'NCASIGN_CANARY course_completed before_store_attach' .
+                        ' jobid=' . $jobid .
+                        ' filename=' . (string)($draft['filename'] ?? '') .
+                        ' bytes=' . strlen((string)($draft['content'] ?? '')) .
+                        ' has_manifest=' . (!empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest']) ? '1' : '0')
+                    );
                     $storage = new document_storage();
                     $storedpath = $storage->store_pending_draft($jobid, (string)$draft['filename'], (string)$draft['content']);
                     $manager->attach_certificate_binary_to_job(
@@ -126,23 +212,59 @@ class observer {
                         ', filename=' . (string)$draft['filename'] .
                         ', bytes=' . strlen((string)$draft['content'])
                     );
+                    error_log(
+                        'NCASIGN_CANARY course_completed after_store_attach' .
+                        ' jobid=' . $jobid .
+                        ' storedpath=' . $storedpath .
+                        ' filename=' . (string)$draft['filename'] .
+                        ' bytes=' . strlen((string)$draft['content'])
+                    );
                 } catch (\Throwable $e) {
                     self::delete_job($jobid);
                     error_log('local_ncasign: failed to persist generated draft for job ' . $jobid . ': ' . $e->getMessage());
+                    error_log(
+                        'NCASIGN_CANARY course_completed store_attach_failed_deleted_job' .
+                        ' jobid=' . $jobid .
+                        ' message=' . $e->getMessage() .
+                        ' file=' . $e->getFile() .
+                        ' line=' . $e->getLine()
+                    );
                     continue;
                 }
 
                 try {
                     error_log('local_ncasign: notifying active manual signer for job ' . $jobid);
+                    error_log(
+                        'NCASIGN_CANARY course_completed before_notify' .
+                        ' jobid=' . $jobid .
+                        ' userid=' . $userid .
+                        ' courseid=' . $courseid .
+                        ' profileid=' . (int)($profile['id'] ?? 0)
+                    );
                     $manager->notify_signers_for_job($jobid);
+                    error_log(
+                        'NCASIGN_CANARY course_completed after_notify' .
+                        ' jobid=' . $jobid
+                    );
                 } catch (\Throwable $e) {
                     error_log('local_ncasign: failed to notify signers for job ' . $jobid . ': ' . $e->getMessage());
+                    error_log(
+                        'NCASIGN_CANARY course_completed notify_failed' .
+                        ' jobid=' . $jobid .
+                        ' message=' . $e->getMessage() .
+                        ' file=' . $e->getFile() .
+                        ' line=' . $e->getLine()
+                    );
                 }
             }
         } finally {
             $unexpectedoutput = trim((string)ob_get_clean());
             if ($unexpectedoutput !== '') {
                 error_log('local_ncasign: unexpected output during course completion observer: ' . trim(strip_tags($unexpectedoutput)));
+                error_log(
+                    'NCASIGN_CANARY course_completed unexpected_output' .
+                    ' text=' . trim(strip_tags($unexpectedoutput))
+                );
             }
         }
     }
@@ -801,6 +923,27 @@ class observer {
 
         $DB->delete_records('local_ncasign_signers', ['jobid' => $jobid]);
         $DB->delete_records('local_ncasign_jobs', ['id' => $jobid]);
+    }
+
+    /**
+     * Force course-completion diagnostics into the same file used by demo jobs.
+     *
+     * @return void
+     */
+    private static function ensure_course_completion_debug_log(): void {
+        static $logged = false;
+
+        @ini_set('log_errors', '1');
+        @ini_set('error_log', '/tmp/ncasign-debug.log');
+
+        if (!$logged) {
+            $logged = true;
+            error_log(
+                'NCASIGN_CANARY course_completed forced log file active' .
+                ' error_log=' . (string)ini_get('error_log') .
+                ' sapi=' . PHP_SAPI
+            );
+        }
     }
 
     /**
