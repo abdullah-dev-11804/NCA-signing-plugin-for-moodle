@@ -181,6 +181,7 @@ $string['demotemplateprofile_invalid'] = 'Select a valid template profile.';
 $string['demotemplateprofile_nocourse'] = 'The selected template profile has no mapped course ID.';
 $string['demodraftgenerationfailed'] = 'Demo draft generation failed: {$a}';
 $string['democustomcerttemplatemissing'] = 'No customcert template could be resolved from the selected template profile.';
+$string['democustomcertsmartfieldwrongtype'] = 'Demo job was not created. These NCA Sign smart fields must be added to the Customcert template as text elements, not date or other element types: {$a}. Please change the listed field(s) to Customcert text elements and try again.';
 $string['demotsigneremails_desc'] = 'Optional. Leave empty to use the signer sequence from the selected template profile.';
 $string['demotsigneremails_invalid'] = 'Enter valid signer email addresses separated by commas.';
 $string['demousedemodata'] = 'Use template demo data';

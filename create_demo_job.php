@@ -86,54 +86,69 @@ if ($data = $mform->get_data()) {
 
         $attachment = null;
         if ($generationprofile) {
-            try {
-                $generator = new document_generator();
+            $smartfielderrors = get_demo_customcert_non_text_smart_fields($generationprofile);
+            if ($smartfielderrors) {
+                \core\notification::warning(get_string(
+                    'democustomcertsmartfieldwrongtype',
+                    'local_ncasign',
+                    implode(', ', $smartfielderrors)
+                ));
                 error_log(
-                    'NCASIGN_CANARY create_demo_job before_generate' .
-                    ' userid=' . $userid .
-                    ' courseid=' . $courseid .
-                    ' renderer=' . (string)($generationprofile['renderer'] ?? '') .
+                    'NCASIGN_CANARY create_demo_job blocked_non_text_smart_fields' .
+                    ' profileid=' . (int)($generationprofile['id'] ?? 0) .
                     ' customcerttemplateid=' . (int)($generationprofile['customcerttemplateid'] ?? 0) .
-                    ' signer_count=' . count($signers)
+                    ' fields=' . implode(',', $smartfielderrors)
                 );
-                $draft = $generator->generate_draft_from_profile(
-                    $userid,
-                    $courseid,
-                    $generationprofile,
-                    [
-                        'documentuuid' => $documentuuid,
-                        'verifyurl' => $verifyurl,
-                        'signers' => $signers,
-                        'use_demo_data' => !empty($data->usedemodata),
-                    ]
-                );
-                error_log(
-                    'NCASIGN_CANARY create_demo_job after_generate' .
-                    ' userid=' . $userid .
-                    ' filename=' . (string)($draft['filename'] ?? '') .
-                    ' bytes=' . strlen((string)($draft['content'] ?? '')) .
-                    ' preview_userfullname_present=' .
-                    (!empty($draft['previewdata']['userfullname']) ? '1' : '0') .
-                    ' preview_userfullname_length=' .
-                    \core_text::strlen((string)($draft['previewdata']['userfullname'] ?? '')) .
-                    ' preview_userfullname_hash=' .
-                    (!empty($draft['previewdata']['userfullname'])
-                        ? hash('sha256', (string)$draft['previewdata']['userfullname'])
-                        : '-')
-                );
-                $attachment = [
-                    'filename' => (string)$draft['filename'],
-                    'content' => (string)$draft['content'],
-                    'source' => 'local_generated_demo_draft',
-                    'manifest' => !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
-                        ? $draft['finalizationmanifest']
-                        : null,
-                    'documenttype' => (string)($draft['documenttype'] ?? 'certificate'),
-                    'documenttitle' => (string)($draft['documenttitle'] ?? ($data->documenttitle ?? '')),
-                    'profileid' => $selectedprofile ? (int)$selectedprofile['id'] : null,
-                ];
-            } catch (Throwable $e) {
-                \core\notification::error(get_string('demodraftgenerationfailed', 'local_ncasign', $e->getMessage()));
+            } else {
+                try {
+                    $generator = new document_generator();
+                    error_log(
+                        'NCASIGN_CANARY create_demo_job before_generate' .
+                        ' userid=' . $userid .
+                        ' courseid=' . $courseid .
+                        ' renderer=' . (string)($generationprofile['renderer'] ?? '') .
+                        ' customcerttemplateid=' . (int)($generationprofile['customcerttemplateid'] ?? 0) .
+                        ' signer_count=' . count($signers)
+                    );
+                    $draft = $generator->generate_draft_from_profile(
+                        $userid,
+                        $courseid,
+                        $generationprofile,
+                        [
+                            'documentuuid' => $documentuuid,
+                            'verifyurl' => $verifyurl,
+                            'signers' => $signers,
+                            'use_demo_data' => !empty($data->usedemodata),
+                        ]
+                    );
+                    error_log(
+                        'NCASIGN_CANARY create_demo_job after_generate' .
+                        ' userid=' . $userid .
+                        ' filename=' . (string)($draft['filename'] ?? '') .
+                        ' bytes=' . strlen((string)($draft['content'] ?? '')) .
+                        ' preview_userfullname_present=' .
+                        (!empty($draft['previewdata']['userfullname']) ? '1' : '0') .
+                        ' preview_userfullname_length=' .
+                        \core_text::strlen((string)($draft['previewdata']['userfullname'] ?? '')) .
+                        ' preview_userfullname_hash=' .
+                        (!empty($draft['previewdata']['userfullname'])
+                            ? hash('sha256', (string)$draft['previewdata']['userfullname'])
+                            : '-')
+                    );
+                    $attachment = [
+                        'filename' => (string)$draft['filename'],
+                        'content' => (string)$draft['content'],
+                        'source' => 'local_generated_demo_draft',
+                        'manifest' => !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
+                            ? $draft['finalizationmanifest']
+                            : null,
+                        'documenttype' => (string)($draft['documenttype'] ?? 'certificate'),
+                        'documenttitle' => (string)($draft['documenttitle'] ?? ($data->documenttitle ?? '')),
+                        'profileid' => $selectedprofile ? (int)$selectedprofile['id'] : null,
+                    ];
+                } catch (Throwable $e) {
+                    \core\notification::error(get_string('demodraftgenerationfailed', 'local_ncasign', $e->getMessage()));
+                }
             }
         }
 
@@ -250,6 +265,198 @@ function build_demo_generation_profile(?array $profile, string $documenttitle): 
     }
 
     return $profile;
+}
+
+/**
+ * Find NCA Sign smart fields that were added as non-text customcert elements.
+ *
+ * @param array<string,mixed> $profile
+ * @return string[]
+ */
+function get_demo_customcert_non_text_smart_fields(array $profile): array {
+    global $DB;
+
+    $templateid = (int)($profile['customcerttemplateid'] ?? 0);
+    if ($templateid <= 0) {
+        return [];
+    }
+
+    $manager = $DB->get_manager();
+    if (!$manager->table_exists(new xmldb_table('customcert_pages'))
+        || !$manager->table_exists(new xmldb_table('customcert_elements'))) {
+        return [];
+    }
+
+    $smartfields = get_demo_customcert_smart_field_names($profile);
+    if (!$smartfields) {
+        return [];
+    }
+
+    $sql = "SELECT e.id, e.name, e.element, e.data
+              FROM {customcert_elements} e
+              JOIN {customcert_pages} p ON p.id = e.pageid
+             WHERE p.templateid = :templateid";
+    $elements = $DB->get_records_sql($sql, ['templateid' => $templateid]);
+
+    $matches = [];
+    foreach ($elements as $element) {
+        $elementtype = trim((string)($element->element ?? ''));
+        if ($elementtype === 'text') {
+            continue;
+        }
+
+        $candidates = get_demo_customcert_element_field_candidates($element);
+        foreach ($candidates as $candidate) {
+            if ($candidate === '' || !isset($smartfields[$candidate])) {
+                continue;
+            }
+            $matches[$candidate] = $smartfields[$candidate] . ' (' . $elementtype . ' element)';
+        }
+    }
+
+    ksort($matches);
+    return array_values($matches);
+}
+
+/**
+ * Return possible smart field tokens from a customcert element.
+ *
+ * @param \stdClass $element
+ * @return string[]
+ */
+function get_demo_customcert_element_field_candidates(\stdClass $element): array {
+    $rawvalues = [
+        (string)($element->name ?? ''),
+        (string)($element->data ?? ''),
+    ];
+
+    $decoded = json_decode((string)($element->data ?? ''), true);
+    if (is_array($decoded)) {
+        foreach (flatten_demo_customcert_element_data($decoded) as $value) {
+            $rawvalues[] = $value;
+        }
+    }
+
+    $candidates = [];
+    foreach ($rawvalues as $value) {
+        $normalised = normalise_demo_customcert_element_name($value);
+        if ($normalised !== '') {
+            $candidates[$normalised] = $normalised;
+        }
+    }
+
+    return array_values($candidates);
+}
+
+/**
+ * Flatten decoded customcert element data into scalar strings.
+ *
+ * @param array<mixed> $data
+ * @return string[]
+ */
+function flatten_demo_customcert_element_data(array $data): array {
+    $values = [];
+    foreach ($data as $value) {
+        if (is_array($value)) {
+            $values = array_merge($values, flatten_demo_customcert_element_data($value));
+        } else if (is_scalar($value)) {
+            $values[] = (string)$value;
+        }
+    }
+
+    return $values;
+}
+
+/**
+ * Return smart field names supported by the customcert text override path.
+ *
+ * @param array<string,mixed> $profile
+ * @return array<string,string>
+ */
+function get_demo_customcert_smart_field_names(array $profile): array {
+    $fields = [
+        'protocol_number',
+        'protocolnumber',
+        'company_name',
+        'clientcompanyname',
+        'issue_date_kazakh',
+        'issuedatekz',
+        'issue_date_russian',
+        'issuedateru',
+        'expirydatekz',
+        'expirydateru',
+        'expirydateiso',
+        'validityperioddays',
+        'comission_chair',
+        'commission_chair',
+        'commision_member_1',
+        'commission_member_1',
+        'commision_member_2',
+        'comission_member_2',
+        'commission_member_2',
+        'order_date_kazakh',
+        'orderkz',
+        'order_date_russian',
+        'orderru',
+        'protocol_type_kazakh',
+        'protocoltypekz',
+        'protocol_type_russian',
+        'protocoltyperu',
+        'user_full_name',
+        'userfullname',
+        'user_job_title',
+        'userjobtitle',
+        'course_completion_status',
+        'completionstatus',
+        'certificate_number',
+        'certificatenumber',
+        'document_number_cer',
+        'book_id',
+        'bookid',
+        'course_completion_book_id',
+        'document_number_cid',
+        'chairinitials',
+        'member1initials',
+        'member2initials',
+        'commision_chair_initials_ss',
+        'comission_chair_initials_ss',
+        'commission_chair_initials_ss',
+        'commision_member_1_initials_ss',
+        'commission_member_1_initials_ss',
+        'comission_member_2_initials_ss',
+        'commision_member_2_initials_ss',
+        'commission_member_2_initials_ss',
+    ];
+
+    $layoutconfig = (array)($profile['layoutconfig'] ?? []);
+    $customcertconfig = (array)($layoutconfig['customcert'] ?? []);
+    $customfieldmap = (array)($customcertconfig['fieldmap'] ?? []);
+    foreach ($customfieldmap as $elementname => $sourcefield) {
+        $fields[] = (string)$elementname;
+        $fields[] = (string)$sourcefield;
+    }
+
+    $normalised = [];
+    foreach ($fields as $field) {
+        $key = normalise_demo_customcert_element_name((string)$field);
+        if ($key !== '') {
+            $normalised[$key] = $key;
+        }
+    }
+
+    return $normalised;
+}
+
+/**
+ * Normalise customcert element names the same way the text override path does.
+ *
+ * @param string $name
+ * @return string
+ */
+function normalise_demo_customcert_element_name(string $name): string {
+    $name = \core_text::strtolower(trim($name));
+    $name = preg_replace('/[\s\-]+/u', '_', $name) ?? $name;
+    return trim($name, '_');
 }
 
 /**
