@@ -1482,32 +1482,15 @@ class job_manager {
             return;
         }
         $from = core_user::get_support_user();
+        $mode = $auto ? 'automatic server fallback' : 'manual signer approvals';
         $signedpdflink = $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . (int)$job->id . '&type=signedpdf';
         $verifylink = $this->get_verification_url_for_job((int)$job->id);
-        $subject = 'Құжатыңызға қол қойылды / Ваш документ подписан / Your document has been signed';
-        $message = "=== KZ ===\n" .
-            "Сіздің курстық құжатыңызға қол қойылды.\n" .
-            "Қол қою түрі: " . ($auto ? 'сервер арқылы автоматты қол қою' : 'қол қоюшылардың қолмен растауы') . "\n" .
-            "Құжат: " . (string)$job->documenttitle . "\n" .
-            "Курс ID: {$job->courseid}\n" .
-            "Сертификат сілтемесі: {$job->certificateurl}\n" .
-            "Қол қойылған PDF: {$signedpdflink}\n" .
-            "Жария тексеру беті: {$verifylink}\n\n" .
-            "=== RU ===\n" .
-            "Ваш учебный документ подписан.\n" .
-            "Тип подписания: " . ($auto ? 'автоматическое серверное подписание' : 'ручное подтверждение подписантами') . "\n" .
-            "Документ: " . (string)$job->documenttitle . "\n" .
-            "ID курса: {$job->courseid}\n" .
-            "Ссылка на сертификат: {$job->certificateurl}\n" .
-            "Подписанный PDF: {$signedpdflink}\n" .
-            "Публичная страница проверки: {$verifylink}\n\n" .
-            "=== EN ===\n" .
-            "Your course document has been signed.\n" .
-            "Signing type: " . ($auto ? 'automatic server signing' : 'manual signer approval') . "\n" .
+        $subject = 'Your course document has been signed';
+        $message = "Your document is now signed ({$mode}).\n\n" .
             "Document: " . (string)$job->documenttitle . "\n" .
             "Course ID: {$job->courseid}\n" .
             "Certificate URL: {$job->certificateurl}\n" .
-            "Signed PDF: {$signedpdflink}\n" .
+            "Signed PDF (with signer QR blocks): {$signedpdflink}\n" .
             "Public verification page: {$verifylink}\n";
         email_to_user($student, $from, $subject, $message);
     }
