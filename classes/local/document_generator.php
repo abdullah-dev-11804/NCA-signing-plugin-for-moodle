@@ -317,9 +317,10 @@ class document_generator {
         $documenttitle = trim((string)($profile['documenttitle'] ?? '')) !== ''
             ? (string)$profile['documenttitle']
             : (trim($templatename) !== '' ? trim($templatename) : 'Custom certificate');
+        $filename = $this->build_document_title_filename($documenttitle, 'customcert_' . $templateid . '_' . $courseid . '_' . $userid);
 
         return [
-            'filename' => 'customcert_' . $templateid . '_' . $courseid . '_' . $userid . '.pdf',
+            'filename' => $filename,
             'content' => (string)$overlay['content'],
             'documenttype' => (string)($profile['documenttype'] ?? 'certificate'),
             'documenttitle' => $documenttitle,
@@ -433,11 +434,12 @@ class document_generator {
             throw $generationexception;
         }
 
+        $documenttitle = (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (BiOT ITR)');
         return [
-            'filename' => 'engineer_protocol_' . $courseid . '_' . $userid . '.pdf',
+            'filename' => $this->build_document_title_filename($documenttitle, 'engineer_protocol_' . $courseid . '_' . $userid),
             'content' => $pdf->Output('', 'S'),
             'documenttype' => (string)($profile['documenttype'] ?? 'protocol'),
-            'documenttitle' => (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (BiOT ITR)'),
+            'documenttitle' => $documenttitle,
             'protocolnumber' => (string)$documentdata['protocolnumber'],
             'previewdata' => $documentdata,
             'finalizationmanifest' => [
@@ -523,11 +525,12 @@ class document_generator {
             is_array($options['signers'] ?? null) ? $options['signers'] : []
         );
 
+        $documenttitle = (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (BiOT ITR)');
         return [
-            'filename' => 'structured_protocol_' . $courseid . '_' . $userid . '.pdf',
+            'filename' => $this->build_document_title_filename($documenttitle, 'structured_protocol_' . $courseid . '_' . $userid),
             'content' => $pdf->Output('', 'S'),
             'documenttype' => (string)($profile['documenttype'] ?? 'protocol'),
-            'documenttitle' => (string)($profile['documenttitle'] ?? 'Industrial Safety Protocol (BiOT ITR)'),
+            'documenttitle' => $documenttitle,
             'protocolnumber' => (string)$documentdata['protocolnumber'],
             'previewdata' => $documentdata + ['renderedhtml' => $html],
             'finalizationmanifest' => [
@@ -1184,6 +1187,31 @@ HTML;
         $text = clean_param($text, PARAM_NOTAGS);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
         return trim($text);
+    }
+
+    /**
+     * Build a readable PDF filename from the configured document title.
+     *
+     * @param string $documenttitle
+     * @param string $fallbackbasename
+     * @return string
+     */
+    private function build_document_title_filename(string $documenttitle, string $fallbackbasename): string {
+        $basename = $this->normalise_render_text($documenttitle);
+        if ($basename === '') {
+            $basename = $fallbackbasename;
+        }
+
+        $basename = preg_replace('/\.pdf$/iu', '', $basename) ?? $basename;
+        $basename = clean_filename($basename);
+        if ($basename === '' || $basename === '.') {
+            $basename = clean_filename($fallbackbasename);
+        }
+        if ($basename === '' || $basename === '.') {
+            $basename = 'document';
+        }
+
+        return $basename . '.pdf';
     }
 
     /**
