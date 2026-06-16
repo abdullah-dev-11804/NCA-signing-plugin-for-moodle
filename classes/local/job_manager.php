@@ -1411,12 +1411,22 @@ class job_manager {
      * @return void
      */
     private function send_signer_email(\stdClass $signer, \stdClass $job, string $name): void {
-        global $CFG;
+        global $CFG, $DB;
 
         if (empty($signer->signeremail)) {
             error_log('local_ncasign: send_signer_email skipped empty signer email for job ' . (int)$job->id);
             return;
         }
+
+        $student = $DB->get_record(
+            'user',
+            ['id' => (int)$job->userid, 'deleted' => 0],
+            'id,firstname,lastname,middlename,alternatename,email',
+            IGNORE_MISSING
+        );
+        $studentname = $student ? $this->format_person_name($student) : ('User #' . (int)$job->userid);
+        $course = $DB->get_record('course', ['id' => (int)$job->courseid], 'id,fullname,shortname', IGNORE_MISSING);
+        $coursename = $course ? (string)$course->fullname : ('Course #' . (int)$job->courseid);
 
         $link = $CFG->wwwroot . '/local/ncasign/sign.php?token=' . urlencode($signer->token);
         $draftlink = $CFG->wwwroot . '/local/ncasign/draft.php?token=' . urlencode($signer->token);
@@ -1434,7 +1444,9 @@ class job_manager {
             "Document: {$documenttitle}\n" .
             "Document type: " . ucfirst((string)$job->documenttype) . "\n" .
             "Student user ID: {$job->userid}\n" .
+            "Student name: {$studentname}\n" .
             "Course ID: {$job->courseid}\n" .
+            "Course name: {$coursename}\n" .
             "Position: " . (string)($signer->signerposition ?? 'Commission member') . "\n";
         if ($this->has_job_original_pdf((int)$job->id)) {
             $message .= "Draft PDF: {$draftlink}\n";
@@ -1442,16 +1454,42 @@ class job_manager {
         if ($this->has_job_signed_pdf((int)$job->id)) {
             $message .= "Current signed PDF progress: {$progresslink}\n";
         }
-        $message .= "Stored source: {$job->certificateurl}\n\n" .
-            "Sign link: {$link}\n" .
+        $message .= "\nSign link: {$link}\n" .
             "Deadline: {$deadline}\n\n" .
             "If no manual action is taken, the configured server fallback will be used if enabled.";
+
+        $messagehtml = '<p>Hello ' . s($name) . ',</p>' .
+            '<p>A document is ready for your signature in the commission sequence.</p>' .
+            '<ul>' .
+            '<li><strong>Signing order:</strong> ' . (int)$signer->signorder . ' of ' . $totalcount . '</li>' .
+            '<li><strong>Document:</strong> ' . s($documenttitle) . '</li>' .
+            '<li><strong>Document type:</strong> ' . s(ucfirst((string)$job->documenttype)) . '</li>' .
+            '<li><strong>Student user ID:</strong> ' . (int)$job->userid . '</li>' .
+            '<li><strong>Student name:</strong> ' . s($studentname) . '</li>' .
+            '<li><strong>Course ID:</strong> ' . (int)$job->courseid . '</li>' .
+            '<li><strong>Course name:</strong> ' . s($coursename) . '</li>' .
+            '<li><strong>Position:</strong> ' . s((string)($signer->signerposition ?? 'Commission member')) . '</li>' .
+            '</ul>';
+        if ($this->has_job_original_pdf((int)$job->id)) {
+            $messagehtml .= '<p><strong>Draft PDF:</strong> ' . $this->format_email_html_link($draftlink, $draftlink) . '</p>';
+        }
+        if ($this->has_job_signed_pdf((int)$job->id)) {
+            $messagehtml .= '<p><strong>Current signed PDF progress:</strong> ' .
+                $this->format_email_html_link($progresslink, $progresslink) . '</p>';
+        }
+        $messagehtml .= '<p><strong>Sign link:</strong> ' . $this->format_email_html_link($link, $link) . '</p>' .
+            '<p><strong>Deadline:</strong> ' . s($deadline) . '</p>' .
+            '<p>If no manual action is taken, the configured server fallback will be used if enabled.</p>';
 
         $to = (object)[
             'id' => -1,
             'email' => $signer->signeremail,
             'firstname' => $name !== '' ? $name : 'Signer',
             'lastname' => '',
+            'firstnamephonetic' => '',
+            'lastnamephonetic' => '',
+            'middlename' => '',
+            'alternatename' => '',
             'maildisplay' => 1,
             'mailformat' => 1,
             'maildigest' => 0,
@@ -1459,7 +1497,7 @@ class job_manager {
             'deleted' => 0,
         ];
         $from = core_user::get_support_user();
-        $sent = email_to_user($to, $from, $subject, $message);
+        $sent = email_to_user($to, $from, $subject, $message, $messagehtml);
         error_log(
             'local_ncasign: send_signer_email result for job ' . (int)$job->id .
             ', signer_id=' . (int)$signer->id .
@@ -1481,6 +1519,9 @@ class job_manager {
         if (!$student || empty($student->email)) {
             return;
         }
+        $studentname = $this->format_person_name($student);
+        $course = $DB->get_record('course', ['id' => (int)$job->courseid], 'id,fullname,shortname', IGNORE_MISSING);
+        $coursename = $course ? (string)$course->fullname : ('Course #' . (int)$job->courseid);
         $from = core_user::get_support_user();
         $signedpdflink = $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . (int)$job->id . '&type=signedpdf';
         $verifylink = $this->get_verification_url_for_job((int)$job->id);
@@ -1490,6 +1531,9 @@ class job_manager {
             "Қол қою түрі: " . ($auto ? 'сервер арқылы автоматты қол қою' : 'қол қоюшылардың қолмен растауы') . "\n" .
             "Құжат: " . (string)$job->documenttitle . "\n" .
             "Курс ID: {$job->courseid}\n" .
+            "Курс атауы: {$coursename}\n" .
+            "Студент ID: {$job->userid}\n" .
+            "Студент аты-жөні: {$studentname}\n" .
             "Сертификат сілтемесі: {$job->certificateurl}\n" .
             "Қол қойылған PDF: {$signedpdflink}\n" .
             "Жария тексеру беті: {$verifylink}\n\n" .
@@ -1498,6 +1542,9 @@ class job_manager {
             "Тип подписания: " . ($auto ? 'автоматическое серверное подписание' : 'ручное подтверждение подписантами') . "\n" .
             "Документ: " . (string)$job->documenttitle . "\n" .
             "ID курса: {$job->courseid}\n" .
+            "Название курса: {$coursename}\n" .
+            "ID студента: {$job->userid}\n" .
+            "ФИО студента: {$studentname}\n" .
             "Ссылка на сертификат: {$job->certificateurl}\n" .
             "Подписанный PDF: {$signedpdflink}\n" .
             "Публичная страница проверки: {$verifylink}\n\n" .
@@ -1506,10 +1553,56 @@ class job_manager {
             "Signing type: " . ($auto ? 'automatic server signing' : 'manual signer approval') . "\n" .
             "Document: " . (string)$job->documenttitle . "\n" .
             "Course ID: {$job->courseid}\n" .
+            "Course name: {$coursename}\n" .
+            "Student ID: {$job->userid}\n" .
+            "Student name: {$studentname}\n" .
             "Certificate URL: {$job->certificateurl}\n" .
             "Signed PDF: {$signedpdflink}\n" .
             "Public verification page: {$verifylink}\n";
-        email_to_user($student, $from, $subject, $message);
+
+        $messagehtml = '<h3>KZ</h3>' .
+            '<p>Сіздің курстық құжатыңызға қол қойылды.</p>' .
+            '<ul>' .
+            '<li><strong>Қол қою түрі:</strong> ' . s($auto ? 'сервер арқылы автоматты қол қою' : 'қол қоюшылардың қолмен растауы') . '</li>' .
+            '<li><strong>Құжат:</strong> ' . s((string)$job->documenttitle) . '</li>' .
+            '<li><strong>Курс ID:</strong> ' . (int)$job->courseid . '</li>' .
+            '<li><strong>Курс атауы:</strong> ' . s($coursename) . '</li>' .
+            '<li><strong>Студент ID:</strong> ' . (int)$job->userid . '</li>' .
+            '<li><strong>Студент аты-жөні:</strong> ' . s($studentname) . '</li>' .
+            '<li><strong>Сертификат сілтемесі:</strong> ' . $this->format_email_html_link((string)$job->certificateurl, (string)$job->certificateurl) . '</li>' .
+            '<li><strong>Қол қойылған PDF:</strong> ' . $this->format_email_html_link($signedpdflink, $signedpdflink) . '</li>' .
+            '<li><strong>Жария тексеру беті:</strong> ' . $this->format_email_html_link($verifylink, $verifylink) . '</li>' .
+            '</ul>' .
+            '<hr>' .
+            '<h3>RU</h3>' .
+            '<p>Ваш учебный документ подписан.</p>' .
+            '<ul>' .
+            '<li><strong>Тип подписания:</strong> ' . s($auto ? 'автоматическое серверное подписание' : 'ручное подтверждение подписантами') . '</li>' .
+            '<li><strong>Документ:</strong> ' . s((string)$job->documenttitle) . '</li>' .
+            '<li><strong>ID курса:</strong> ' . (int)$job->courseid . '</li>' .
+            '<li><strong>Название курса:</strong> ' . s($coursename) . '</li>' .
+            '<li><strong>ID студента:</strong> ' . (int)$job->userid . '</li>' .
+            '<li><strong>ФИО студента:</strong> ' . s($studentname) . '</li>' .
+            '<li><strong>Ссылка на сертификат:</strong> ' . $this->format_email_html_link((string)$job->certificateurl, (string)$job->certificateurl) . '</li>' .
+            '<li><strong>Подписанный PDF:</strong> ' . $this->format_email_html_link($signedpdflink, $signedpdflink) . '</li>' .
+            '<li><strong>Публичная страница проверки:</strong> ' . $this->format_email_html_link($verifylink, $verifylink) . '</li>' .
+            '</ul>' .
+            '<hr>' .
+            '<h3>EN</h3>' .
+            '<p>Your course document has been signed.</p>' .
+            '<ul>' .
+            '<li><strong>Signing type:</strong> ' . s($auto ? 'automatic server signing' : 'manual signer approval') . '</li>' .
+            '<li><strong>Document:</strong> ' . s((string)$job->documenttitle) . '</li>' .
+            '<li><strong>Course ID:</strong> ' . (int)$job->courseid . '</li>' .
+            '<li><strong>Course name:</strong> ' . s($coursename) . '</li>' .
+            '<li><strong>Student ID:</strong> ' . (int)$job->userid . '</li>' .
+            '<li><strong>Student name:</strong> ' . s($studentname) . '</li>' .
+            '<li><strong>Certificate URL:</strong> ' . $this->format_email_html_link((string)$job->certificateurl, (string)$job->certificateurl) . '</li>' .
+            '<li><strong>Signed PDF:</strong> ' . $this->format_email_html_link($signedpdflink, $signedpdflink) . '</li>' .
+            '<li><strong>Public verification page:</strong> ' . $this->format_email_html_link($verifylink, $verifylink) . '</li>' .
+            '</ul>';
+
+        email_to_user($student, $from, $subject, $message, $messagehtml);
     }
 
     /**
@@ -2381,6 +2474,23 @@ class job_manager {
         }
 
         return $parts ? implode(' ', $parts) : 'User';
+    }
+
+    /**
+     * Format a URL as a safe HTML email link.
+     *
+     * @param string $url
+     * @param string $label
+     * @return string
+     */
+    private function format_email_html_link(string $url, string $label): string {
+        $url = trim($url);
+        if ($url === '') {
+            return '-';
+        }
+
+        $label = trim($label) !== '' ? trim($label) : $url;
+        return '<a href="' . s($url) . '">' . s($label) . '</a>';
     }
 
     /**
