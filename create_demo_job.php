@@ -301,13 +301,13 @@ function get_demo_customcert_non_text_smart_fields(array $profile): array {
     $matches = [];
     foreach ($elements as $element) {
         $elementtype = trim((string)($element->element ?? ''));
-        if ($elementtype === 'text') {
-            continue;
-        }
 
         $candidates = get_demo_customcert_element_field_candidates($element);
         foreach ($candidates as $candidate) {
             if ($candidate === '' || !isset($smartfields[$candidate])) {
+                continue;
+            }
+            if (in_array($elementtype, get_demo_customcert_allowed_smart_field_element_types($candidate), true)) {
                 continue;
             }
             $matches[$candidate] = $smartfields[$candidate] . ' (' . $elementtype . ' element)';
@@ -316,6 +316,20 @@ function get_demo_customcert_non_text_smart_fields(array $profile): array {
 
     ksort($matches);
     return array_values($matches);
+}
+
+/**
+ * Return customcert element types that are valid for a smart field.
+ *
+ * @param string $field
+ * @return string[]
+ */
+function get_demo_customcert_allowed_smart_field_element_types(string $field): array {
+    if (in_array($field, ['user_full_name', 'userfullname'], true)) {
+        return ['text', 'studentname'];
+    }
+
+    return ['text'];
 }
 
 /**
