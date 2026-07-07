@@ -59,6 +59,15 @@ class observer {
             return;
         }
 
+        if (self::consume_completion_suppression($courseid, $userid)) {
+            error_log(
+                'NCASIGN_CANARY course_completed skipped_suppressed' .
+                ' courseid=' . $courseid .
+                ' userid=' . $userid
+            );
+            return;
+        }
+
         $manager = new job_manager();
         $templatemanager = new template_manager();
         error_log(
@@ -923,6 +932,58 @@ class observer {
 
         $DB->delete_records('local_ncasign_signers', ['jobid' => $jobid]);
         $DB->delete_records('local_ncasign_jobs', ['id' => $jobid]);
+    }
+
+    /**
+     * Consume a one-shot suppression inserted by a manual scan upload.
+     *
+     * @param int $courseid
+     * @param int $userid
+     * @return bool
+     */
+    private static function consume_completion_suppression(int $courseid, int $userid): bool {
+        global $DB;
+
+        $table = 'local_ncasign_completion_suppress';
+        if (!$DB->get_manager()->table_exists($table)) {
+            return false;
+        }
+
+        $now = time();
+        $DB->delete_records_select($table, 'consumed = 0 AND expiresat > 0 AND expiresat < :now', ['now' => $now]);
+
+        $record = $DB->get_record_select(
+            $table,
+            'userid = :userid AND courseid = :courseid AND consumed = 0 AND (expiresat = 0 OR expiresat >= :now)',
+            [
+                'userid' => $userid,
+                'courseid' => $courseid,
+                'now' => $now,
+            ],
+            '*',
+            IGNORE_MULTIPLE
+        );
+        if (!$record) {
+            return false;
+        }
+
+        $DB->update_record($table, (object)[
+            'id' => (int)$record->id,
+            'consumed' => 1,
+            'timeconsumed' => $now,
+        ]);
+
+        error_log(
+            'local_ncasign: suppressed course-completion generation for manual upload' .
+            ' suppressionid=' . (int)$record->id .
+            ' courseid=' . $courseid .
+            ' userid=' . $userid .
+            ' sourcecomponent=' . (string)($record->sourcecomponent ?? '') .
+            ' sourceid=' . (int)($record->sourceid ?? 0) .
+            ' reason=' . (string)($record->reason ?? '')
+        );
+
+        return true;
     }
 
     /**

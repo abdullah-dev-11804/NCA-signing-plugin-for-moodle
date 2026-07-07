@@ -325,5 +325,30 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026060400, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026070800) {
+        $table = new xmldb_table('local_ncasign_completion_suppress');
+
+        if (!$dbman->table_exists($table)) {
+            $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+            $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('sourcecomponent', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, 'local_sentaldocupload');
+            $table->add_field('sourceid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('reason', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, 'manual_course_completion_upload');
+            $table->add_field('consumed', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('expiresat', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+            $table->add_field('timeconsumed', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+
+            $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+            $table->add_index('user_course_consumed_ix', XMLDB_INDEX_NOTUNIQUE, ['userid', 'courseid', 'consumed']);
+            $table->add_index('expiresat_ix', XMLDB_INDEX_NOTUNIQUE, ['expiresat']);
+
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026070800, 'local', 'ncasign');
+    }
+
     return true;
 }

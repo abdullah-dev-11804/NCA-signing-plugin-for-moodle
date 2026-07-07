@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/ncasign/db" VERSION="2026052100" COMMENT="XMLDB file for local_ncasign"
+<XMLDB PATH="local/ncasign/db" VERSION="2026070800" COMMENT="XMLDB file for local_ncasign"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -72,6 +72,27 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="counter_date_uix" UNIQUE="true" FIELDS="countertype, counterdate"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_ncasign_completion_suppress" COMMENT="Course completion events intentionally ignored by NCASign">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="sourcecomponent" TYPE="char" LENGTH="100" NOTNULL="true" DEFAULT="local_sentaldocupload"/>
+        <FIELD NAME="sourceid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="reason" TYPE="char" LENGTH="100" NOTNULL="true" DEFAULT="manual_course_completion_upload"/>
+        <FIELD NAME="consumed" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="expiresat" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+        <FIELD NAME="timeconsumed" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="user_course_consumed_ix" UNIQUE="false" FIELDS="userid, courseid, consumed"/>
+        <INDEX NAME="expiresat_ix" UNIQUE="false" FIELDS="expiresat"/>
       </INDEXES>
     </TABLE>
     <TABLE NAME="local_ncasign_template_courses" COMMENT="Course to template profile mappings">
