@@ -22,6 +22,7 @@ $syscontext = context_system::instance();
 $jobid = required_param('jobid', PARAM_INT);
 $type = required_param('type', PARAM_ALPHA);
 $signerid = optional_param('signerid', 0, PARAM_INT);
+$inline = optional_param('inline', 0, PARAM_BOOL);
 
 $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
 if (!$job) {
@@ -82,4 +83,4 @@ if (!$file) {
     throw new moodle_exception('filenotfound');
 }
 
-send_stored_file($file, 0, 0, true);
+send_stored_file($file, 0, 0, !$inline);
