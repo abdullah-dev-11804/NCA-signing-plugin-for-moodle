@@ -1070,7 +1070,8 @@ class job_manager {
         $count = 0;
         foreach ($jobs as $job) {
             if (!$this->can_server_autosign()) {
-                $message = 'Server auto-signing is unavailable. Check Java sidecar backend, fixed P12 files, and secrets.env.';
+                $message = $this->get_server_autosign_unavailable_message()
+                    ?? 'Server auto-signing is unavailable. Check Java sidecar backend, fixed P12 files, and secrets.env.';
                 $this->record_finalization_note((int)$job->id, $message);
                 error_log('local_ncasign: ' . $message . ' jobid=' . (int)$job->id);
                 continue;
@@ -1090,24 +1091,35 @@ class job_manager {
      * @return bool
      */
     public function can_server_autosign(?\stdClass $signer = null): bool {
+        return $this->get_server_autosign_unavailable_message($signer) === null;
+    }
+
+    /**
+     * Return why server auto-signing is unavailable, or null when ready.
+     *
+     * @param \stdClass|null $signer optional signer to check a single signing order
+     * @return string|null
+     */
+    public function get_server_autosign_unavailable_message(?\stdClass $signer = null): ?string {
         $finalizer = pades_finalizer_factory::create();
         if (!($finalizer instanceof java_sidecar_pades_finalizer) || !$finalizer->supports_prepare_phase()) {
-            return false;
+            return 'Server auto-signing is unavailable: Java sidecar PAdES finalizer is not active or does not support prepare phase.';
         }
 
         if ($signer !== null) {
             $config = $this->get_server_autosign_config($signer);
-            return $this->is_server_autosign_config_available($config);
+            return $this->get_server_autosign_config_error($config);
         }
 
         foreach (array_keys(self::SERVER_SIGNING_P12_FILES) as $signorder) {
             $config = $this->get_server_autosign_config_for_order((int)$signorder);
-            if (!$this->is_server_autosign_config_available($config)) {
-                return false;
+            $error = $this->get_server_autosign_config_error($config);
+            if ($error !== null) {
+                return $error;
             }
         }
 
-        return true;
+        return null;
     }
 
     /**
@@ -1119,12 +1131,15 @@ class job_manager {
     public function try_server_autosign_job(int $jobid): bool {
         global $DB;
 
-        if (!$this->can_server_autosign()) {
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job || $job->status !== self::JOB_PENDING) {
             return false;
         }
 
-        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
-        if (!$job || $job->status !== self::JOB_PENDING) {
+        $unavailable = $this->get_server_autosign_unavailable_message();
+        if ($unavailable !== null) {
+            error_log('local_ncasign: demo/server auto-sign unavailable for job ' . $jobid . ': ' . $unavailable);
+            $this->record_finalization_note($jobid, $unavailable);
             return false;
         }
 
@@ -1133,10 +1148,9 @@ class job_manager {
             while ($signer = $this->get_active_pending_signer($jobid)) {
                 $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
                 $config = $this->get_server_autosign_config($signer);
-                if (!$this->is_server_autosign_config_available($config)) {
-                    throw new \RuntimeException(
-                        'Server PKCS#12 signer is unavailable for signing order ' . (int)$signer->signorder . '.'
-                    );
+                $configerror = $this->get_server_autosign_config_error($config);
+                if ($configerror !== null) {
+                    throw new \RuntimeException($configerror);
                 }
                 $this->server_sign_active_signer($job, $signer, $config);
             }
@@ -1213,17 +1227,37 @@ class job_manager {
      * @return bool
      */
     private function is_server_autosign_config_available(array $config): bool {
+        return $this->get_server_autosign_config_error($config) === null;
+    }
+
+    /**
+     * Return why a resolved server auto-signer config is unusable, or null when usable.
+     *
+     * @param array<string,mixed> $config
+     * @return string|null
+     */
+    private function get_server_autosign_config_error(array $config): ?string {
         $path = trim((string)($config['pkcs12path'] ?? ''));
+        $signorder = (int)($config['signorder'] ?? 0);
         if ($path === '' || !is_readable($path)) {
-            return false;
+            return 'Server auto-signing is unavailable: PKCS#12 file for signing order ' .
+                $signorder . ' is not readable at ' . $path . '.';
         }
 
         $passwordkey = trim((string)($config['passwordkey'] ?? ''));
         if ($passwordkey === '') {
-            return false;
+            return 'Server auto-signing is unavailable: password key is not configured for signing order ' . $signorder . '.';
         }
 
-        return array_key_exists($passwordkey, $this->read_server_autosign_secrets());
+        if (!is_readable(self::SERVER_SIGNING_SECRET_FILE)) {
+            return 'Server auto-signing is unavailable: secrets file is not readable at ' . self::SERVER_SIGNING_SECRET_FILE . '.';
+        }
+
+        if (!array_key_exists($passwordkey, $this->read_server_autosign_secrets())) {
+            return 'Server auto-signing is unavailable: secrets file does not contain ' . $passwordkey . '.';
+        }
+
+        return null;
     }
 
     /**

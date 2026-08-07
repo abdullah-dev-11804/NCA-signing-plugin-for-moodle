@@ -189,7 +189,7 @@ if ($data = $mform->get_data()) {
             );
 
             $autosigned = false;
-            if (!empty($data->autosigndemo) && $manager->can_server_autosign()) {
+            if (!empty($data->autosigndemo)) {
                 try {
                     $autosigned = $manager->try_server_autosign_job($jobid);
                 } catch (Throwable $e) {
