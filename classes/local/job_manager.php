@@ -57,15 +57,17 @@ class job_manager {
 
     /** @var array<int,string> */
     private const SERVER_SIGNING_P12_FILES = [
-        1 => '/etc/sental/ncasign/signers/commission_member_1.p12',
-        2 => '/etc/sental/ncasign/signers/commission_member_2.p12',
+        // Temporary production test: use the confirmed chair container for every signing slot.
+        1 => '/etc/sental/ncasign/signers/commission_chair.p12',
+        2 => '/etc/sental/ncasign/signers/commission_chair.p12',
         3 => '/etc/sental/ncasign/signers/commission_chair.p12',
     ];
 
     /** @var array<int,string> */
     private const SERVER_SIGNING_PASSWORD_KEYS = [
-        1 => 'COMMISSION_MEMBER_1_P12_PASSWORD',
-        2 => 'COMMISSION_MEMBER_2_P12_PASSWORD',
+        // Temporary production test: use the confirmed chair password for every signing slot.
+        1 => 'COMMISSION_CHAIR_P12_PASSWORD',
+        2 => 'COMMISSION_CHAIR_P12_PASSWORD',
         3 => 'COMMISSION_CHAIR_P12_PASSWORD',
     ];
 
