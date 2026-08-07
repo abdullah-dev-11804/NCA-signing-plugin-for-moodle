@@ -156,10 +156,7 @@ class ncanode_signature_backend implements signature_backend_interface {
      * @return array<string, mixed>
      */
     private function request_json(string $method, string $path, ?string $body): array {
-        $baseurl = rtrim(trim((string)get_config('local_ncasign', 'ncanodebaseurl')), '/');
-        if ($baseurl === '') {
-            throw new \moodle_exception('verificationunavailable', 'local_ncasign');
-        }
+        $baseurl = 'http://127.0.0.1:14579';
 
         $timeout = (int)get_config('local_ncasign', 'ncanodetimeout');
         if ($timeout <= 0) {

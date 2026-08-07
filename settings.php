@@ -86,26 +86,10 @@ if ($hassiteconfig) {
         'Auto-signed by server fallback.'
     ));
 
-    $settings->add(new admin_setting_configtext(
-        'local_ncasign/certurltemplate',
-        get_string('certurltemplate', 'local_ncasign'),
-        'Use {courseid} and {userid} placeholders.',
-        '/mock/certificate.php?course={courseid}&user={userid}',
-        PARAM_RAW_TRIMMED
-    ));
-
     $settings->add(new admin_setting_heading(
         'local_ncasign/ncanodeheader',
         get_string('ncanodeheader', 'local_ncasign'),
         ''
-    ));
-
-    $settings->add(new admin_setting_configtext(
-        'local_ncasign/ncanodebaseurl',
-        get_string('ncanodebaseurl', 'local_ncasign'),
-        get_string('ncanodebaseurl_desc', 'local_ncasign'),
-        'http://127.0.0.1:14579',
-        PARAM_RAW_TRIMMED
     ));
 
     $settings->add(new admin_setting_configtext(
@@ -149,25 +133,6 @@ if ($hassiteconfig) {
         'local_ncasign/padesheader',
         get_string('padesheader', 'local_ncasign'),
         ''
-    ));
-
-    $settings->add(new admin_setting_configselect(
-        'local_ncasign/padesfinalizerbackend',
-        get_string('padesfinalizerbackend', 'local_ncasign'),
-        get_string('padesfinalizerbackend_desc', 'local_ncasign'),
-        'artifact',
-        [
-            'artifact' => get_string('padesbackendartifact', 'local_ncasign'),
-            'java_sidecar' => get_string('padesbackendjavasidecar', 'local_ncasign'),
-        ]
-    ));
-
-    $settings->add(new admin_setting_configtext(
-        'local_ncasign/padesembedderbaseurl',
-        get_string('padesembedderbaseurl', 'local_ncasign'),
-        get_string('padesembedderbaseurl_desc', 'local_ncasign'),
-        'http://127.0.0.1:18080',
-        PARAM_RAW_TRIMMED
     ));
 
     $settings->add(new admin_setting_configtext(

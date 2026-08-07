@@ -155,20 +155,22 @@ class template_manager {
         $signers = [];
         foreach ($records as $record) {
             $email = trim((string)$record->signeremail);
-            if ($email === '' || !validate_email($email)) {
-                continue;
+            if ($email !== '' && !validate_email($email)) {
+                $email = '';
             }
 
             $signers[] = [
                 'id' => $this->resolve_userid_by_email($email),
                 'email' => $email,
-                'name' => trim((string)($record->signername ?? '')) !== '' ? trim((string)$record->signername) : $email,
-                'position' => trim((string)($record->signerposition ?? '')) !== '' ? trim((string)$record->signerposition) : ('Commission member ' . (int)$record->signorder),
+                'name' => trim((string)($record->signername ?? '')) !== '' ? trim((string)$record->signername) : ($email !== '' ? $email : ''),
+                'position' => trim((string)($record->signerposition ?? '')) !== ''
+                    ? trim((string)$record->signerposition)
+                    : $this->get_commission_slot_label((int)$record->signorder),
                 'expectediin' => preg_replace('/\D+/', '', (string)($record->expectediin ?? '')),
             ];
         }
 
-        return $signers;
+        return $signers ?: $this->get_default_commission_signer_slots();
     }
 
     /**
@@ -277,6 +279,10 @@ class template_manager {
     private function resolve_userid_by_email(string $email): ?int {
         global $DB;
 
+        if (trim($email) === '') {
+            return null;
+        }
+
         $records = $DB->get_records('user', [
             'email' => $email,
             'deleted' => 0,
@@ -329,8 +335,8 @@ class template_manager {
         $order = 1;
         foreach ($normalisedsigners as $signer) {
             $email = trim((string)($signer['email'] ?? ''));
-            if ($email === '' || !validate_email($email)) {
-                continue;
+            if ($email !== '' && !validate_email($email)) {
+                $email = '';
             }
 
             $DB->insert_record('local_ncasign_template_signers', (object)[
@@ -360,5 +366,58 @@ class template_manager {
         }
 
         return array_values(array_filter(array_map('intval', $courseids)));
+    }
+
+    /**
+     * Return the three commission signer slots when emails are intentionally not configured.
+     *
+     * Template profiles use the document/rendering order: chair, member 1, member 2.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function get_default_commission_signer_slots(): array {
+        return [
+            [
+                'id' => null,
+                'email' => '',
+                'name' => '',
+                'position' => 'Commission chair',
+                'expectediin' => '',
+            ],
+            [
+                'id' => null,
+                'email' => '',
+                'name' => '',
+                'position' => 'Commission member 1',
+                'expectediin' => '',
+            ],
+            [
+                'id' => null,
+                'email' => '',
+                'name' => '',
+                'position' => 'Commission member 2',
+                'expectediin' => '',
+            ],
+        ];
+    }
+
+    /**
+     * Return the display label for a template signer slot.
+     *
+     * @param int $order
+     * @return string
+     */
+    private function get_commission_slot_label(int $order): string {
+        if ($order === 1) {
+            return 'Commission chair';
+        }
+        if ($order === 2) {
+            return 'Commission member 1';
+        }
+        if ($order === 3) {
+            return 'Commission member 2';
+        }
+
+        return 'Commission signer ' . $order;
     }
 }

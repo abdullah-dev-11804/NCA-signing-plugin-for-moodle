@@ -140,17 +140,15 @@ class job_manager {
         $signorder = 1;
         $insertedsigners = 0;
         foreach ($this->order_signers_for_commission_workflow($signers) as $signer) {
-            if (empty($signer['email'])) {
-                error_log('local_ncasign: create_job skipped signer without email for job ' . $jobid);
-                continue;
-            }
             $token = $this->generate_unique_token();
+            $email = trim((string)($signer['email'] ?? ''));
+            $fallbackname = trim((string)($signer['rolelabel'] ?? ('Commission signer ' . $signorder)));
             $record = (object)[
                 'jobid' => $jobid,
                 'signerid' => $signer['id'] ?? null,
-                'signeremail' => trim($signer['email']),
-                'signername' => trim((string)($signer['name'] ?? $signer['email'])),
-                'signerposition' => trim((string)($signer['position'] ?? ('Commission member ' . $signorder))),
+                'signeremail' => $email,
+                'signername' => trim((string)($signer['name'] ?? '')) !== '' ? trim((string)$signer['name']) : ($email !== '' ? $email : $fallbackname),
+                'signerposition' => trim((string)($signer['position'] ?? '')) !== '' ? trim((string)$signer['position']) : $fallbackname,
                 'expectediin' => ($expectediin = preg_replace('/\D+/', '', (string)($signer['expectediin'] ?? ''))) !== '' ? $expectediin : null,
                 'signorder' => $signorder,
                 'token' => $token,
@@ -174,8 +172,8 @@ class job_manager {
             error_log(
                 'local_ncasign: create_job inserted signer order=' . $signorder .
                 ' for job ' . $jobid .
-                ', email=' . trim($signer['email']) .
-                ', name=' . trim((string)($signer['name'] ?? $signer['email']))
+                ', email=' . ($email !== '' ? $email : '[empty]') .
+                ', name=' . trim((string)($record->signername ?? ''))
             );
             $signorder++;
         }
@@ -200,14 +198,37 @@ class job_manager {
      */
     private function order_signers_for_commission_workflow(array $signers): array {
         $signers = array_values($signers);
-        if (count($signers) < 3) {
-            return $signers;
+        $chair = $this->normalise_commission_signer_slot($signers[0] ?? [], 'commission_chair', 'Commission chair');
+        $member1 = $this->normalise_commission_signer_slot($signers[1] ?? [], 'commission_member_1', 'Commission member 1');
+        $member2 = $this->normalise_commission_signer_slot($signers[2] ?? [], 'commission_member_2', 'Commission member 2');
+
+        return [$member1, $member2, $chair];
+    }
+
+    /**
+     * Normalise one commission signer slot. Email is optional for server auto-signing.
+     *
+     * @param mixed $signer
+     * @param string $role
+     * @param string $rolelabel
+     * @return array<string,mixed>
+     */
+    private function normalise_commission_signer_slot($signer, string $role, string $rolelabel): array {
+        $signer = is_array($signer) ? $signer : [];
+        $email = trim((string)($signer['email'] ?? ''));
+        if ($email !== '' && !validate_email($email)) {
+            $email = '';
         }
 
-        return array_merge(
-            [$signers[1], $signers[2], $signers[0]],
-            array_slice($signers, 3)
-        );
+        return [
+            'id' => $signer['id'] ?? null,
+            'email' => $email,
+            'name' => trim((string)($signer['name'] ?? '')),
+            'position' => trim((string)($signer['position'] ?? '')),
+            'expectediin' => preg_replace('/\D+/', '', (string)($signer['expectediin'] ?? '')),
+            'role' => $role,
+            'rolelabel' => $rolelabel,
+        ];
     }
 
     /**
@@ -839,7 +860,9 @@ class job_manager {
             ', order=' . (int)$signer->signorder .
             ', email=' . (string)$signer->signeremail
         );
-        $this->send_signer_email($signer, $job, (string)($signer->signername ?? $signer->signeremail));
+        if (!$this->send_signer_email($signer, $job, (string)($signer->signername ?? $signer->signeremail))) {
+            return;
+        }
         $signer->notifiedat = time();
         $signer->timemodified = time();
         $DB->update_record('local_ncasign_signers', $signer);
@@ -1067,7 +1090,8 @@ class job_manager {
      * @return bool
      */
     public function can_server_autosign(?\stdClass $signer = null): bool {
-        if (trim((string)get_config('local_ncasign', 'padesfinalizerbackend')) !== 'java_sidecar') {
+        $finalizer = pades_finalizer_factory::create();
+        if (!($finalizer instanceof java_sidecar_pades_finalizer) || !$finalizer->supports_prepare_phase()) {
             return false;
         }
 
@@ -1133,10 +1157,7 @@ class job_manager {
      * @return string
      */
     public function build_certificate_url(int $courseid, int $userid): string {
-        $template = (string)get_config('local_ncasign', 'certurltemplate');
-        if ($template === '') {
-            $template = '/mock/certificate.php?course={courseid}&user={userid}';
-        }
+        $template = '/mock/certificate.php?course={courseid}&user={userid}';
 
         return str_replace(
             ['{courseid}', '{userid}'],
@@ -1525,14 +1546,14 @@ class job_manager {
      * @param \stdClass $signer
      * @param \stdClass $job
      * @param string $name
-     * @return void
+     * @return bool
      */
-    private function send_signer_email(\stdClass $signer, \stdClass $job, string $name): void {
+    private function send_signer_email(\stdClass $signer, \stdClass $job, string $name): bool {
         global $CFG, $DB;
 
         if (empty($signer->signeremail)) {
             error_log('local_ncasign: send_signer_email skipped empty signer email for job ' . (int)$job->id);
-            return;
+            return false;
         }
 
         $student = $DB->get_record(
@@ -1621,6 +1642,8 @@ class job_manager {
             ', email=' . (string)$signer->signeremail .
             ', result=' . var_export($sent, true)
         );
+
+        return (bool)$sent;
     }
 
     /**

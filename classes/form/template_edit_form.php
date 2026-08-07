@@ -66,7 +66,6 @@ class template_edit_form extends \moodleform {
             'cols' => 100,
         ]);
         $mform->setType('signersraw', PARAM_RAW);
-        $mform->addRule('signersraw', get_string('required'), 'required', null, 'client');
         $mform->addElement('static', 'signersraw_desc', '', get_string('templatesigners_desc', 'local_ncasign'));
 
         $mform->addElement('advcheckbox', 'active', get_string('templateactive', 'local_ncasign'));
@@ -142,8 +141,7 @@ class template_edit_form extends \moodleform {
             $errors['courseids'] = get_string('templatecourses_invalid', 'local_ncasign');
         }
 
-        $signers = self::parse_signers((string)($data['signersraw'] ?? ''));
-        if (!$signers) {
+        if (self::has_invalid_signer_email((string)($data['signersraw'] ?? ''))) {
             $errors['signersraw'] = get_string('templatesigners_invalid', 'local_ncasign');
         }
 
@@ -325,7 +323,12 @@ class template_edit_form extends \moodleform {
      */
     public static function parse_signers(string $raw): array {
         $signers = [];
-        $lines = preg_split('/\r\n|\r|\n/', trim($raw));
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', $raw);
         foreach ($lines as $line) {
             $line = trim((string)$line);
             if ($line === '') {
@@ -334,7 +337,7 @@ class template_edit_form extends \moodleform {
 
             $parts = array_map('trim', explode('|', $line));
             $email = $parts[0] ?? '';
-            if ($email === '' || !validate_email($email)) {
+            if ($email !== '' && !validate_email($email)) {
                 continue;
             }
 
@@ -347,6 +350,33 @@ class template_edit_form extends \moodleform {
         }
 
         return $signers;
+    }
+
+    /**
+     * Check whether signer rows contain a malformed non-empty email.
+     *
+     * @param string $raw
+     * @return bool
+     */
+    private static function has_invalid_signer_email(string $raw): bool {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return false;
+        }
+
+        foreach (preg_split('/\r\n|\r|\n/', $raw) as $line) {
+            $line = trim((string)$line);
+            if ($line === '') {
+                continue;
+            }
+            $parts = array_map('trim', explode('|', $line));
+            $email = $parts[0] ?? '';
+            if ($email !== '' && !validate_email($email)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
