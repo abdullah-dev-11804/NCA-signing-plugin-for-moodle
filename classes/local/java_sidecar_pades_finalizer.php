@@ -369,7 +369,7 @@ class java_sidecar_pades_finalizer implements pades_finalizer_interface {
      * @return array<string,mixed>
      */
     private function request_json(string $method, string $path, ?string $body): array {
-        $baseurl = 'http://127.0.0.1:18080';
+        $baseurl = 'http://127.0.0.1:8080';
 
         $timeout = (int)get_config('local_ncasign', 'padesembeddertimeout');
         if ($timeout <= 0) {
