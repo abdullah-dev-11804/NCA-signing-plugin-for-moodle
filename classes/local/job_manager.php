@@ -52,6 +52,23 @@ class job_manager {
     /** @var string */
     public const JOB_ORIGIN_CUSTOMCERT_ISSUE = 'customcert_issue';
 
+    /** @var string */
+    private const SERVER_SIGNING_SECRET_FILE = '/etc/sental/ncasign/secrets.env';
+
+    /** @var array<int,string> */
+    private const SERVER_SIGNING_P12_FILES = [
+        1 => '/etc/sental/ncasign/signers/commission_member_1.p12',
+        2 => '/etc/sental/ncasign/signers/commission_member_2.p12',
+        3 => '/etc/sental/ncasign/signers/commission_chair.p12',
+    ];
+
+    /** @var array<int,string> */
+    private const SERVER_SIGNING_PASSWORD_KEYS = [
+        1 => 'COMMISSION_MEMBER_1_P12_PASSWORD',
+        2 => 'COMMISSION_MEMBER_2_P12_PASSWORD',
+        3 => 'COMMISSION_CHAIR_P12_PASSWORD',
+    ];
+
     /**
      * Create a signing job and notify signers.
      *
@@ -84,10 +101,7 @@ class job_manager {
         global $DB;
 
         $now = time();
-        $manualwindowhours = $manualwindowhours ?? (int)get_config('local_ncasign', 'manualwindowhours');
-        if ($manualwindowhours <= 0) {
-            $manualwindowhours = 24;
-        }
+        $manualwindowseconds = $this->get_manual_window_seconds($manualwindowhours);
 
         $job = (object)[
             'timecreated' => $now,
@@ -106,7 +120,7 @@ class job_manager {
             'finalizationevidence' => null,
             'certificateurl' => $certificateurl,
             'status' => self::JOB_PENDING,
-            'manualdeadline' => $now + ($manualwindowhours * HOURSECS),
+            'manualdeadline' => $now + $manualwindowseconds,
             'manualcompleted' => null,
             'autosigned' => null,
             'autosignnote' => null,
@@ -194,6 +208,34 @@ class job_manager {
             [$signers[1], $signers[2], $signers[0]],
             array_slice($signers, 3)
         );
+    }
+
+    /**
+     * Resolve the configured manual signing window to seconds.
+     *
+     * @param int|null $manualwindowhours explicit legacy override in hours
+     * @return int
+     */
+    private function get_manual_window_seconds(?int $manualwindowhours = null): int {
+        if ($manualwindowhours !== null) {
+            $hours = $manualwindowhours > 0 ? $manualwindowhours : 24;
+            return $hours * HOURSECS;
+        }
+
+        $value = (int)get_config('local_ncasign', 'manualwindowhours');
+        if ($value <= 0) {
+            $value = 24;
+        }
+
+        $unit = (string)get_config('local_ncasign', 'manualwindowunit');
+        if ($unit === 'minutes') {
+            return max(60, $value * MINSECS);
+        }
+        if ($unit === 'days') {
+            return $value * DAYSECS;
+        }
+
+        return $value * HOURSECS;
     }
 
     /**
@@ -1004,36 +1046,16 @@ class job_manager {
 
         $count = 0;
         foreach ($jobs as $job) {
-            if ($this->can_server_autosign()) {
-                if ($this->try_server_autosign_job((int)$job->id)) {
-                    $count++;
-                }
+            if (!$this->can_server_autosign()) {
+                $message = 'Server auto-signing is unavailable. Check Java sidecar backend, fixed P12 files, and secrets.env.';
+                $this->record_finalization_note((int)$job->id, $message);
+                error_log('local_ncasign: ' . $message . ' jobid=' . (int)$job->id);
                 continue;
             }
 
-            $signers = $DB->get_records('local_ncasign_signers', ['jobid' => $job->id]);
-            foreach ($signers as $signer) {
-                if ($signer->status === self::SIGNER_PENDING) {
-                    $signer->status = self::SIGNER_SKIPPED;
-                    $signer->timemodified = $now;
-                    $signer->signmeta = json_encode(['reason' => 'manual_deadline_passed']);
-                    $DB->update_record('local_ncasign_signers', $signer);
-                }
+            if ($this->try_server_autosign_job((int)$job->id)) {
+                $count++;
             }
-
-            $job->status = self::JOB_COMPLETED_AUTO;
-            $job->autosigned = $now;
-            $job->autosignnote = get_config('local_ncasign', 'autosignnote');
-            $job->timemodified = $now;
-            $DB->update_record('local_ncasign_jobs', $job);
-            try {
-                $this->ensure_original_pdf_for_job((int)$job->id);
-                $this->generate_signed_pdf_artifact((int)$job->id);
-            } catch (\Throwable $e) {
-                error_log('local_ncasign: failed to generate auto-sign PDF artifact for job ' . (int)$job->id . ': ' . $e->getMessage());
-            }
-            $this->send_student_completion_email($job, true);
-            $count++;
         }
 
         return $count;
@@ -1044,18 +1066,24 @@ class job_manager {
      *
      * @return bool
      */
-    public function can_server_autosign(): bool {
-        $config = $this->get_server_autosign_config();
-        if (!$config['enabled']) {
+    public function can_server_autosign(?\stdClass $signer = null): bool {
+        if (trim((string)get_config('local_ncasign', 'padesfinalizerbackend')) !== 'java_sidecar') {
             return false;
         }
-        if ($config['pkcs12path'] === '') {
-            return false;
+
+        if ($signer !== null) {
+            $config = $this->get_server_autosign_config($signer);
+            return $this->is_server_autosign_config_available($config);
         }
-        if (!is_readable($config['pkcs12path'])) {
-            return false;
+
+        foreach (array_keys(self::SERVER_SIGNING_P12_FILES) as $signorder) {
+            $config = $this->get_server_autosign_config_for_order((int)$signorder);
+            if (!$this->is_server_autosign_config_available($config)) {
+                return false;
+            }
         }
-        return trim((string)get_config('local_ncasign', 'padesfinalizerbackend')) === 'java_sidecar';
+
+        return true;
     }
 
     /**
@@ -1078,9 +1106,14 @@ class job_manager {
 
         try {
             $this->ensure_original_pdf_for_job($jobid);
-            $config = $this->get_server_autosign_config();
             while ($signer = $this->get_active_pending_signer($jobid)) {
                 $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
+                $config = $this->get_server_autosign_config($signer);
+                if (!$this->is_server_autosign_config_available($config)) {
+                    throw new \RuntimeException(
+                        'Server PKCS#12 signer is unavailable for signing order ' . (int)$signer->signorder . '.'
+                    );
+                }
                 $this->server_sign_active_signer($job, $signer, $config);
             }
             $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
@@ -1129,13 +1162,97 @@ class job_manager {
      *
      * @return array<string,mixed>
      */
-    private function get_server_autosign_config(): array {
+    private function get_server_autosign_config(\stdClass $signer): array {
+        return $this->get_server_autosign_config_for_order((int)($signer->signorder ?? 0));
+    }
+
+    /**
+     * Return server auto-signer configuration for a signing order.
+     *
+     * @param int $signorder
+     * @return array<string,mixed>
+     */
+    private function get_server_autosign_config_for_order(int $signorder): array {
+        $secrets = $this->read_server_autosign_secrets();
+        $passwordkey = self::SERVER_SIGNING_PASSWORD_KEYS[$signorder] ?? '';
+
         return [
-            'enabled' => (bool)((int)get_config('local_ncasign', 'serversigningenabled')),
-            'pkcs12path' => trim((string)get_config('local_ncasign', 'serversigningpkcs12path')),
-            'pkcs12password' => (string)get_config('local_ncasign', 'serversigningpkcs12password'),
-            'pkcs12alias' => trim((string)get_config('local_ncasign', 'serversigningpkcs12alias')),
+            'pkcs12path' => self::SERVER_SIGNING_P12_FILES[$signorder] ?? '',
+            'pkcs12password' => $passwordkey !== '' ? (string)($secrets[$passwordkey] ?? '') : '',
+            'pkcs12alias' => '',
+            'signorder' => $signorder,
+            'passwordkey' => $passwordkey,
         ];
+    }
+
+    /**
+     * Check if a resolved server auto-signer config is usable.
+     *
+     * @param array<string,mixed> $config
+     * @return bool
+     */
+    private function is_server_autosign_config_available(array $config): bool {
+        $path = trim((string)($config['pkcs12path'] ?? ''));
+        if ($path === '' || !is_readable($path)) {
+            return false;
+        }
+
+        $passwordkey = trim((string)($config['passwordkey'] ?? ''));
+        if ($passwordkey === '') {
+            return false;
+        }
+
+        return array_key_exists($passwordkey, $this->read_server_autosign_secrets());
+    }
+
+    /**
+     * Read fixed server-side PKCS#12 passwords from /etc/sental/ncasign/secrets.env.
+     *
+     * @return array<string,string>
+     */
+    private function read_server_autosign_secrets(): array {
+        static $cache = null;
+
+        if (is_array($cache)) {
+            return $cache;
+        }
+
+        $cache = [];
+        if (!is_readable(self::SERVER_SIGNING_SECRET_FILE)) {
+            return $cache;
+        }
+
+        $lines = file(self::SERVER_SIGNING_SECRET_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!$lines) {
+            return $cache;
+        }
+
+        foreach ($lines as $line) {
+            $line = trim((string)$line);
+            if ($line === '' || strpos($line, '#') === 0 || strpos($line, '=') === false) {
+                continue;
+            }
+
+            [$key, $value] = explode('=', $line, 2);
+            $key = trim($key);
+            $value = trim($value);
+            if ($key === '') {
+                continue;
+            }
+
+            $first = $value !== '' ? $value[0] : '';
+            $last = $value !== '' ? substr($value, -1) : '';
+            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                $value = substr($value, 1, -1);
+                if ($first === '"') {
+                    $value = stripcslashes($value);
+                }
+            }
+
+            $cache[$key] = $value;
+        }
+
+        return $cache;
     }
 
     /**

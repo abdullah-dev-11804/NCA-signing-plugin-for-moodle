@@ -30,10 +30,12 @@ if (!$job) {
 }
 
 $ismanager = has_capability('local/ncasign:managejobs', $syscontext);
+$canviewsentaldocuments = has_capability('local/sentaldocupload:viewdocuments', $syscontext)
+    || has_capability('local/sentaldocupload:manage', $syscontext);
 $isownerstudent = ((int)$USER->id === (int)$job->userid);
 $coursecontext = context_course::instance((int)$job->courseid, IGNORE_MISSING);
 $isenrolledincourse = ($coursecontext && is_enrolled($coursecontext, $USER, '', true));
-if (!$ismanager && !$isownerstudent && !$isenrolledincourse) {
+if (!$ismanager && !$canviewsentaldocuments && !$isownerstudent && !$isenrolledincourse) {
     require_capability('local/ncasign:managejobs', $syscontext);
 }
 
