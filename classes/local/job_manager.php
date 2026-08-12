@@ -1702,7 +1702,6 @@ class job_manager {
         $subject = 'Құжатыңызға қол қойылды / Ваш документ подписан / Your document has been signed';
         $message = "=== KZ ===\n" .
             "Сіздің курстық құжатыңызға қол қойылды.\n" .
-            "Қол қою түрі: " . ($auto ? 'сервер арқылы автоматты қол қою' : 'қол қоюшылардың қолмен растауы') . "\n" .
             "Құжат: " . (string)$job->documenttitle . "\n" .
             "Курс ID: {$job->courseid}\n" .
             "Курс атауы: {$coursename}\n" .
@@ -1713,7 +1712,6 @@ class job_manager {
             "Жария тексеру беті: {$verifylink}\n\n" .
             "=== RU ===\n" .
             "Ваш учебный документ подписан.\n" .
-            "Тип подписания: " . ($auto ? 'автоматическое серверное подписание' : 'ручное подтверждение подписантами') . "\n" .
             "Документ: " . (string)$job->documenttitle . "\n" .
             "ID курса: {$job->courseid}\n" .
             "Название курса: {$coursename}\n" .
@@ -1724,7 +1722,6 @@ class job_manager {
             "Публичная страница проверки: {$verifylink}\n\n" .
             "=== EN ===\n" .
             "Your course document has been signed.\n" .
-            "Signing type: " . ($auto ? 'automatic server signing' : 'manual signer approval') . "\n" .
             "Document: " . (string)$job->documenttitle . "\n" .
             "Course ID: {$job->courseid}\n" .
             "Course name: {$coursename}\n" .
@@ -1737,7 +1734,6 @@ class job_manager {
         $messagehtml = '<h3>KZ</h3>' .
             '<p>Сіздің курстық құжатыңызға қол қойылды.</p>' .
             '<ul>' .
-            '<li><strong>Қол қою түрі:</strong> ' . s($auto ? 'сервер арқылы автоматты қол қою' : 'қол қоюшылардың қолмен растауы') . '</li>' .
             '<li><strong>Құжат:</strong> ' . s((string)$job->documenttitle) . '</li>' .
             '<li><strong>Курс ID:</strong> ' . (int)$job->courseid . '</li>' .
             '<li><strong>Курс атауы:</strong> ' . s($coursename) . '</li>' .
@@ -1751,7 +1747,6 @@ class job_manager {
             '<h3>RU</h3>' .
             '<p>Ваш учебный документ подписан.</p>' .
             '<ul>' .
-            '<li><strong>Тип подписания:</strong> ' . s($auto ? 'автоматическое серверное подписание' : 'ручное подтверждение подписантами') . '</li>' .
             '<li><strong>Документ:</strong> ' . s((string)$job->documenttitle) . '</li>' .
             '<li><strong>ID курса:</strong> ' . (int)$job->courseid . '</li>' .
             '<li><strong>Название курса:</strong> ' . s($coursename) . '</li>' .
@@ -1765,7 +1760,6 @@ class job_manager {
             '<h3>EN</h3>' .
             '<p>Your course document has been signed.</p>' .
             '<ul>' .
-            '<li><strong>Signing type:</strong> ' . s($auto ? 'automatic server signing' : 'manual signer approval') . '</li>' .
             '<li><strong>Document:</strong> ' . s((string)$job->documenttitle) . '</li>' .
             '<li><strong>Course ID:</strong> ' . (int)$job->courseid . '</li>' .
             '<li><strong>Course name:</strong> ' . s($coursename) . '</li>' .
