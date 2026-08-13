@@ -31,6 +31,8 @@ class job_manager {
     /** @var string */
     public const FILEAREA_SIGNEDPDF = 'signedpdf';
     /** @var string */
+    public const FILEAREA_PUBLICPROFILEPDF = 'publicprofilepdf';
+    /** @var string */
     public const JOB_PENDING = 'pending_manual';
     /** @var string */
     public const JOB_COMPLETED_MANUAL = 'completed_manual';
@@ -371,6 +373,62 @@ class job_manager {
         }
         $job->timemodified = time();
         $DB->update_record('local_ncasign_jobs', $job);
+    }
+
+    /**
+     * Attach a public-profile-only PDF copy to a job.
+     *
+     * This copy may omit Customcert pages that should not be shown publicly.
+     * It is intentionally separate from the PAdES signed master PDF.
+     *
+     * @param int $jobid
+     * @param string $filename
+     * @param string $content
+     * @return void
+     */
+    public function attach_public_profile_binary_to_job(int $jobid, string $filename, string $content): void {
+        if ($content === '') {
+            return;
+        }
+
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+
+        $existing = $fs->get_area_files(
+            $context->id,
+            'local_ncasign',
+            self::FILEAREA_PUBLICPROFILEPDF,
+            $jobid,
+            'id',
+            false
+        );
+        foreach ($existing as $file) {
+            $file->delete();
+        }
+
+        $filename = trim($filename);
+        if ($filename === '' || $filename === '.') {
+            $filename = "public_certificate_job_{$jobid}.pdf";
+        }
+        if (!preg_match('/\.pdf$/i', $filename)) {
+            $filename .= '.pdf';
+        }
+
+        $record = (object)[
+            'contextid' => $context->id,
+            'component' => 'local_ncasign',
+            'filearea' => self::FILEAREA_PUBLICPROFILEPDF,
+            'itemid' => $jobid,
+            'filepath' => '/',
+            'filename' => $filename,
+            'userid' => 0,
+            'author' => 'local_ncasign',
+            'license' => 'allrightsreserved',
+            'source' => 'public_profile_filtered',
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ];
+        $fs->create_file_from_string($record, $content);
     }
 
     /**

@@ -216,6 +216,13 @@ class observer {
                             ? $draft['finalizationmanifest']
                             : null
                     );
+                    if (!empty($draft['publicprofilecontent'])) {
+                        $manager->attach_public_profile_binary_to_job(
+                            $jobid,
+                            (string)($draft['publicprofilefilename'] ?? ('public_' . (string)$draft['filename'])),
+                            (string)$draft['publicprofilecontent']
+                        );
+                    }
                     error_log(
                         'local_ncasign: attached generated draft to job ' . $jobid .
                         ', filename=' . (string)$draft['filename'] .

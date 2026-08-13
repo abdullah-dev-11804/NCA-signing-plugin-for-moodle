@@ -277,6 +277,7 @@ class document_generator {
         }
         $template = $this->load_customcert_template_instance($templateid);
         $content = '';
+        $publiccontent = '';
         $restoredelements = [];
         $restoremiddlename = null;
 
@@ -287,6 +288,14 @@ class document_generator {
             if (method_exists($template, 'generate_pdf')) {
                 error_log('NCASIGN_CANARY generate_customcert_template_document using_template_generate_pdf userid=' . $userid);
                 $content = (string)$template->generate_pdf(false, $userid, true);
+                if ($this->customcert_has_public_profile_hidden_pages($templateid)) {
+                    $publiccontent = (string)$template->generate_pdf(
+                        false,
+                        $userid,
+                        true,
+                        \mod_customcert\template::VIEW_CONTEXT_PUBLIC_PROFILE
+                    );
+                }
             } else if (class_exists('\mod_customcert\service\pdf_generation_service')) {
                 error_log('NCASIGN_CANARY generate_customcert_template_document using_pdf_generation_service userid=' . $userid);
                 $pdfservice = \mod_customcert\service\pdf_generation_service::create();
@@ -322,6 +331,8 @@ class document_generator {
         return [
             'filename' => $filename,
             'content' => (string)$overlay['content'],
+            'publicprofilefilename' => 'public_' . $filename,
+            'publicprofilecontent' => $publiccontent,
             'documenttype' => (string)($profile['documenttype'] ?? 'certificate'),
             'documenttitle' => $documenttitle,
             'previewdata' => [
@@ -340,6 +351,26 @@ class document_generator {
                 ]
             ),
         ];
+    }
+
+    /**
+     * Check whether a customcert template has pages hidden from Public Profile.
+     *
+     * @param int $templateid
+     * @return bool
+     */
+    private function customcert_has_public_profile_hidden_pages(int $templateid): bool {
+        global $DB;
+
+        $pagetable = new \xmldb_table('customcert_pages');
+        if ($templateid <= 0 || !$DB->get_manager()->field_exists($pagetable, 'showinpublicprofile')) {
+            return false;
+        }
+
+        return $DB->record_exists('customcert_pages', [
+            'templateid' => $templateid,
+            'showinpublicprofile' => 0,
+        ]);
     }
 
     /**

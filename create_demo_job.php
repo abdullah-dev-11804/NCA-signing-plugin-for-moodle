@@ -145,6 +145,8 @@ if ($data = $mform->get_data()) {
                         'documenttype' => (string)($draft['documenttype'] ?? 'certificate'),
                         'documenttitle' => (string)($draft['documenttitle'] ?? ($data->documenttitle ?? '')),
                         'profileid' => $selectedprofile ? (int)$selectedprofile['id'] : null,
+                        'publicprofilefilename' => (string)($draft['publicprofilefilename'] ?? ''),
+                        'publicprofilecontent' => (string)($draft['publicprofilecontent'] ?? ''),
                     ];
                 } catch (Throwable $e) {
                     \core\notification::error(get_string('demodraftgenerationfailed', 'local_ncasign', $e->getMessage()));
@@ -187,6 +189,13 @@ if ($data = $mform->get_data()) {
                 $source,
                 $attachment['manifest']
             );
+            if (!empty($attachment['publicprofilecontent'])) {
+                $manager->attach_public_profile_binary_to_job(
+                    $jobid,
+                    (string)($attachment['publicprofilefilename'] ?: ('public_' . (string)$attachment['filename'])),
+                    (string)$attachment['publicprofilecontent']
+                );
+            }
 
             $autosigned = false;
             if (!empty($data->autosigndemo)) {
