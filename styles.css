@@ -2,15 +2,25 @@
     display: block;
     max-width: 100%;
     min-width: 0;
-    overflow-x: auto;
+    overflow-x: visible;
     overflow-y: visible;
     position: relative;
+    width: 100%;
+}
+
+.local-ncasign-jobs-scroll > .table-responsive {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: visible;
     scrollbar-gutter: stable;
     width: 100%;
 }
 
-.local-ncasign-jobs-scroll table,
-.local-ncasign-jobs-scroll table.generaltable {
+.local-ncasign-jobs-scroll table.generaltable,
+.local-ncasign-jobs-scroll table.generaltable.table,
+.local-ncasign-jobs-scroll > .table-responsive > table.generaltable.table {
     min-width: 100%;
     table-layout: auto !important;
     width: max-content !important;

@@ -13,15 +13,17 @@ define(['jquery'], function($) {
     };
 
     var getScrollableTarget = function(root) {
-        var current = root;
-        while (current) {
-            if (current.scrollWidth > current.clientWidth + 1) {
-                return current;
-            }
-            current = current.parentElement;
+        var responsive = root.querySelector('.table-responsive');
+        if (responsive) {
+            return responsive;
         }
 
-        return document.scrollingElement || document.documentElement;
+        var table = root.querySelector('table.generaltable, table.table, table');
+        if (table && table.parentElement) {
+            return table.parentElement;
+        }
+
+        return root;
     };
 
     var init = function(selector, edgeSize, maxSpeed) {
@@ -40,6 +42,7 @@ define(['jquery'], function($) {
         $(selector).each(function() {
             var container = this;
             var scrollTarget = getScrollableTarget(container);
+            var table = container.querySelector('table.generaltable, table.table, table');
             var frame = null;
             var active = false;
             var pointerX = null;
@@ -49,8 +52,11 @@ define(['jquery'], function($) {
                 scrollWidth: container.scrollWidth,
                 clientWidth: container.clientWidth,
                 targetTag: scrollTarget && scrollTarget.tagName ? scrollTarget.tagName.toLowerCase() : 'unknown',
+                targetClass: scrollTarget && scrollTarget.className ? scrollTarget.className : '',
                 targetScrollWidth: scrollTarget.scrollWidth,
                 targetClientWidth: scrollTarget.clientWidth,
+                tableScrollWidth: table ? table.scrollWidth : null,
+                tableClientWidth: table ? table.clientWidth : null,
             });
 
             function stop() {
@@ -69,14 +75,16 @@ define(['jquery'], function($) {
                     return 0;
                 }
 
-                var rect = container.getBoundingClientRect();
+                var rect = scrollTarget.getBoundingClientRect();
                 var leftOffset = pointerX - rect.left;
                 var rightOffset = rect.right - pointerX;
 
-                if (scrollTarget.scrollWidth <= scrollTarget.clientWidth) {
+                if (scrollTarget.scrollWidth <= scrollTarget.clientWidth + 1) {
                     log('no-scroll-needed', {
                         scrollWidth: scrollTarget.scrollWidth,
                         clientWidth: scrollTarget.clientWidth,
+                        tableScrollWidth: table ? table.scrollWidth : null,
+                        tableClientWidth: table ? table.clientWidth : null,
                     });
                     return 0;
                 }
