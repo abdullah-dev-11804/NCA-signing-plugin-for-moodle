@@ -4,10 +4,25 @@ define(['jquery'], function($) {
         maxSpeed: 22,
     };
 
+    var debugPrefix = 'NCASIGN_EDGE_SCROLL';
+
+    var log = function() {
+        if (window.console && window.console.log) {
+            window.console.log.apply(window.console, [debugPrefix].concat(Array.prototype.slice.call(arguments)));
+        }
+    };
+
     var init = function(selector, edgeSize, maxSpeed) {
         var options = $.extend({}, defaults, {
             edgeSize: edgeSize || defaults.edgeSize,
             maxSpeed: maxSpeed || defaults.maxSpeed,
+        });
+
+        log('init', {
+            selector: selector,
+            edgeSize: options.edgeSize,
+            maxSpeed: options.maxSpeed,
+            matchCount: $(selector).length,
         });
 
         $(selector).each(function() {
@@ -17,6 +32,11 @@ define(['jquery'], function($) {
             var pointerX = null;
             var currentSpeed = 0;
 
+            log('bind', {
+                scrollWidth: container.scrollWidth,
+                clientWidth: container.clientWidth,
+            });
+
             function stop() {
                 active = false;
                 pointerX = null;
@@ -25,6 +45,7 @@ define(['jquery'], function($) {
                     window.cancelAnimationFrame(frame);
                     frame = null;
                 }
+                log('stop');
             }
 
             function getSpeed() {
@@ -37,14 +58,26 @@ define(['jquery'], function($) {
                 var rightOffset = rect.right - pointerX;
 
                 if (container.scrollWidth <= container.clientWidth) {
+                    log('no-scroll-needed', {
+                        scrollWidth: container.scrollWidth,
+                        clientWidth: container.clientWidth,
+                    });
                     return 0;
                 }
 
                 if (leftOffset >= 0 && leftOffset < options.edgeSize) {
+                    log('edge-left', {
+                        leftOffset: Math.round(leftOffset),
+                        scrollLeft: container.scrollLeft,
+                    });
                     return -Math.ceil(options.maxSpeed * (1 - (leftOffset / options.edgeSize)));
                 }
 
                 if (rightOffset >= 0 && rightOffset < options.edgeSize) {
+                    log('edge-right', {
+                        rightOffset: Math.round(rightOffset),
+                        scrollLeft: container.scrollLeft,
+                    });
                     return Math.ceil(options.maxSpeed * (1 - (rightOffset / options.edgeSize)));
                 }
 
@@ -59,6 +92,9 @@ define(['jquery'], function($) {
 
                 currentSpeed = getSpeed();
                 if (currentSpeed === 0) {
+                    log('tick-zero-speed', {
+                        scrollLeft: container.scrollLeft,
+                    });
                     frame = window.requestAnimationFrame(tick);
                     return;
                 }
@@ -73,12 +109,21 @@ define(['jquery'], function($) {
                 }
 
                 container.scrollLeft = nextScrollLeft;
+                log('tick-scroll', {
+                    speed: currentSpeed,
+                    scrollLeft: nextScrollLeft,
+                    maxScrollLeft: maxScrollLeft,
+                });
                 frame = window.requestAnimationFrame(tick);
             }
 
             function start(event) {
                 active = true;
                 pointerX = event.clientX;
+                log('mouseenter', {
+                    clientX: pointerX,
+                    scrollLeft: container.scrollLeft,
+                });
                 if (!frame) {
                     frame = window.requestAnimationFrame(tick);
                 }
@@ -86,6 +131,9 @@ define(['jquery'], function($) {
 
             function move(event) {
                 pointerX = event.clientX;
+                log('mousemove', {
+                    clientX: pointerX,
+                });
             }
 
             container.addEventListener('mouseenter', start);
