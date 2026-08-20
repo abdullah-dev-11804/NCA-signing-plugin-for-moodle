@@ -28,12 +28,29 @@
 
 .local-ncasign-jobs-scroll th,
 .local-ncasign-jobs-scroll td {
+    vertical-align: middle;
     white-space: nowrap;
+}
+
+.local-ncasign-jobs-scroll .local-ncasign-user-name-cell,
+.local-ncasign-jobs-scroll .local-ncasign-course-name-cell {
+    min-width: 240px;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: anywhere;
+}
+
+.local-ncasign-jobs-scroll .local-ncasign-user-name-cell {
+    max-width: 260px;
 }
 
 .local-ncasign-jobs-scroll .local-ncasign-course-name-cell {
     max-width: 320px;
-    min-width: 240px;
+}
+
+.local-ncasign-jobs-scroll .local-ncasign-artifacts-cell {
+    max-width: 520px;
+    min-width: 320px;
     white-space: normal;
     word-break: normal;
     overflow-wrap: anywhere;

@@ -29,8 +29,8 @@ $PAGE->set_heading(get_string('jobs', 'local_ncasign'));
 $PAGE->requires->css(new moodle_url('/local/ncasign/styles.css'));
 $PAGE->requires->js_call_amd('local_ncasign/edge_scroll', 'init', [
     '[data-ncasign-edge-scroll="1"]',
-    80,
-    22,
+    110,
+    48,
 ]);
 
 echo $OUTPUT->header();
@@ -81,13 +81,19 @@ foreach ($jobs as $job) {
     $totalcount = $DB->count_records('local_ncasign_signers', ['jobid' => $job->id]);
 
     $userlabel = local_ncasign_render_user_link($job);
+    $usercell = new html_table_cell($userlabel);
+    $usercell->attributes['class'] = 'local-ncasign-user-name-cell';
+
     $courselabel = local_ncasign_render_course_link($job);
     $coursecell = new html_table_cell($courselabel);
     $coursecell->attributes['class'] = 'local-ncasign-course-name-cell';
 
+    $artifactcell = new html_table_cell(local_ncasign_render_artifacts((int)$job->id));
+    $artifactcell->attributes['class'] = 'local-ncasign-artifacts-cell';
+
     $table->data[] = [
         (int)$job->id,
-        $userlabel,
+        $usercell,
         $coursecell,
         local_ncasign_render_origin_badge((string)($job->origin ?? 'course_completion')),
         local_ncasign_render_job_status_badge($job, $signedcount, $totalcount),
@@ -95,7 +101,7 @@ foreach ($jobs as $job) {
         "{$signedcount}/{$totalcount}",
         $job->autosigned ? userdate((int)$job->autosigned) : '-',
         html_writer::link(new moodle_url('/local/ncasign/job.php', ['id' => (int)$job->id]), get_string('viewdetails', 'local_ncasign')),
-        local_ncasign_render_artifacts((int)$job->id),
+        $artifactcell,
     ];
 }
 
