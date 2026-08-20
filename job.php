@@ -71,6 +71,7 @@ $table->head = [
     get_string('signedatlabel', 'local_ncasign'),
     get_string('verificationstatuslabel', 'local_ncasign'),
     get_string('signingmethodlabel', 'local_ncasign'),
+    get_string('signinglinklabel', 'local_ncasign'),
     get_string('verificationdetails', 'local_ncasign'),
 ];
 
@@ -87,6 +88,7 @@ foreach ($signers as $signer) {
         !empty($signer->signedat) ? userdate((int)$signer->signedat) : '-',
         local_ncasign_verification_badge($signer),
         !empty($signer->signingmethod) ? s((string)$signer->signingmethod) : '-',
+        local_ncasign_render_signer_link($signer, $manager),
         $details,
     ];
 }
@@ -149,6 +151,25 @@ function local_ncasign_job_render_artifacts(int $jobid): string {
     }
 
     return $links ? implode(' | ', $links) : '-';
+}
+
+/**
+ * Render the currently active signer's signing link.
+ *
+ * @param stdClass $signer
+ * @param \local_ncasign\local\job_manager $manager
+ * @return string
+ */
+function local_ncasign_render_signer_link(\stdClass $signer, \local_ncasign\local\job_manager $manager): string {
+    if ((string)$signer->status !== \local_ncasign\local\job_manager::SIGNER_PENDING || !$manager->is_signer_active($signer)) {
+        return '-';
+    }
+
+    $url = new moodle_url('/local/ncasign/sign.php', ['token' => (string)$signer->token]);
+    return html_writer::link($url, get_string('opensigninglink', 'local_ncasign'), [
+        'target' => '_blank',
+        'rel' => 'noopener',
+    ]);
 }
 
 /**

@@ -90,6 +90,10 @@ foreach ($jobs as $job) {
 
     $artifactcell = new html_table_cell(local_ncasign_render_artifacts((int)$job->id));
     $artifactcell->attributes['class'] = 'local-ncasign-artifacts-cell';
+    $deadlinecell = new html_table_cell(userdate((int)$job->manualdeadline));
+    $deadlinecell->attributes['class'] = 'local-ncasign-date-cell';
+    $autosignedcell = new html_table_cell($job->autosigned ? userdate((int)$job->autosigned) : '-');
+    $autosignedcell->attributes['class'] = 'local-ncasign-date-cell';
 
     $table->data[] = [
         (int)$job->id,
@@ -97,9 +101,9 @@ foreach ($jobs as $job) {
         $coursecell,
         local_ncasign_render_origin_badge((string)($job->origin ?? 'course_completion')),
         local_ncasign_render_job_status_badge($job, $signedcount, $totalcount),
-        userdate((int)$job->manualdeadline),
+        $deadlinecell,
         "{$signedcount}/{$totalcount}",
-        $job->autosigned ? userdate((int)$job->autosigned) : '-',
+        $autosignedcell,
         html_writer::link(new moodle_url('/local/ncasign/job.php', ['id' => (int)$job->id]), get_string('viewdetails', 'local_ncasign')),
         $artifactcell,
     ];

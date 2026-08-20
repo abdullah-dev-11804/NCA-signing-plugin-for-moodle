@@ -48,6 +48,14 @@
     max-width: 320px;
 }
 
+.local-ncasign-jobs-scroll .local-ncasign-date-cell {
+    max-width: 190px;
+    min-width: 150px;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: anywhere;
+}
+
 .local-ncasign-jobs-scroll .local-ncasign-artifacts-cell {
     max-width: 520px;
     min-width: 320px;
