@@ -43,13 +43,27 @@ echo $OUTPUT->single_button(
     get_string('createdemojob', 'local_ncasign')
 );
 
-$jobs = $DB->get_records('local_ncasign_jobs', null, 'id DESC', '*', 0, 200);
+$jobs = $DB->get_records_sql(
+    "SELECT j.*,
+            u.firstname AS userfirstname,
+            u.lastname AS userlastname,
+            u.deleted AS userdeleted,
+            c.fullname AS coursefullname,
+            c.visible AS coursevisible
+       FROM {local_ncasign_jobs} j
+  LEFT JOIN {user} u ON u.id = j.userid
+  LEFT JOIN {course} c ON c.id = j.courseid
+   ORDER BY j.id DESC",
+    [],
+    0,
+    200
+);
 
 $table = new html_table();
 $table->head = [
     'ID',
-    get_string('userid', 'local_ncasign'),
-    get_string('courseid', 'local_ncasign'),
+    get_string('user'),
+    get_string('course'),
     get_string('joborigin', 'local_ncasign'),
     get_string('status', 'local_ncasign'),
     get_string('deadline', 'local_ncasign'),
@@ -66,10 +80,15 @@ foreach ($jobs as $job) {
     ]);
     $totalcount = $DB->count_records('local_ncasign_signers', ['jobid' => $job->id]);
 
+    $userlabel = local_ncasign_render_user_link($job);
+    $courselabel = local_ncasign_render_course_link($job);
+    $coursecell = new html_table_cell($courselabel);
+    $coursecell->attributes['class'] = 'local-ncasign-course-name-cell';
+
     $table->data[] = [
         (int)$job->id,
-        (int)$job->userid,
-        (int)$job->courseid,
+        $userlabel,
+        $coursecell,
         local_ncasign_render_origin_badge((string)($job->origin ?? 'course_completion')),
         local_ncasign_render_job_status_badge($job, $signedcount, $totalcount),
         userdate((int)$job->manualdeadline),
@@ -86,6 +105,44 @@ echo html_writer::div(
     ['data-ncasign-edge-scroll' => '1']
 );
 echo $OUTPUT->footer();
+
+/**
+ * Render the signing job user's profile link.
+ *
+ * @param stdClass $job
+ * @return string
+ */
+function local_ncasign_render_user_link(\stdClass $job): string {
+    $lastname = trim((string)($job->userlastname ?? ''));
+    $firstname = trim((string)($job->userfirstname ?? ''));
+    $label = trim($lastname . ' ' . $firstname);
+
+    if ($label === '') {
+        return s('#' . (int)$job->userid);
+    }
+
+    if (!empty($job->userdeleted)) {
+        return s($label);
+    }
+
+    return html_writer::link(new moodle_url('/user/profile.php', ['id' => (int)$job->userid]), s($label));
+}
+
+/**
+ * Render the signing job course link.
+ *
+ * @param stdClass $job
+ * @return string
+ */
+function local_ncasign_render_course_link(\stdClass $job): string {
+    $label = trim((string)($job->coursefullname ?? ''));
+
+    if ($label === '') {
+        return s('#' . (int)$job->courseid);
+    }
+
+    return html_writer::link(new moodle_url('/course/view.php', ['id' => (int)$job->courseid]), format_string($label));
+}
 
 /**
  * Render artifact links for a signing job.

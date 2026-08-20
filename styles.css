@@ -30,3 +30,19 @@
 .local-ncasign-jobs-scroll td {
     white-space: nowrap;
 }
+
+.local-ncasign-jobs-scroll .local-ncasign-course-name-cell {
+    max-width: 320px;
+    min-width: 240px;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: anywhere;
+}
+
+.local-ncasign-jobs-scroll.local-ncasign-edge-scroll-left {
+    cursor: w-resize;
+}
+
+.local-ncasign-jobs-scroll.local-ncasign-edge-scroll-right {
+    cursor: e-resize;
+}

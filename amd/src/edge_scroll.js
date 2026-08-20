@@ -7,7 +7,7 @@ define(['jquery'], function($) {
     var debugPrefix = 'NCASIGN_EDGE_SCROLL';
 
     var log = function() {
-        if (window.console && window.console.log) {
+        if (window.NCASIGN_EDGE_SCROLL_DEBUG && window.console && window.console.log) {
             window.console.log.apply(window.console, [debugPrefix].concat(Array.prototype.slice.call(arguments)));
         }
     };
@@ -47,6 +47,7 @@ define(['jquery'], function($) {
             var active = false;
             var pointerX = null;
             var currentSpeed = 0;
+            var pauseUntil = 0;
 
             log('bind', {
                 scrollWidth: container.scrollWidth,
@@ -63,11 +64,22 @@ define(['jquery'], function($) {
                 active = false;
                 pointerX = null;
                 currentSpeed = 0;
+                pauseUntil = 0;
                 if (frame) {
                     window.cancelAnimationFrame(frame);
                     frame = null;
                 }
+                container.classList.remove('local-ncasign-edge-scroll-left', 'local-ncasign-edge-scroll-right');
                 log('stop');
+            }
+
+            function updateCursorClass(speed) {
+                container.classList.remove('local-ncasign-edge-scroll-left', 'local-ncasign-edge-scroll-right');
+                if (speed < 0) {
+                    container.classList.add('local-ncasign-edge-scroll-left');
+                } else if (speed > 0) {
+                    container.classList.add('local-ncasign-edge-scroll-right');
+                }
             }
 
             function getSpeed() {
@@ -86,13 +98,14 @@ define(['jquery'], function($) {
                         tableScrollWidth: table ? table.scrollWidth : null,
                         tableClientWidth: table ? table.clientWidth : null,
                     });
+                    updateCursorClass(0);
                     return 0;
                 }
 
                 if (leftOffset >= 0 && leftOffset < options.edgeSize) {
                     log('edge-left', {
                         leftOffset: Math.round(leftOffset),
-                        scrollLeft: container.scrollLeft,
+                        scrollLeft: scrollTarget.scrollLeft,
                     });
                     return -Math.ceil(options.maxSpeed * (1 - (leftOffset / options.edgeSize)));
                 }
@@ -100,11 +113,12 @@ define(['jquery'], function($) {
                 if (rightOffset >= 0 && rightOffset < options.edgeSize) {
                     log('edge-right', {
                         rightOffset: Math.round(rightOffset),
-                        scrollLeft: container.scrollLeft,
+                        scrollLeft: scrollTarget.scrollLeft,
                     });
                     return Math.ceil(options.maxSpeed * (1 - (rightOffset / options.edgeSize)));
                 }
 
+                updateCursorClass(0);
                 return 0;
             }
 
@@ -114,7 +128,14 @@ define(['jquery'], function($) {
                     return;
                 }
 
+                if (pauseUntil > Date.now()) {
+                    updateCursorClass(0);
+                    frame = window.requestAnimationFrame(tick);
+                    return;
+                }
+
                 currentSpeed = getSpeed();
+                updateCursorClass(currentSpeed);
                 if (currentSpeed === 0) {
                     log('tick-zero-speed', {
                         scrollLeft: scrollTarget.scrollLeft,
@@ -146,7 +167,7 @@ define(['jquery'], function($) {
                 pointerX = event.clientX;
                 log('mouseenter', {
                     clientX: pointerX,
-                    scrollLeft: container.scrollLeft,
+                    scrollLeft: scrollTarget.scrollLeft,
                 });
                 if (!frame) {
                     frame = window.requestAnimationFrame(tick);
@@ -158,12 +179,25 @@ define(['jquery'], function($) {
                 log('mousemove', {
                     clientX: pointerX,
                 });
+                if (active && !frame) {
+                    frame = window.requestAnimationFrame(tick);
+                }
+            }
+
+            function wheel(event) {
+                if (Math.abs(event.deltaY) >= Math.abs(event.deltaX)) {
+                    pauseUntil = Date.now() + 260;
+                    updateCursorClass(0);
+                }
+                if (active && !frame) {
+                    frame = window.requestAnimationFrame(tick);
+                }
             }
 
             container.addEventListener('mouseenter', start);
             container.addEventListener('mousemove', move);
             container.addEventListener('mouseleave', stop);
-            container.addEventListener('wheel', stop, {passive: true});
+            container.addEventListener('wheel', wheel, {passive: true});
         });
     };
 
