@@ -1,14 +1,19 @@
 .local-ncasign-jobs-scroll {
+    display: block;
     max-width: 100%;
+    min-width: 0;
     overflow-x: auto;
     overflow-y: visible;
     position: relative;
     scrollbar-gutter: stable;
+    width: 100%;
 }
 
-.local-ncasign-jobs-scroll table {
+.local-ncasign-jobs-scroll table,
+.local-ncasign-jobs-scroll table.generaltable {
     min-width: 100%;
-    width: max-content;
+    table-layout: auto !important;
+    width: max-content !important;
 }
 
 .local-ncasign-jobs-scroll th,

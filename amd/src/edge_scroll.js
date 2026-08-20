@@ -12,6 +12,18 @@ define(['jquery'], function($) {
         }
     };
 
+    var getScrollableTarget = function(root) {
+        var current = root;
+        while (current) {
+            if (current.scrollWidth > current.clientWidth + 1) {
+                return current;
+            }
+            current = current.parentElement;
+        }
+
+        return document.scrollingElement || document.documentElement;
+    };
+
     var init = function(selector, edgeSize, maxSpeed) {
         var options = $.extend({}, defaults, {
             edgeSize: edgeSize || defaults.edgeSize,
@@ -27,6 +39,7 @@ define(['jquery'], function($) {
 
         $(selector).each(function() {
             var container = this;
+            var scrollTarget = getScrollableTarget(container);
             var frame = null;
             var active = false;
             var pointerX = null;
@@ -35,6 +48,9 @@ define(['jquery'], function($) {
             log('bind', {
                 scrollWidth: container.scrollWidth,
                 clientWidth: container.clientWidth,
+                targetTag: scrollTarget && scrollTarget.tagName ? scrollTarget.tagName.toLowerCase() : 'unknown',
+                targetScrollWidth: scrollTarget.scrollWidth,
+                targetClientWidth: scrollTarget.clientWidth,
             });
 
             function stop() {
@@ -57,10 +73,10 @@ define(['jquery'], function($) {
                 var leftOffset = pointerX - rect.left;
                 var rightOffset = rect.right - pointerX;
 
-                if (container.scrollWidth <= container.clientWidth) {
+                if (scrollTarget.scrollWidth <= scrollTarget.clientWidth) {
                     log('no-scroll-needed', {
-                        scrollWidth: container.scrollWidth,
-                        clientWidth: container.clientWidth,
+                        scrollWidth: scrollTarget.scrollWidth,
+                        clientWidth: scrollTarget.clientWidth,
                     });
                     return 0;
                 }
@@ -93,14 +109,14 @@ define(['jquery'], function($) {
                 currentSpeed = getSpeed();
                 if (currentSpeed === 0) {
                     log('tick-zero-speed', {
-                        scrollLeft: container.scrollLeft,
+                        scrollLeft: scrollTarget.scrollLeft,
                     });
                     frame = window.requestAnimationFrame(tick);
                     return;
                 }
 
-                var maxScrollLeft = container.scrollWidth - container.clientWidth;
-                var nextScrollLeft = container.scrollLeft + currentSpeed;
+                var maxScrollLeft = scrollTarget.scrollWidth - scrollTarget.clientWidth;
+                var nextScrollLeft = scrollTarget.scrollLeft + currentSpeed;
 
                 if (nextScrollLeft < 0) {
                     nextScrollLeft = 0;
@@ -108,7 +124,7 @@ define(['jquery'], function($) {
                     nextScrollLeft = maxScrollLeft;
                 }
 
-                container.scrollLeft = nextScrollLeft;
+                scrollTarget.scrollLeft = nextScrollLeft;
                 log('tick-scroll', {
                     speed: currentSpeed,
                     scrollLeft: nextScrollLeft,
