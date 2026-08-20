@@ -26,6 +26,76 @@ $PAGE->set_context($context);
 $PAGE->set_pagelayout('admin');
 $PAGE->set_title(get_string('jobs', 'local_ncasign'));
 $PAGE->set_heading(get_string('jobs', 'local_ncasign'));
+$PAGE->requires->css(new moodle_url('/local/ncasign/styles.css'));
+$PAGE->requires->js_init_code(<<<'JS'
+require(['jquery'], function($) {
+    $('[data-ncasign-edge-scroll]').each(function() {
+        var container = this;
+        var frame = null;
+        var velocity = 0;
+        var active = false;
+        var edgeSize = 80;
+        var maxSpeed = 22;
+
+        function stop() {
+            active = false;
+            velocity = 0;
+            if (frame) {
+                window.cancelAnimationFrame(frame);
+                frame = null;
+            }
+        }
+
+        function tick() {
+            if (!active || velocity === 0) {
+                frame = null;
+                return;
+            }
+
+            if ((velocity < 0 && container.scrollLeft <= 0) ||
+                    (velocity > 0 && container.scrollLeft >= container.scrollWidth - container.clientWidth - 1)) {
+                stop();
+                return;
+            }
+
+            container.scrollLeft += velocity;
+            frame = window.requestAnimationFrame(tick);
+        }
+
+        function update(event) {
+            var rect = container.getBoundingClientRect();
+            var offsetLeft = event.clientX - rect.left;
+            var offsetRight = rect.right - event.clientX;
+            var nextVelocity = 0;
+
+            if (container.scrollWidth <= container.clientWidth) {
+                stop();
+                return;
+            }
+
+            if (offsetLeft >= 0 && offsetLeft < edgeSize) {
+                nextVelocity = -Math.ceil(maxSpeed * (1 - (offsetLeft / edgeSize)));
+            } else if (offsetRight >= 0 && offsetRight < edgeSize) {
+                nextVelocity = Math.ceil(maxSpeed * (1 - (offsetRight / edgeSize)));
+            }
+
+            velocity = nextVelocity;
+            active = velocity !== 0;
+
+            if (active && !frame) {
+                frame = window.requestAnimationFrame(tick);
+            } else if (!active) {
+                stop();
+            }
+        }
+
+        container.addEventListener('mousemove', update);
+        container.addEventListener('mouseleave', stop);
+        container.addEventListener('blur', stop);
+    });
+});
+JS
+);
 
 echo $OUTPUT->header();
 echo $OUTPUT->single_button(
@@ -74,7 +144,11 @@ foreach ($jobs as $job) {
     ];
 }
 
-echo html_writer::table($table);
+echo html_writer::div(
+    html_writer::table($table),
+    'local-ncasign-jobs-scroll',
+    ['data-ncasign-edge-scroll' => '1']
+);
 echo $OUTPUT->footer();
 
 /**

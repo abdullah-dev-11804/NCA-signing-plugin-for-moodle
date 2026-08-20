@@ -1,0 +1,17 @@
+.local-ncasign-jobs-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    position: relative;
+    scrollbar-gutter: stable;
+}
+
+.local-ncasign-jobs-scroll table {
+    min-width: 100%;
+    width: max-content;
+}
+
+.local-ncasign-jobs-scroll th,
+.local-ncasign-jobs-scroll td {
+    white-space: nowrap;
+}
