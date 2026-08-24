@@ -80,6 +80,10 @@ if ($data = $mform->get_data()) {
     } else {
         $generationprofile = build_demo_generation_profile($selectedprofile, (string)($data->documenttitle ?? ''));
         $signers = resolve_demo_signers((string)($data->signeremails ?? ''), $selectedprofile);
+        $rendersigners = $manager->resolve_render_signers_for_template_profile(
+            !empty($selectedprofile['id']) ? (int)$selectedprofile['id'] : null,
+            $signers
+        );
         $documentuuid = $manager->create_document_uuid();
         $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
         $certurl = $manager->build_certificate_url($courseid, $userid);
@@ -108,7 +112,7 @@ if ($data = $mform->get_data()) {
                         ' courseid=' . $courseid .
                         ' renderer=' . (string)($generationprofile['renderer'] ?? '') .
                         ' customcerttemplateid=' . (int)($generationprofile['customcerttemplateid'] ?? 0) .
-                        ' signer_count=' . count($signers)
+                        ' signer_count=' . count($rendersigners)
                     );
                     $draft = $generator->generate_draft_from_profile(
                         $userid,
@@ -117,7 +121,7 @@ if ($data = $mform->get_data()) {
                         [
                             'documentuuid' => $documentuuid,
                             'verifyurl' => $verifyurl,
-                            'signers' => $signers,
+                            'signers' => $rendersigners,
                             'use_demo_data' => !empty($data->usedemodata),
                         ]
                     );

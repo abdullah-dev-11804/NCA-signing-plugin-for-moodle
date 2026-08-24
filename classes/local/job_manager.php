@@ -71,6 +71,186 @@ class job_manager {
         3 => 'COMMISSION_CHAIR_P12_PASSWORD',
     ];
 
+    /** @var array<int,string> */
+    private const SERVER_SIGNING_EMAIL_KEYS = [
+        1 => 'COMMISSION_MEMBER_1_EMAIL',
+        2 => 'COMMISSION_MEMBER_2_EMAIL',
+        3 => 'COMMISSION_CHAIR_EMAIL',
+    ];
+
+    /** @var array<int,string> */
+    private const SERVER_SIGNING_NAME_KEYS = [
+        1 => 'COMMISSION_MEMBER_1_NAME',
+        2 => 'COMMISSION_MEMBER_2_NAME',
+        3 => 'COMMISSION_CHAIR_NAME',
+    ];
+
+    /** @var array<int,string> */
+    private const SERVER_SIGNING_POSITION_KEYS = [
+        1 => 'COMMISSION_MEMBER_1_POSITION',
+        2 => 'COMMISSION_MEMBER_2_POSITION',
+        3 => 'COMMISSION_CHAIR_POSITION',
+    ];
+
+    /** @var array<int,string> */
+    private const SERVER_SIGNING_IIN_KEYS = [
+        1 => 'COMMISSION_MEMBER_1_IIN',
+        2 => 'COMMISSION_MEMBER_2_IIN',
+        3 => 'COMMISSION_CHAIR_IIN',
+    ];
+
+    /** @var array<int,string> */
+    private const SERVER_SIGNING_EXPIRY_KEYS = [
+        1 => 'COMMISSION_MEMBER_1_EXPIRY',
+        2 => 'COMMISSION_MEMBER_2_EXPIRY',
+        3 => 'COMMISSION_CHAIR_EXPIRY',
+    ];
+
+    /**
+     * Return server auto-signer choices for the template profile form.
+     *
+     * @return array<int,string>
+     */
+    public static function get_server_auto_signer_options(): array {
+        $options = [];
+        foreach (self::get_server_auto_signer_descriptors() as $slot => $signer) {
+            $email = trim((string)($signer['email'] ?? ''));
+            $expirylabel = trim((string)($signer['expirylabel'] ?? ''));
+            $options[(int)$slot] = trim((string)$signer['position']) . ' - ' .
+                ($email !== '' ? $email : get_string('autosigneremailmissing', 'local_ncasign')) .
+                ($expirylabel !== '' ? ' - ' . $expirylabel : '');
+        }
+
+        return $options;
+    }
+
+    /**
+     * Return configured server signer descriptors.
+     *
+     * @return array<int,array<string,string>>
+     */
+    public static function get_server_auto_signer_descriptors(): array {
+        $secrets = self::read_server_autosign_secrets();
+        $descriptors = [];
+        foreach (array_keys(self::SERVER_SIGNING_P12_FILES) as $slot) {
+            $slot = (int)$slot;
+            $position = trim((string)($secrets[self::SERVER_SIGNING_POSITION_KEYS[$slot] ?? ''] ?? ''));
+            if ($position === '') {
+                $position = self::get_default_server_signer_position($slot);
+            }
+            $email = trim((string)($secrets[self::SERVER_SIGNING_EMAIL_KEYS[$slot] ?? ''] ?? ''));
+            if ($email !== '' && !validate_email($email)) {
+                $email = '';
+            }
+            $name = trim((string)($secrets[self::SERVER_SIGNING_NAME_KEYS[$slot] ?? ''] ?? ''));
+            $iin = preg_replace('/\D+/', '', (string)($secrets[self::SERVER_SIGNING_IIN_KEYS[$slot] ?? ''] ?? ''));
+            $expiry = trim((string)($secrets[self::SERVER_SIGNING_EXPIRY_KEYS[$slot] ?? ''] ?? ''));
+            $expiryts = self::parse_server_signer_expiry_date($expiry);
+
+            $descriptors[$slot] = [
+                'slot' => (string)$slot,
+                'email' => $email,
+                'name' => $name !== '' ? $name : ($email !== '' ? $email : self::get_default_server_signer_position($slot)),
+                'position' => $position,
+                'expectediin' => $iin,
+                'expirydate' => $expiry,
+                'expirytimestamp' => $expiryts > 0 ? (string)$expiryts : '',
+                'expirylabel' => self::format_server_signer_expiry_label($expiry, $expiryts),
+            ];
+        }
+
+        return $descriptors;
+    }
+
+    /**
+     * Parse server signer expiry date from secrets.env.
+     *
+     * Supports dd.mm.yyyy and yyyy-mm-dd.
+     *
+     * @param string $expiry
+     * @return int midnight timestamp, or 0 when missing/invalid
+     */
+    private static function parse_server_signer_expiry_date(string $expiry): int {
+        $expiry = trim($expiry);
+        if ($expiry === '') {
+            return 0;
+        }
+
+        $timezone = \core_date::get_server_timezone_object();
+        if (preg_match('/^(\d{2})\.(\d{2})\.(\d{4})$/', $expiry, $matches)) {
+            $date = \DateTimeImmutable::createFromFormat(
+                '!d.m.Y',
+                $matches[0],
+                $timezone
+            );
+            return $date instanceof \DateTimeImmutable ? $date->getTimestamp() : 0;
+        }
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $expiry, $matches)) {
+            $date = \DateTimeImmutable::createFromFormat(
+                '!Y-m-d',
+                $matches[0],
+                $timezone
+            );
+            return $date instanceof \DateTimeImmutable ? $date->getTimestamp() : 0;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Format signer expiry information for the auto-signer selector.
+     *
+     * @param string $expiry
+     * @param int $expiryts
+     * @return string
+     */
+    private static function format_server_signer_expiry_label(string $expiry, int $expiryts): string {
+        $expiry = trim($expiry);
+        if ($expiry === '') {
+            return get_string('autosignerexpirymissing', 'local_ncasign');
+        }
+        if ($expiryts <= 0) {
+            return get_string('autosignerexpiryinvalid', 'local_ncasign', $expiry);
+        }
+
+        $today = \DateTimeImmutable::createFromFormat('!Y-m-d', date('Y-m-d'), \core_date::get_server_timezone_object());
+        $expirydate = (new \DateTimeImmutable('@' . $expiryts))->setTimezone(\core_date::get_server_timezone_object());
+        $diffdays = (int)$today->diff($expirydate)->format('%r%a');
+
+        if ($diffdays < 0) {
+            return get_string('autosignerexpiryexpired', 'local_ncasign', [
+                'date' => $expiry,
+                'days' => abs($diffdays),
+            ]);
+        }
+
+        return get_string('autosignerexpiryremaining', 'local_ncasign', [
+            'date' => $expiry,
+            'days' => $diffdays,
+        ]);
+    }
+
+    /**
+     * Return the default position label for a fixed server signer slot.
+     *
+     * @param int $slot
+     * @return string
+     */
+    private static function get_default_server_signer_position(int $slot): string {
+        if ($slot === 1) {
+            return 'Commission member 1';
+        }
+        if ($slot === 2) {
+            return 'Commission member 2';
+        }
+        if ($slot === 3) {
+            return 'Commission chair';
+        }
+
+        return 'Commission signer';
+    }
+
     /**
      * Create a signing job and notify signers.
      *
@@ -104,6 +284,7 @@ class job_manager {
 
         $now = time();
         $manualwindowseconds = $this->get_manual_window_seconds($manualwindowhours);
+        $signers = $this->resolve_job_signers_for_template_profile($templateprofileid, $signers);
 
         $job = (object)[
             'timecreated' => $now,
@@ -141,7 +322,7 @@ class job_manager {
 
         $signorder = 1;
         $insertedsigners = 0;
-        foreach ($this->order_signers_for_commission_workflow($signers) as $signer) {
+        foreach ($this->order_signers_for_job_workflow($signers) as $signer) {
             $token = $this->generate_unique_token();
             $email = trim((string)($signer['email'] ?? ''));
             $fallbackname = trim((string)($signer['rolelabel'] ?? ('Commission signer ' . $signorder)));
@@ -208,6 +389,22 @@ class job_manager {
     }
 
     /**
+     * Return signers in the workflow order expected for job records.
+     *
+     * @param array<int,array<string,mixed>> $signers
+     * @return array<int,array<string,mixed>>
+     */
+    private function order_signers_for_job_workflow(array $signers): array {
+        foreach ($signers as $signer) {
+            if (is_array($signer) && array_key_exists('autosignslot', $signer)) {
+                return array_values($signers);
+            }
+        }
+
+        return $this->order_signers_for_commission_workflow($signers);
+    }
+
+    /**
      * Normalise one commission signer slot. Email is optional for server auto-signing.
      *
      * @param mixed $signer
@@ -259,6 +456,60 @@ class job_manager {
         }
 
         return $value * HOURSECS;
+    }
+
+    /**
+     * Resolve which signer rows a new job should contain for a template profile.
+     *
+     * Manual-enabled templates keep their configured manual signer rows. When
+     * manual signing is disabled and server auto-signers are selected, the job is
+     * created from those selected server signer descriptors instead.
+     *
+     * @param int|null $templateprofileid
+     * @param array<int,array<string,mixed>> $fallbacksigners
+     * @return array<int,array<string,mixed>>
+     */
+    public function resolve_job_signers_for_template_profile(?int $templateprofileid, array $fallbacksigners): array {
+        $profile = $this->get_template_profile_for_job((int)($templateprofileid ?? 0));
+        if (!$profile || !empty($profile->manualsigningenabled)) {
+            return $fallbacksigners;
+        }
+
+        $autosigners = $this->get_selected_server_auto_signer_descriptors($profile);
+        return $autosigners ?: $fallbacksigners;
+    }
+
+    /**
+     * Resolve signers for rendering template fields before a job exists.
+     *
+     * @param int|null $templateprofileid
+     * @param array<int,array<string,mixed>> $fallbacksigners
+     * @return array<int,array<string,mixed>>
+     */
+    public function resolve_render_signers_for_template_profile(?int $templateprofileid, array $fallbacksigners): array {
+        $profile = $this->get_template_profile_for_job((int)($templateprofileid ?? 0));
+        if (!$profile || !empty($profile->manualsigningenabled)) {
+            return $fallbacksigners;
+        }
+
+        $selected = $this->get_selected_server_auto_signer_descriptors($profile);
+        if (!$selected) {
+            return $fallbacksigners;
+        }
+
+        $byslot = [];
+        foreach ($selected as $signer) {
+            $byslot[(int)($signer['autosignslot'] ?? 0)] = $signer;
+        }
+
+        $ordered = [];
+        foreach ([3, 1, 2] as $slot) {
+            if (!empty($byslot[$slot])) {
+                $ordered[] = $byslot[$slot];
+            }
+        }
+
+        return $ordered ?: $fallbacksigners;
     }
 
     /**
@@ -893,6 +1144,18 @@ class job_manager {
             return;
         }
 
+        if (!$this->is_template_manual_signing_enabled_for_job($job)) {
+            if (!$this->is_template_auto_signing_enabled_for_job($job)) {
+                $message = 'Manual signing is disabled for this template profile, but template automatic signing is also disabled.';
+                $this->record_finalization_note($jobid, $message);
+                error_log('local_ncasign: ' . $message . ' jobid=' . $jobid);
+                return;
+            }
+            error_log('local_ncasign: manual signing disabled; starting immediate server auto-sign for job ' . $jobid);
+            $this->try_server_autosign_job($jobid);
+            return;
+        }
+
         $signer = $this->get_active_pending_signer($jobid);
         if (!$signer || !empty($signer->notifiedat)) {
             if (!$signer) {
@@ -1128,11 +1391,11 @@ class job_manager {
 
         $count = 0;
         foreach ($jobs as $job) {
-            if (!$this->can_server_autosign()) {
-                $message = $this->get_server_autosign_unavailable_message()
-                    ?? 'Server auto-signing is unavailable. Check Java sidecar backend, fixed P12 files, and secrets.env.';
-                $this->record_finalization_note((int)$job->id, $message);
-                error_log('local_ncasign: ' . $message . ' jobid=' . (int)$job->id);
+            if (!$this->is_template_auto_signing_enabled_for_job($job)) {
+                error_log(
+                    'local_ncasign: skipping overdue auto-sign for job ' . (int)$job->id .
+                    ' because template auto-signing is disabled'
+                );
                 continue;
             }
 
@@ -1195,10 +1458,10 @@ class job_manager {
             return false;
         }
 
-        $unavailable = $this->get_server_autosign_unavailable_message();
-        if ($unavailable !== null) {
-            error_log('local_ncasign: demo/server auto-sign unavailable for job ' . $jobid . ': ' . $unavailable);
-            $this->record_finalization_note($jobid, $unavailable);
+        if (!$this->is_template_auto_signing_enabled_for_job($job)) {
+            $message = 'Server auto-signing is disabled for this template profile.';
+            error_log('local_ncasign: ' . $message . ' jobid=' . $jobid);
+            $this->record_finalization_note($jobid, $message);
             return false;
         }
 
@@ -1252,31 +1515,185 @@ class job_manager {
     }
 
     /**
+     * Whether a job's template profile permits automatic signing.
+     *
+     * @param \stdClass $job
+     * @return bool
+     */
+    private function is_template_auto_signing_enabled_for_job(\stdClass $job): bool {
+        $profile = $this->get_template_profile_for_job((int)($job->templateprofileid ?? 0));
+        if (!$profile || !property_exists($profile, 'autosignenabled')) {
+            return true;
+        }
+
+        return !empty($profile->autosignenabled);
+    }
+
+    /**
+     * Whether a job's template profile permits manual signing.
+     *
+     * @param \stdClass $job
+     * @return bool
+     */
+    private function is_template_manual_signing_enabled_for_job(\stdClass $job): bool {
+        $profile = $this->get_template_profile_for_job((int)($job->templateprofileid ?? 0));
+        if (!$profile || !property_exists($profile, 'manualsigningenabled')) {
+            return true;
+        }
+
+        return !empty($profile->manualsigningenabled);
+    }
+
+    /**
+     * Return a template profile DB record.
+     *
+     * @param int $templateprofileid
+     * @return \stdClass|null
+     */
+    private function get_template_profile_for_job(int $templateprofileid): ?\stdClass {
+        global $DB;
+
+        if ($templateprofileid <= 0 || !$DB->get_manager()->table_exists('local_ncasign_templates')) {
+            return null;
+        }
+
+        return $DB->get_record('local_ncasign_templates', ['id' => $templateprofileid], '*', IGNORE_MISSING) ?: null;
+    }
+
+    /**
+     * Decode selected server auto-signer slots from a template profile.
+     *
+     * @param \stdClass|null $profile
+     * @return int[]
+     */
+    private function get_selected_server_auto_signer_slots(?\stdClass $profile): array {
+        if (!$profile || empty($profile->autosigners)) {
+            return [];
+        }
+
+        $decoded = json_decode((string)$profile->autosigners, true);
+        if (!is_array($decoded)) {
+            $decoded = preg_split('/[\s,]+/', (string)$profile->autosigners, -1, PREG_SPLIT_NO_EMPTY);
+        }
+
+        $slots = [];
+        foreach ((array)$decoded as $slot) {
+            $slot = (int)$slot;
+            if (isset(self::SERVER_SIGNING_P12_FILES[$slot])) {
+                $slots[$slot] = $slot;
+            }
+        }
+
+        return array_values($slots);
+    }
+
+    /**
+     * Return selected server auto-signer descriptors for a template profile.
+     *
+     * @param \stdClass|null $profile
+     * @return array<int,array<string,mixed>>
+     */
+    private function get_selected_server_auto_signer_descriptors(?\stdClass $profile): array {
+        $all = self::get_server_auto_signer_descriptors();
+        $signers = [];
+        foreach ($this->get_selected_server_auto_signer_slots($profile) as $slot) {
+            if (empty($all[$slot])) {
+                continue;
+            }
+            $descriptor = $all[$slot];
+            $descriptor['autosignslot'] = $slot;
+            $descriptor['rolelabel'] = $descriptor['position'] ?? self::get_default_server_signer_position($slot);
+            $signers[] = $descriptor;
+        }
+
+        return $signers;
+    }
+
+    /**
      * Return server auto-signer configuration.
      *
      * @return array<string,mixed>
      */
     private function get_server_autosign_config(\stdClass $signer): array {
+        $job = null;
+        $profile = null;
+        if (!empty($signer->jobid)) {
+            global $DB;
+            $job = $DB->get_record('local_ncasign_jobs', ['id' => (int)$signer->jobid], '*', IGNORE_MISSING);
+            if ($job) {
+                $profile = $this->get_template_profile_for_job((int)($job->templateprofileid ?? 0));
+            }
+        }
+
+        $selectedslots = $this->get_selected_server_auto_signer_slots($profile);
+        if ($selectedslots) {
+            $slot = $this->resolve_selected_auto_signer_slot_for_signer($signer, $selectedslots);
+            if ($slot <= 0) {
+                return [
+                    'pkcs12path' => '',
+                    'pkcs12password' => '',
+                    'pkcs12alias' => '',
+                    'signorder' => (int)($signer->signorder ?? 0),
+                    'passwordkey' => '',
+                    'configerror' => 'Server auto-signing is unavailable: no selected automatic signer email matches ' .
+                        (string)($signer->signeremail ?? '') . ' for job ' . (int)($signer->jobid ?? 0) . '.',
+                ];
+            }
+
+            return $this->get_server_autosign_config_for_order($slot, (int)($signer->signorder ?? 0));
+        }
+
         return $this->get_server_autosign_config_for_order((int)($signer->signorder ?? 0));
     }
 
     /**
      * Return server auto-signer configuration for a signing order.
      *
-     * @param int $signorder
+     * @param int $slot fixed server signer slot
+     * @param int|null $signorder workflow signing order
      * @return array<string,mixed>
      */
-    private function get_server_autosign_config_for_order(int $signorder): array {
-        $secrets = $this->read_server_autosign_secrets();
-        $passwordkey = self::SERVER_SIGNING_PASSWORD_KEYS[$signorder] ?? '';
+    private function get_server_autosign_config_for_order(int $slot, ?int $signorder = null): array {
+        $secrets = self::read_server_autosign_secrets();
+        $passwordkey = self::SERVER_SIGNING_PASSWORD_KEYS[$slot] ?? '';
+        $expiry = trim((string)($secrets[self::SERVER_SIGNING_EXPIRY_KEYS[$slot] ?? ''] ?? ''));
+        $expiryts = self::parse_server_signer_expiry_date($expiry);
 
         return [
-            'pkcs12path' => self::SERVER_SIGNING_P12_FILES[$signorder] ?? '',
+            'pkcs12path' => self::SERVER_SIGNING_P12_FILES[$slot] ?? '',
             'pkcs12password' => $passwordkey !== '' ? (string)($secrets[$passwordkey] ?? '') : '',
             'pkcs12alias' => '',
-            'signorder' => $signorder,
+            'signorder' => $signorder ?? $slot,
+            'serverslot' => $slot,
             'passwordkey' => $passwordkey,
+            'expirydate' => $expiry,
+            'expirytimestamp' => $expiryts,
         ];
+    }
+
+    /**
+     * Resolve a selected fixed server signer slot by matching signer email.
+     *
+     * @param \stdClass $signer
+     * @param int[] $selectedslots
+     * @return int
+     */
+    private function resolve_selected_auto_signer_slot_for_signer(\stdClass $signer, array $selectedslots): int {
+        $email = \core_text::strtolower(trim((string)($signer->signeremail ?? '')));
+        if ($email === '') {
+            return 0;
+        }
+
+        $descriptors = self::get_server_auto_signer_descriptors();
+        foreach ($selectedslots as $slot) {
+            $slot = (int)$slot;
+            $serveremail = \core_text::strtolower(trim((string)($descriptors[$slot]['email'] ?? '')));
+            if ($serveremail !== '' && $serveremail === $email) {
+                return $slot;
+            }
+        }
+
+        return 0;
     }
 
     /**
@@ -1296,24 +1713,43 @@ class job_manager {
      * @return string|null
      */
     private function get_server_autosign_config_error(array $config): ?string {
+        if (!empty($config['configerror'])) {
+            return (string)$config['configerror'];
+        }
+
         $path = trim((string)($config['pkcs12path'] ?? ''));
         $signorder = (int)($config['signorder'] ?? 0);
+        $serverslot = (int)($config['serverslot'] ?? $signorder);
         if ($path === '' || !is_readable($path)) {
-            return 'Server auto-signing is unavailable: PKCS#12 file for signing order ' .
-                $signorder . ' is not readable at ' . $path . '.';
+            return 'Server auto-signing is unavailable: PKCS#12 file for server signer slot ' .
+                $serverslot . ' is not readable at ' . $path . '.';
         }
 
         $passwordkey = trim((string)($config['passwordkey'] ?? ''));
         if ($passwordkey === '') {
-            return 'Server auto-signing is unavailable: password key is not configured for signing order ' . $signorder . '.';
+            return 'Server auto-signing is unavailable: password key is not configured for server signer slot ' . $serverslot . '.';
         }
 
         if (!is_readable(self::SERVER_SIGNING_SECRET_FILE)) {
             return 'Server auto-signing is unavailable: secrets file is not readable at ' . self::SERVER_SIGNING_SECRET_FILE . '.';
         }
 
-        if (!array_key_exists($passwordkey, $this->read_server_autosign_secrets())) {
+        if (!array_key_exists($passwordkey, self::read_server_autosign_secrets())) {
             return 'Server auto-signing is unavailable: secrets file does not contain ' . $passwordkey . '.';
+        }
+
+        $expiry = trim((string)($config['expirydate'] ?? ''));
+        $expiryts = (int)($config['expirytimestamp'] ?? 0);
+        if ($expiry !== '' && $expiryts <= 0) {
+            return 'Server auto-signing is unavailable: expiry date for server signer slot ' .
+                $serverslot . ' is invalid: ' . $expiry . '.';
+        }
+        if ($expiryts > 0) {
+            $today = \DateTimeImmutable::createFromFormat('!Y-m-d', date('Y-m-d'), \core_date::get_server_timezone_object());
+            if ($expiryts < $today->getTimestamp()) {
+                return 'Server auto-signing is unavailable: certificate for server signer slot ' .
+                    $serverslot . ' expired on ' . $expiry . '.';
+            }
         }
 
         return null;
@@ -1324,7 +1760,7 @@ class job_manager {
      *
      * @return array<string,string>
      */
-    private function read_server_autosign_secrets(): array {
+    private static function read_server_autosign_secrets(): array {
         static $cache = null;
 
         if (is_array($cache)) {

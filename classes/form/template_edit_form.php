@@ -32,6 +32,7 @@ class template_edit_form extends \moodleform {
     public function definition(): void {
         $mform = $this->_form;
         $templates = (array)($this->_customdata['availablecustomcerttemplates'] ?? []);
+        $autosigneroptions = (array)($this->_customdata['availableautosigners'] ?? []);
 
         $mform->addElement('hidden', 'id');
         $mform->setType('id', PARAM_INT);
@@ -67,6 +68,33 @@ class template_edit_form extends \moodleform {
         ]);
         $mform->setType('signersraw', PARAM_RAW);
         $mform->addElement('static', 'signersraw_desc', '', get_string('templatesigners_desc', 'local_ncasign'));
+
+        $mform->addElement('advcheckbox', 'autosignenabled', get_string('templateautosignenabled', 'local_ncasign'));
+        $mform->setType('autosignenabled', PARAM_BOOL);
+        $mform->setDefault('autosignenabled', 1);
+        $mform->addElement('static', 'autosignenabled_desc', '', get_string('templateautosignenabled_desc', 'local_ncasign'));
+
+        $mform->addElement('advcheckbox', 'manualsigningenabled', get_string('templatemanualsigningenabled', 'local_ncasign'));
+        $mform->setType('manualsigningenabled', PARAM_BOOL);
+        $mform->setDefault('manualsigningenabled', 1);
+        $mform->addElement(
+            'static',
+            'manualsigningenabled_desc',
+            '',
+            \html_writer::tag('div', get_string('templatemanualsigningenabled_desc', 'local_ncasign'), [
+                'class' => 'alert alert-warning py-2 px-3 mb-3',
+            ])
+        );
+
+        $select = $mform->addElement(
+            'select',
+            'autosigners',
+            get_string('templateautosigners', 'local_ncasign'),
+            $autosigneroptions
+        );
+        $select->setMultiple(true);
+        $mform->setType('autosigners', PARAM_INT);
+        $mform->addElement('static', 'autosigners_desc', '', get_string('templateautosigners_desc', 'local_ncasign'));
 
         $mform->addElement('text', 'coordinatornotifyemail', get_string('templatecoordinatornotifyemail', 'local_ncasign'), ['size' => 80]);
         $mform->setType('coordinatornotifyemail', PARAM_EMAIL);
@@ -188,6 +216,9 @@ class template_edit_form extends \moodleform {
                 ? implode(',', array_map('intval', $profile['courseids']))
                 : '',
             'signersraw' => self::signers_to_text(is_array($profile['signers'] ?? null) ? $profile['signers'] : []),
+            'autosignenabled' => array_key_exists('autosignenabled', $profile) ? (int)!empty($profile['autosignenabled']) : 1,
+            'manualsigningenabled' => array_key_exists('manualsigningenabled', $profile) ? (int)!empty($profile['manualsigningenabled']) : 1,
+            'autosigners' => self::normalise_auto_signer_slots($profile['autosigners'] ?? []),
             'coordinatornotifyemail' => (string)($profile['coordinatornotifyemail'] ?? ''),
             'coordinatornotifyautosign' => !empty($profile['coordinatornotifyautosign']) ? 1 : 0,
             'active' => array_key_exists('active', $profile) ? (int)!empty($profile['active']) : 1,
@@ -366,6 +397,36 @@ class template_edit_form extends \moodleform {
         }
 
         return $signers;
+    }
+
+    /**
+     * Normalise selected server auto-signer slots.
+     *
+     * @param mixed $slots
+     * @return int[]
+     */
+    public static function normalise_auto_signer_slots($slots): array {
+        if (is_string($slots)) {
+            $decoded = json_decode($slots, true);
+            if (is_array($decoded)) {
+                $slots = $decoded;
+            } else {
+                $slots = preg_split('/[\s,]+/', $slots, -1, PREG_SPLIT_NO_EMPTY);
+            }
+        }
+        if (!is_array($slots)) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($slots as $slot) {
+            $slot = (int)$slot;
+            if ($slot >= 1 && $slot <= 3) {
+                $normalised[$slot] = $slot;
+            }
+        }
+
+        return array_values($normalised);
     }
 
     /**

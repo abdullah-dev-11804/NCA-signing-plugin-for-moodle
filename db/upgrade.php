@@ -366,5 +366,26 @@ function xmldb_local_ncasign_upgrade(int $oldversion): bool {
         upgrade_plugin_savepoint(true, 2026082400, 'local', 'ncasign');
     }
 
+    if ($oldversion < 2026082500) {
+        $table = new xmldb_table('local_ncasign_templates');
+
+        $field = new xmldb_field('autosignenabled', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'coordinatornotifyautosign');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('manualsigningenabled', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '1', 'autosignenabled');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        $field = new xmldb_field('autosigners', XMLDB_TYPE_TEXT, null, null, null, null, null, 'manualsigningenabled');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026082500, 'local', 'ncasign');
+    }
+
     return true;
 }

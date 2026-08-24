@@ -36,6 +36,7 @@ $form = new \local_ncasign\form\template_edit_form($url, [
     'id' => $id,
     'profile' => $profile,
     'availablecustomcerttemplates' => $manager->get_available_customcert_templates(),
+    'availableautosigners' => \local_ncasign\local\job_manager::get_server_auto_signer_options(),
 ]);
 
 if ($form->is_cancelled()) {
@@ -52,6 +53,9 @@ if ($data = $form->get_data()) {
         'renderer' => \local_ncasign\local\document_generator::DOC_CUSTOMCERT_TEMPLATE,
         'documenttype' => 'certificate',
         'documenttitle' => $data->documenttitle,
+        'autosignenabled' => !empty($data->autosignenabled),
+        'manualsigningenabled' => !empty($data->manualsigningenabled),
+        'autosigners' => \local_ncasign\form\template_edit_form::normalise_auto_signer_slots($data->autosigners ?? []),
         'coordinatornotifyemail' => $data->coordinatornotifyemail,
         'coordinatornotifyautosign' => !empty($data->coordinatornotifyautosign),
         'templatepath' => 'customcert:' . $customcerttemplateid,

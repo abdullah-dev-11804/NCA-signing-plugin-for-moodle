@@ -120,6 +120,10 @@ class observer {
                     );
                     continue;
                 }
+                $rendersigners = $manager->resolve_render_signers_for_template_profile(
+                    !empty($profile['id']) ? (int)$profile['id'] : null,
+                    is_array($signers) ? $signers : []
+                );
 
                 $documentuuid = $manager->create_document_uuid();
                 $verifyurl = $manager->build_verification_url_for_document_uuid($documentuuid);
@@ -135,7 +139,7 @@ class observer {
                     $draft = $generator->generate_draft_from_profile($userid, $courseid, $profile, [
                         'documentuuid' => $documentuuid,
                         'verifyurl' => $verifyurl,
-                        'signers' => $signers,
+                        'signers' => $rendersigners,
                     ]);
                     error_log(
                         'NCASIGN_CANARY course_completed after_generate' .

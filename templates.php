@@ -54,16 +54,27 @@ $table->head = [
     get_string('templatecustomcerttemplate', 'local_ncasign'),
     get_string('templatecourses', 'local_ncasign'),
     get_string('templatesigners', 'local_ncasign'),
+    get_string('templateautosignenabled', 'local_ncasign'),
+    get_string('templatemanualsigningenabled', 'local_ncasign'),
+    get_string('templateautosigners', 'local_ncasign'),
     get_string('coordinatornotifyrecipient', 'local_ncasign'),
     get_string('status', 'local_ncasign'),
     get_string('actions'),
 ];
+
+$autosigneroptions = \local_ncasign\local\job_manager::get_server_auto_signer_options();
 
 foreach ($profiles as $profile) {
     $courses = $profile['courseids'] ? implode(', ', array_map('intval', $profile['courseids'])) : '-';
     $signers = [];
     foreach ($profile['signers'] as $signer) {
         $signers[] = s((string)$signer['email']);
+    }
+    $selectedautosigners = [];
+    foreach ((array)($profile['autosigners'] ?? []) as $slot) {
+        if (isset($autosigneroptions[(int)$slot])) {
+            $selectedautosigners[] = s((string)$autosigneroptions[(int)$slot]);
+        }
     }
 
     $editurl = new moodle_url('/local/ncasign/template_edit.php', ['id' => (int)$profile['id']]);
@@ -81,6 +92,9 @@ foreach ($profiles as $profile) {
         s($templatelabel),
         s($courses),
         $signers ? implode('<br>', $signers) : '-',
+        !empty($profile['autosignenabled']) ? get_string('yes') : get_string('no'),
+        !empty($profile['manualsigningenabled']) ? get_string('yes') : get_string('no'),
+        $selectedautosigners ? implode('<br>', $selectedautosigners) : '-',
         !empty($profile['coordinatornotifyemail']) ? s((string)$profile['coordinatornotifyemail']) : '-',
         !empty($profile['active']) ? get_string('yes') : get_string('no'),
         $actions,

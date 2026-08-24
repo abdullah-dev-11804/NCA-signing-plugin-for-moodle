@@ -106,6 +106,9 @@ class template_manager {
             'renderer' => (string)$record->renderer,
             'documenttype' => (string)$record->documenttype,
             'documenttitle' => (string)($record->documenttitle ?? ''),
+            'autosignenabled' => !isset($record->autosignenabled) || !empty($record->autosignenabled) ? 1 : 0,
+            'manualsigningenabled' => !isset($record->manualsigningenabled) || !empty($record->manualsigningenabled) ? 1 : 0,
+            'autosigners' => $this->decode_auto_signer_slots($record->autosigners ?? ''),
             'coordinatornotifyemail' => (string)($record->coordinatornotifyemail ?? ''),
             'coordinatornotifyautosign' => !empty($record->coordinatornotifyautosign) ? 1 : 0,
             'templatepath' => (string)($record->templatepath ?? ''),
@@ -215,6 +218,18 @@ class template_manager {
             $email = trim((string)($profiledata['coordinatornotifyemail'] ?? ''));
             $record->coordinatornotifyemail = ($email !== '' && validate_email($email)) ? $email : null;
         }
+        if (isset($columns['autosignenabled'])) {
+            $record->autosignenabled = !empty($profiledata['autosignenabled']) ? 1 : 0;
+        }
+        if (isset($columns['manualsigningenabled'])) {
+            $record->manualsigningenabled = !empty($profiledata['manualsigningenabled']) ? 1 : 0;
+        }
+        if (isset($columns['autosigners'])) {
+            $record->autosigners = json_encode(
+                $this->normalise_auto_signer_slots($profiledata['autosigners'] ?? []),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+        }
         if (isset($columns['coordinatornotifyautosign'])) {
             $record->coordinatornotifyautosign = !empty($profiledata['coordinatornotifyautosign']) ? 1 : 0;
         }
@@ -263,6 +278,47 @@ class template_manager {
 
         $decoded = json_decode($json, true);
         return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Decode selected server auto-signer slots.
+     *
+     * @param mixed $value
+     * @return int[]
+     */
+    private function decode_auto_signer_slots($value): array {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                $value = $decoded;
+            } else {
+                $value = preg_split('/[\s,]+/', $value, -1, PREG_SPLIT_NO_EMPTY);
+            }
+        }
+
+        return $this->normalise_auto_signer_slots($value);
+    }
+
+    /**
+     * Normalise selected server auto-signer slots.
+     *
+     * @param mixed $slots
+     * @return int[]
+     */
+    private function normalise_auto_signer_slots($slots): array {
+        if (!is_array($slots)) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($slots as $slot) {
+            $slot = (int)$slot;
+            if ($slot >= 1 && $slot <= 3) {
+                $normalised[$slot] = $slot;
+            }
+        }
+
+        return array_values($normalised);
     }
 
     /**
