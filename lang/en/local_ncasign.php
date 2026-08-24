@@ -140,6 +140,7 @@ $string['templatemanualsigningenabled_desc'] = 'Important: when manual signing i
 $string['templateautosigners'] = 'Automatic signers';
 $string['templateautosigners_none'] = 'No automatic signers selected';
 $string['templateautosigners_desc'] = 'Select the server-held EDS certificates that this template may use for automatic signing. When selected, automatic signing matches signer rows by these configured email addresses.';
+$string['templateautosigners_exactlythree'] = 'Select exactly three automatic signers.';
 $string['autosigneremailmissing'] = 'email not configured';
 $string['autosignerexpirymissing'] = 'expiry not configured';
 $string['autosignerexpiryinvalid'] = 'expiry invalid: {$a}';

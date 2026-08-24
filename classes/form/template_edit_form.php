@@ -185,6 +185,11 @@ class template_edit_form extends \moodleform {
             $errors['signersraw'] = get_string('templatesigners_invalid', 'local_ncasign');
         }
 
+        if (!empty($data['autosignenabled'])
+            && count(self::normalise_auto_signer_slots($data['autosigners'] ?? [])) !== 3) {
+            $errors['autosigners'] = get_string('templateautosigners_exactlythree', 'local_ncasign');
+        }
+
         $coordinatoremail = trim((string)($data['coordinatornotifyemail'] ?? ''));
         if ($coordinatoremail !== '' && !validate_email($coordinatoremail)) {
             $errors['coordinatornotifyemail'] = get_string('invalidemail');

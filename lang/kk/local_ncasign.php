@@ -98,6 +98,7 @@ $string['templatemanualsigningenabled_desc'] = 'Маңызды: қолмен қ�
 $string['templateautosigners'] = 'Автоматты қол қоюшылар';
 $string['templateautosigners_none'] = 'Автоматты қол қоюшылар таңдалмаған';
 $string['templateautosigners_desc'] = 'Осы шаблон автоматты қол қою үшін пайдалана алатын сервердегі EDS сертификаттарын таңдаңыз. Таңдалса, автоматты қол қою қол қоюшыларды осы email мекенжайлары арқылы сәйкестендіреді.';
+$string['templateautosigners_exactlythree'] = 'Дәл үш автоматты қол қоюшыны таңдаңыз.';
 $string['autosigneremailmissing'] = 'email бапталмаған';
 $string['autosignerexpirymissing'] = 'жарамдылық мерзімі бапталмаған';
 $string['autosignerexpiryinvalid'] = 'жарамдылық мерзімі қате: {$a}';

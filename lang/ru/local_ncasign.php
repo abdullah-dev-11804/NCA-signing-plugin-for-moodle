@@ -98,6 +98,7 @@ $string['templatemanualsigningenabled_desc'] = 'Важно: если ручно�
 $string['templateautosigners'] = 'Автоматические подписанты';
 $string['templateautosigners_none'] = 'Автоматические подписанты не выбраны';
 $string['templateautosigners_desc'] = 'Выберите серверные EDS-сертификаты, которые этот шаблон может использовать для автоматического подписания. При выборе автоматическое подписание сопоставляет подписантов по этим email-адресам.';
+$string['templateautosigners_exactlythree'] = 'Выберите ровно трех автоматических подписантов.';
 $string['autosigneremailmissing'] = 'email не настроен';
 $string['autosignerexpirymissing'] = 'срок действия не настроен';
 $string['autosignerexpiryinvalid'] = 'некорректный срок действия: {$a}';
