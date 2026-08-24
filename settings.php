@@ -74,6 +74,27 @@ if ($hassiteconfig) {
     ));
 
     $settings->add(new admin_setting_heading(
+        'local_ncasign/coordinatornotificationsheader',
+        get_string('coordinatornotificationsheader', 'local_ncasign'),
+        get_string('coordinatornotificationsheader_desc', 'local_ncasign')
+    ));
+
+    $settings->add(new admin_setting_configtext(
+        'local_ncasign/coordinatornotifyemail',
+        get_string('coordinatornotifyemail', 'local_ncasign'),
+        get_string('coordinatornotifyemail_desc', 'local_ncasign'),
+        '',
+        PARAM_EMAIL
+    ));
+
+    $settings->add(new admin_setting_configcheckbox(
+        'local_ncasign/coordinatornotifyautosign',
+        get_string('coordinatornotifyautosign', 'local_ncasign'),
+        get_string('coordinatornotifyautosign_desc', 'local_ncasign'),
+        0
+    ));
+
+    $settings->add(new admin_setting_heading(
         'local_ncasign/serversigningheader',
         get_string('serversigningheader', 'local_ncasign'),
         get_string('serversigningheader_desc', 'local_ncasign')

@@ -1079,6 +1079,7 @@ class job_manager {
         $DB->update_record('local_ncasign_jobs', $job);
 
         $this->send_student_completion_email($job, $auto);
+        $this->send_coordinator_completion_email($job, $auto);
     }
 
     /**
@@ -1829,6 +1830,133 @@ class job_manager {
             '</ul>';
 
         email_to_user($student, $from, $subject, $message, $messagehtml);
+    }
+
+    /**
+     * Notify configured coordinator when all signers have completed a job.
+     *
+     * Template profile email wins. If it is missing, site-wide fallback settings
+     * are used. Auto-sign notifications require the matching auto-sign checkbox.
+     *
+     * @param \stdClass $job
+     * @param bool $auto
+     * @return void
+     */
+    private function send_coordinator_completion_email(\stdClass $job, bool $auto): void {
+        global $CFG, $DB;
+
+        $recipient = $this->resolve_coordinator_notification_recipient($job, $auto);
+        if ($recipient === '') {
+            return;
+        }
+
+        $student = $DB->get_record('user', ['id' => (int)$job->userid], 'id,firstname,lastname,middlename,alternatename,email,deleted,suspended', IGNORE_MISSING);
+        $studentname = $student ? $this->format_person_name($student) : ('User #' . (int)$job->userid);
+        $studentemail = $student && !empty($student->email) ? (string)$student->email : '-';
+        $course = $DB->get_record('course', ['id' => (int)$job->courseid], 'id,fullname,shortname', IGNORE_MISSING);
+        $coursename = $course ? (string)$course->fullname : ('Course #' . (int)$job->courseid);
+        $signedpdflink = $CFG->wwwroot . '/local/ncasign/download_artifact.php?jobid=' . (int)$job->id . '&type=signedpdf';
+        $verifylink = $this->get_verification_url_for_job((int)$job->id);
+        $joblink = $CFG->wwwroot . '/local/ncasign/job.php?id=' . (int)$job->id;
+        $mode = $auto ? 'Automatic server signing' : 'Manual signer workflow';
+        $completedat = userdate((int)($auto ? ($job->autosigned ?? time()) : ($job->manualcompleted ?? time())));
+        $signerlines = [];
+        $signeritemshtml = '';
+        foreach ($this->get_signer_records((int)$job->id) as $signer) {
+            $signedat = !empty($signer->signedat) ? userdate((int)$signer->signedat) : '-';
+            $name = trim((string)($signer->signername ?? '')) !== '' ? trim((string)$signer->signername) : (string)$signer->signeremail;
+            $position = trim((string)($signer->signerposition ?? ''));
+            $signerlines[] = '#' . (int)$signer->signorder . ' ' . $name . ($position !== '' ? ' - ' . $position : '') . ' - ' . $signedat;
+            $signeritemshtml .= '<li>#' . (int)$signer->signorder . ' ' . s($name) .
+                ($position !== '' ? ' - ' . s($position) : '') . ' - ' . s($signedat) . '</li>';
+        }
+
+        $subject = 'Document signing completed: ' . trim((string)($job->documenttitle ?: ('Job #' . (int)$job->id)));
+        $message = "A signing job has been completed.\n\n" .
+            "Job ID: " . (int)$job->id . "\n" .
+            "Signing mode: {$mode}\n" .
+            "Completed at: {$completedat}\n" .
+            "Document: " . (string)$job->documenttitle . "\n" .
+            "Document type: " . (string)$job->documenttype . "\n" .
+            "Course ID: " . (int)$job->courseid . "\n" .
+            "Course name: {$coursename}\n" .
+            "Student ID: " . (int)$job->userid . "\n" .
+            "Student name: {$studentname}\n" .
+            "Student email: {$studentemail}\n\n" .
+            "Signers:\n" . implode("\n", $signerlines) . "\n\n" .
+            "Signed PDF: {$signedpdflink}\n" .
+            "Public verification page: {$verifylink}\n" .
+            "Job details: {$joblink}\n";
+
+        $messagehtml = '<p>A signing job has been completed.</p>' .
+            '<ul>' .
+            '<li><strong>Job ID:</strong> ' . (int)$job->id . '</li>' .
+            '<li><strong>Signing mode:</strong> ' . s($mode) . '</li>' .
+            '<li><strong>Completed at:</strong> ' . s($completedat) . '</li>' .
+            '<li><strong>Document:</strong> ' . s((string)$job->documenttitle) . '</li>' .
+            '<li><strong>Document type:</strong> ' . s((string)$job->documenttype) . '</li>' .
+            '<li><strong>Course ID:</strong> ' . (int)$job->courseid . '</li>' .
+            '<li><strong>Course name:</strong> ' . s($coursename) . '</li>' .
+            '<li><strong>Student ID:</strong> ' . (int)$job->userid . '</li>' .
+            '<li><strong>Student name:</strong> ' . s($studentname) . '</li>' .
+            '<li><strong>Student email:</strong> ' . s($studentemail) . '</li>' .
+            '</ul>' .
+            '<p><strong>Signers:</strong></p>' .
+            '<ol>' . $signeritemshtml . '</ol>' .
+            '<p><strong>Signed PDF:</strong> ' . $this->format_email_html_link($signedpdflink, $signedpdflink) . '</p>' .
+            '<p><strong>Public verification page:</strong> ' . $this->format_email_html_link($verifylink, $verifylink) . '</p>' .
+            '<p><strong>Job details:</strong> ' . $this->format_email_html_link($joblink, $joblink) . '</p>';
+
+        $to = (object)[
+            'id' => -1,
+            'email' => $recipient,
+            'firstname' => 'Coordinator',
+            'lastname' => '',
+            'firstnamephonetic' => '',
+            'lastnamephonetic' => '',
+            'middlename' => '',
+            'alternatename' => '',
+            'maildisplay' => 1,
+            'mailformat' => 1,
+            'maildigest' => 0,
+            'suspended' => 0,
+            'deleted' => 0,
+        ];
+        email_to_user($to, core_user::get_support_user(), $subject, $message, $messagehtml);
+    }
+
+    /**
+     * Resolve coordinator notification recipient for this job.
+     *
+     * @param \stdClass $job
+     * @param bool $auto
+     * @return string
+     */
+    private function resolve_coordinator_notification_recipient(\stdClass $job, bool $auto): string {
+        global $DB;
+
+        if (!empty($job->templateprofileid)) {
+            $template = $DB->get_record('local_ncasign_templates', ['id' => (int)$job->templateprofileid], '*', IGNORE_MISSING);
+            if ($template) {
+                $email = trim((string)($template->coordinatornotifyemail ?? ''));
+                if ($email !== '' && validate_email($email)) {
+                    if ($auto && empty($template->coordinatornotifyautosign)) {
+                        return '';
+                    }
+                    return $email;
+                }
+            }
+        }
+
+        $email = trim((string)get_config('local_ncasign', 'coordinatornotifyemail'));
+        if ($email === '' || !validate_email($email)) {
+            return '';
+        }
+        if ($auto && !get_config('local_ncasign', 'coordinatornotifyautosign')) {
+            return '';
+        }
+
+        return $email;
     }
 
     /**

@@ -68,6 +68,15 @@ class template_edit_form extends \moodleform {
         $mform->setType('signersraw', PARAM_RAW);
         $mform->addElement('static', 'signersraw_desc', '', get_string('templatesigners_desc', 'local_ncasign'));
 
+        $mform->addElement('text', 'coordinatornotifyemail', get_string('templatecoordinatornotifyemail', 'local_ncasign'), ['size' => 80]);
+        $mform->setType('coordinatornotifyemail', PARAM_EMAIL);
+        $mform->addElement('static', 'coordinatornotifyemail_desc', '', get_string('templatecoordinatornotifyemail_desc', 'local_ncasign'));
+
+        $mform->addElement('advcheckbox', 'coordinatornotifyautosign', get_string('templatecoordinatornotifyautosign', 'local_ncasign'));
+        $mform->setType('coordinatornotifyautosign', PARAM_BOOL);
+        $mform->setDefault('coordinatornotifyautosign', 0);
+        $mform->addElement('static', 'coordinatornotifyautosign_desc', '', get_string('templatecoordinatornotifyautosign_desc', 'local_ncasign'));
+
         $mform->addElement('advcheckbox', 'active', get_string('templateactive', 'local_ncasign'));
         $mform->setType('active', PARAM_BOOL);
         $mform->setDefault('active', 1);
@@ -145,6 +154,11 @@ class template_edit_form extends \moodleform {
             $errors['signersraw'] = get_string('templatesigners_invalid', 'local_ncasign');
         }
 
+        $coordinatoremail = trim((string)($data['coordinatornotifyemail'] ?? ''));
+        if ($coordinatoremail !== '' && !validate_email($coordinatoremail)) {
+            $errors['coordinatornotifyemail'] = get_string('invalidemail');
+        }
+
         $demodatajson = trim((string)($data['demo_data_json'] ?? ''));
         if ($demodatajson !== '' && !self::is_valid_demo_data_json($demodatajson)) {
             $errors['demo_data_json'] = get_string('templatedemodatajson_invalid', 'local_ncasign');
@@ -174,6 +188,8 @@ class template_edit_form extends \moodleform {
                 ? implode(',', array_map('intval', $profile['courseids']))
                 : '',
             'signersraw' => self::signers_to_text(is_array($profile['signers'] ?? null) ? $profile['signers'] : []),
+            'coordinatornotifyemail' => (string)($profile['coordinatornotifyemail'] ?? ''),
+            'coordinatornotifyautosign' => !empty($profile['coordinatornotifyautosign']) ? 1 : 0,
             'active' => array_key_exists('active', $profile) ? (int)!empty($profile['active']) : 1,
             'outputlanguage' => (string)($metadata['outputlanguage'] ?? 'bilingual'),
             'clientcompanyoverride' => (string)($metadata['clientcompanyoverride'] ?? ''),

@@ -54,6 +54,7 @@ $table->head = [
     get_string('templatecustomcerttemplate', 'local_ncasign'),
     get_string('templatecourses', 'local_ncasign'),
     get_string('templatesigners', 'local_ncasign'),
+    get_string('coordinatornotifyrecipient', 'local_ncasign'),
     get_string('status', 'local_ncasign'),
     get_string('actions'),
 ];
@@ -80,6 +81,7 @@ foreach ($profiles as $profile) {
         s($templatelabel),
         s($courses),
         $signers ? implode('<br>', $signers) : '-',
+        !empty($profile['coordinatornotifyemail']) ? s((string)$profile['coordinatornotifyemail']) : '-',
         !empty($profile['active']) ? get_string('yes') : get_string('no'),
         $actions,
     ];

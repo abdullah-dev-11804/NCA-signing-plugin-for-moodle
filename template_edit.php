@@ -52,6 +52,8 @@ if ($data = $form->get_data()) {
         'renderer' => \local_ncasign\local\document_generator::DOC_CUSTOMCERT_TEMPLATE,
         'documenttype' => 'certificate',
         'documenttitle' => $data->documenttitle,
+        'coordinatornotifyemail' => $data->coordinatornotifyemail,
+        'coordinatornotifyautosign' => !empty($data->coordinatornotifyautosign),
         'templatepath' => 'customcert:' . $customcerttemplateid,
         'layoutconfig' => json_encode(
             $layoutconfig,

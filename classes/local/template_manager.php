@@ -106,6 +106,8 @@ class template_manager {
             'renderer' => (string)$record->renderer,
             'documenttype' => (string)$record->documenttype,
             'documenttitle' => (string)($record->documenttitle ?? ''),
+            'coordinatornotifyemail' => (string)($record->coordinatornotifyemail ?? ''),
+            'coordinatornotifyautosign' => !empty($record->coordinatornotifyautosign) ? 1 : 0,
             'templatepath' => (string)($record->templatepath ?? ''),
             'layoutconfig' => $layoutconfig,
             'layoutconfigraw' => (string)($record->layoutconfig ?? ''),
@@ -204,11 +206,21 @@ class template_manager {
             'renderer' => document_generator::DOC_CUSTOMCERT_TEMPLATE,
             'documenttype' => 'certificate',
             'documenttitle' => trim((string)($profiledata['documenttitle'] ?? '')),
-            'templatepath' => trim((string)($profiledata['templatepath'] ?? '')),
             'layoutconfig' => trim((string)($profiledata['layoutconfig'] ?? '')),
             'active' => !empty($profiledata['active']) ? 1 : 0,
             'timemodified' => $now,
         ];
+        $columns = $DB->get_columns('local_ncasign_templates');
+        if (isset($columns['coordinatornotifyemail'])) {
+            $email = trim((string)($profiledata['coordinatornotifyemail'] ?? ''));
+            $record->coordinatornotifyemail = ($email !== '' && validate_email($email)) ? $email : null;
+        }
+        if (isset($columns['coordinatornotifyautosign'])) {
+            $record->coordinatornotifyautosign = !empty($profiledata['coordinatornotifyautosign']) ? 1 : 0;
+        }
+        if (isset($columns['templatepath'])) {
+            $record->templatepath = trim((string)($profiledata['templatepath'] ?? ''));
+        }
 
         if ($templateid > 0) {
             $record->id = $templateid;
