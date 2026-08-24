@@ -96,6 +96,7 @@ $string['templateautosignenabled_desc'] = 'Если включено, ожида
 $string['templatemanualsigningenabled'] = 'Включить ручное подписание';
 $string['templatemanualsigningenabled_desc'] = 'Важно: если ручное подписание отключено, задания из этого профиля не будут отправлять письма ручным подписантам. Они будут автоматически подписаны сервером сразу после создания с использованием выбранных автоматических подписантов.';
 $string['templateautosigners'] = 'Автоматические подписанты';
+$string['templateautosigners_none'] = 'Автоматические подписанты не выбраны';
 $string['templateautosigners_desc'] = 'Выберите серверные EDS-сертификаты, которые этот шаблон может использовать для автоматического подписания. При выборе автоматическое подписание сопоставляет подписантов по этим email-адресам.';
 $string['autosigneremailmissing'] = 'email не настроен';
 $string['autosignerexpirymissing'] = 'срок действия не настроен';

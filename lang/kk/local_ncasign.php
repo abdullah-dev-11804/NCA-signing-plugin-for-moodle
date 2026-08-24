@@ -96,6 +96,7 @@ $string['templateautosignenabled_desc'] = 'Қосылған кезде осы ш
 $string['templatemanualsigningenabled'] = 'Қолмен қол қоюды қосу';
 $string['templatemanualsigningenabled_desc'] = 'Маңызды: қолмен қол қою өшірілсе, осы профиль тапсырмалары қолмен қол қоюшыларға email жібермейді. Олар таңдалған автоматты қол қоюшылар арқылы жасалғаннан кейін бірден серверде қол қойылады.';
 $string['templateautosigners'] = 'Автоматты қол қоюшылар';
+$string['templateautosigners_none'] = 'Автоматты қол қоюшылар таңдалмаған';
 $string['templateautosigners_desc'] = 'Осы шаблон автоматты қол қою үшін пайдалана алатын сервердегі EDS сертификаттарын таңдаңыз. Таңдалса, автоматты қол қою қол қоюшыларды осы email мекенжайлары арқылы сәйкестендіреді.';
 $string['autosigneremailmissing'] = 'email бапталмаған';
 $string['autosignerexpirymissing'] = 'жарамдылық мерзімі бапталмаған';

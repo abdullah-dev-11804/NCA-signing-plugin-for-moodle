@@ -86,13 +86,16 @@ class template_edit_form extends \moodleform {
             ])
         );
 
-        $select = $mform->addElement(
-            'select',
+        $mform->addElement(
+            'autocomplete',
             'autosigners',
             get_string('templateautosigners', 'local_ncasign'),
-            $autosigneroptions
+            $autosigneroptions,
+            [
+                'multiple' => true,
+                'noselectionstring' => get_string('templateautosigners_none', 'local_ncasign'),
+            ]
         );
-        $select->setMultiple(true);
         $mform->setType('autosigners', PARAM_INT);
         $mform->addElement('static', 'autosigners_desc', '', get_string('templateautosigners_desc', 'local_ncasign'));
 

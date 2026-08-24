@@ -138,6 +138,7 @@ $string['templateautosignenabled_desc'] = 'When enabled, pending jobs from this 
 $string['templatemanualsigningenabled'] = 'Enable manual signing';
 $string['templatemanualsigningenabled_desc'] = 'Important: when manual signing is disabled, jobs from this template profile will not email manual signers. They will be server-signed immediately after creation using the selected automatic signers.';
 $string['templateautosigners'] = 'Automatic signers';
+$string['templateautosigners_none'] = 'No automatic signers selected';
 $string['templateautosigners_desc'] = 'Select the server-held EDS certificates that this template may use for automatic signing. When selected, automatic signing matches signer rows by these configured email addresses.';
 $string['autosigneremailmissing'] = 'email not configured';
 $string['autosignerexpirymissing'] = 'expiry not configured';
