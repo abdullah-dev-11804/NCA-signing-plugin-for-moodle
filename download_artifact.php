@@ -30,6 +30,10 @@ if (!$job) {
 }
 
 $ismanager = has_capability('local/ncasign:managejobs', $syscontext);
+$manager = new \local_ncasign\local\job_manager();
+if ($manager->is_inactive_job_status((string)$job->status) && !$ismanager) {
+    throw new moodle_exception('filenotfound');
+}
 $canviewsentaldocuments = has_capability('local/sentaldocupload:viewdocuments', $syscontext)
     || has_capability('local/sentaldocupload:manage', $syscontext);
 $isownerstudent = ((int)$USER->id === (int)$job->userid);

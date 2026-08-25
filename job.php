@@ -35,6 +35,21 @@ $signers = $manager->get_signer_records($jobid);
 
 echo $OUTPUT->header();
 echo $OUTPUT->single_button(new moodle_url('/local/ncasign/index.php'), get_string('backtojobs', 'local_ncasign'));
+if (!$manager->is_inactive_job_status((string)$job->status)) {
+    echo html_writer::div(
+        html_writer::link(
+            new moodle_url('/local/ncasign/regenerate_job.php', ['id' => $jobid, 'sesskey' => sesskey()]),
+            get_string('regeneratejob', 'local_ncasign'),
+            ['class' => 'btn btn-warning mr-2']
+        ) .
+        html_writer::link(
+            new moodle_url('/local/ncasign/delete_job.php', ['id' => $jobid, 'sesskey' => sesskey()]),
+            get_string('deletejob', 'local_ncasign'),
+            ['class' => 'btn btn-danger']
+        ),
+        'mb-3'
+    );
+}
 
 $summary = new html_table();
 $summary->attributes['class'] = 'generaltable';
@@ -224,6 +239,12 @@ function local_ncasign_job_status_badge(\stdClass $job, array $signers): string 
     }
     if ($job->status === \local_ncasign\local\job_manager::JOB_FINALIZE_FAILED) {
         return local_ncasign_job_badge(get_string('badgefinalizefailed', 'local_ncasign'), '#dc3545');
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_REPLACED_BY_UPLOAD) {
+        return local_ncasign_job_badge(get_string('badgereplacedbyupload', 'local_ncasign'), '#6c757d');
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_SOFT_DELETED) {
+        return local_ncasign_job_badge(get_string('badgesoftdeleted', 'local_ncasign'), '#343a40');
     }
     if ($signed > 0 && $signed < $total) {
         return local_ncasign_job_badge(get_string('badgepartial', 'local_ncasign', "{$signed}/{$total}"), '#0d6efd');

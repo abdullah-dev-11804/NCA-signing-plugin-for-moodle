@@ -40,6 +40,10 @@ class job_manager {
     public const JOB_COMPLETED_AUTO = 'completed_auto';
     /** @var string */
     public const JOB_FINALIZE_FAILED = 'finalize_failed';
+    /** @var string */
+    public const JOB_REPLACED_BY_UPLOAD = 'replaced_by_upload';
+    /** @var string */
+    public const JOB_SOFT_DELETED = 'soft_deleted';
 
     /** @var string */
     public const SIGNER_PENDING = 'pending';
@@ -47,6 +51,8 @@ class job_manager {
     public const SIGNER_SIGNED = 'signed_manual';
     /** @var string */
     public const SIGNER_SKIPPED = 'skipped_auto';
+    /** @var string */
+    public const SIGNER_CANCELLED = 'cancelled';
     /** @var string */
     public const JOB_ORIGIN_COURSE_COMPLETION = 'course_completion';
     /** @var string */
@@ -1126,6 +1132,9 @@ class job_manager {
             return null;
         }
         $job = $DB->get_record('local_ncasign_jobs', ['id' => $signer->jobid], '*', MUST_EXIST);
+        if ($this->is_inactive_job_status((string)$job->status)) {
+            return null;
+        }
         return ['signer' => $signer, 'job' => $job];
     }
 
@@ -1953,6 +1962,13 @@ class job_manager {
      * @return \stdClass|null
      */
     public function get_active_pending_signer(int $jobid): ?\stdClass {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], 'id,status', IGNORE_MISSING);
+        if (!$job || (string)$job->status !== self::JOB_PENDING) {
+            return null;
+        }
+
         foreach ($this->get_signer_records($jobid) as $signer) {
             if ($signer->status === self::SIGNER_PENDING) {
                 return $signer;
@@ -2498,7 +2514,262 @@ class job_manager {
     public function get_job_by_documentuuid(string $documentuuid): ?\stdClass {
         global $DB;
 
-        return $DB->get_record('local_ncasign_jobs', ['documentuuid' => $documentuuid]) ?: null;
+        $job = $DB->get_record('local_ncasign_jobs', ['documentuuid' => $documentuuid]) ?: null;
+        if ($job && $this->is_inactive_job_status((string)$job->status)) {
+            return null;
+        }
+
+        return $job;
+    }
+
+    /**
+     * Whether a job status should be hidden from active workflows and document listings.
+     *
+     * @param string $status
+     * @return bool
+     */
+    public function is_inactive_job_status(string $status): bool {
+        return in_array($status, [
+            self::JOB_REPLACED_BY_UPLOAD,
+            self::JOB_SOFT_DELETED,
+        ], true);
+    }
+
+    /**
+     * Soft-delete a job so it no longer participates in signing, documents, or analytics.
+     *
+     * Files and signed evidence are preserved for internal audit. Pending signers are
+     * cancelled so old email links can no longer continue the workflow.
+     *
+     * @param int $jobid
+     * @param string $status
+     * @param string $reason
+     * @param int $actorid
+     * @return bool
+     */
+    public function soft_delete_job(
+        int $jobid,
+        string $status = self::JOB_SOFT_DELETED,
+        string $reason = '',
+        int $actorid = 0
+    ): bool {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', IGNORE_MISSING);
+        if (!$job || $this->is_inactive_job_status((string)$job->status)) {
+            return false;
+        }
+
+        if (!in_array($status, [self::JOB_SOFT_DELETED, self::JOB_REPLACED_BY_UPLOAD], true)) {
+            $status = self::JOB_SOFT_DELETED;
+        }
+
+        $now = time();
+        $job->status = $status;
+        $job->timemodified = $now;
+        $note = trim($reason);
+        if ($note === '') {
+            $note = $status === self::JOB_REPLACED_BY_UPLOAD
+                ? 'Replaced by uploaded course completion document.'
+                : 'Soft deleted by administrator.';
+        }
+        $job->autosignnote = $note;
+        $DB->update_record('local_ncasign_jobs', $job);
+
+        $signers = $DB->get_records('local_ncasign_signers', [
+            'jobid' => $jobid,
+            'status' => self::SIGNER_PENDING,
+        ]);
+        foreach ($signers as $signer) {
+            $signer->status = self::SIGNER_CANCELLED;
+            $signer->timemodified = $now;
+            $meta = [];
+            if (!empty($signer->signmeta) && is_string($signer->signmeta)) {
+                $decoded = json_decode($signer->signmeta, true);
+                if (is_array($decoded)) {
+                    $meta = $decoded;
+                }
+            }
+            $meta['cancelled'] = [
+                'status' => $status,
+                'reason' => $note,
+                'actorid' => $actorid,
+                'time' => $now,
+            ];
+            $signer->signmeta = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $DB->update_record('local_ncasign_signers', $signer);
+        }
+
+        return true;
+    }
+
+    /**
+     * Regenerate a job draft in-place and restart its signing workflow.
+     *
+     * The job id and public document UUID are retained. Existing progress PDFs,
+     * CMS files, public-profile copies, and signer rows are replaced because old
+     * signatures belong to the previous PDF bytes.
+     *
+     * @param int $jobid
+     * @param string $reason optional message shown in job notes/signing context
+     * @param int $actorid
+     * @return void
+     */
+    public function regenerate_job(int $jobid, string $reason = '', int $actorid = 0): void {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], '*', MUST_EXIST);
+        if ($this->is_inactive_job_status((string)$job->status)) {
+            throw new \moodle_exception('jobinactivecannotregenerate', 'local_ncasign');
+        }
+        if (empty($job->templateprofileid)) {
+            throw new \moodle_exception('jobregeneratemissingprofile', 'local_ncasign');
+        }
+
+        $templatemanager = new template_manager();
+        $profile = $templatemanager->get_profile((int)$job->templateprofileid);
+        if (!$profile) {
+            throw new \moodle_exception('jobregeneratemissingprofile', 'local_ncasign');
+        }
+
+        $documentuuid = trim((string)($job->documentuuid ?? ''));
+        if ($documentuuid === '') {
+            $documentuuid = $this->generate_document_uuid();
+        }
+        $signers = $profile['signers'] ?? $this->get_signers_from_existing_job($jobid);
+        $rendersigners = $this->resolve_render_signers_for_template_profile((int)$profile['id'], $signers);
+        $draft = (new document_generator())->generate_draft_from_profile((int)$job->userid, (int)$job->courseid, $profile, [
+            'documentuuid' => $documentuuid,
+            'verifyurl' => $this->build_verification_url_for_document_uuid($documentuuid),
+            'signers' => $rendersigners,
+        ]);
+
+        $now = time();
+        $transaction = $DB->start_delegated_transaction();
+
+        $this->delete_job_file_areas($jobid, [
+            self::FILEAREA_SIGNEDPDF,
+            self::FILEAREA_SIGNATURES,
+            self::FILEAREA_PUBLICPROFILEPDF,
+        ]);
+        $DB->delete_records('local_ncasign_signers', ['jobid' => $jobid]);
+        $this->insert_job_signers($jobid, $this->resolve_job_signers_for_template_profile((int)$profile['id'], $signers), $now);
+
+        $job->documentuuid = $documentuuid;
+        $job->documenttype = (string)($draft['documenttype'] ?? ($profile['documenttype'] ?? $job->documenttype));
+        $job->documenttitle = (string)($draft['documenttitle'] ?? ($profile['documenttitle'] ?? $job->documenttitle));
+        $job->status = self::JOB_PENDING;
+        $job->manualdeadline = $now + $this->get_manual_window_seconds(null);
+        $job->manualcompleted = null;
+        $job->autosigned = null;
+        $job->autosignnote = trim($reason) !== ''
+            ? 'Regenerated by user #' . $actorid . ': ' . trim($reason)
+            : 'Regenerated by user #' . $actorid . '.';
+        $job->finalhash = null;
+        $job->finalizerbackend = null;
+        $job->finalizationevidence = null;
+        $job->timemodified = $now;
+        $DB->update_record('local_ncasign_jobs', $job);
+
+        $this->attach_certificate_binary_to_job(
+            $jobid,
+            (string)$draft['filename'],
+            (string)$draft['content'],
+            'local_regenerated_draft',
+            !empty($draft['finalizationmanifest']) && is_array($draft['finalizationmanifest'])
+                ? $draft['finalizationmanifest']
+                : null
+        );
+        if (!empty($draft['publicprofilecontent'])) {
+            $this->attach_public_profile_binary_to_job(
+                $jobid,
+                (string)($draft['publicprofilefilename'] ?? ('public_' . (string)$draft['filename'])),
+                (string)$draft['publicprofilecontent']
+            );
+        }
+
+        $transaction->allow_commit();
+
+        $this->notify_signers_for_job($jobid);
+    }
+
+    /**
+     * Return signer definitions from current job rows.
+     *
+     * @param int $jobid
+     * @return array<int,array<string,mixed>>
+     */
+    private function get_signers_from_existing_job(int $jobid): array {
+        $signers = [];
+        foreach ($this->get_signer_records($jobid) as $signer) {
+            $signers[] = [
+                'id' => !empty($signer->signerid) ? (int)$signer->signerid : null,
+                'email' => (string)($signer->signeremail ?? ''),
+                'name' => (string)($signer->signername ?? ''),
+                'position' => (string)($signer->signerposition ?? ''),
+                'expectediin' => (string)($signer->expectediin ?? ''),
+            ];
+        }
+
+        return $signers;
+    }
+
+    /**
+     * Insert fresh pending signer rows for an existing job.
+     *
+     * @param int $jobid
+     * @param array<int,array<string,mixed>> $signers
+     * @param int $now
+     * @return void
+     */
+    private function insert_job_signers(int $jobid, array $signers, int $now): void {
+        global $DB;
+
+        $signorder = 1;
+        foreach ($this->order_signers_for_job_workflow($signers) as $signer) {
+            $email = trim((string)($signer['email'] ?? ''));
+            $fallbackname = trim((string)($signer['rolelabel'] ?? ('Commission signer ' . $signorder)));
+            $DB->insert_record('local_ncasign_signers', (object)[
+                'jobid' => $jobid,
+                'signerid' => $signer['id'] ?? null,
+                'signeremail' => $email,
+                'signername' => trim((string)($signer['name'] ?? '')) !== '' ? trim((string)$signer['name']) : ($email !== '' ? $email : $fallbackname),
+                'signerposition' => trim((string)($signer['position'] ?? '')) !== '' ? trim((string)$signer['position']) : $fallbackname,
+                'expectediin' => ($expectediin = preg_replace('/\D+/', '', (string)($signer['expectediin'] ?? ''))) !== '' ? $expectediin : null,
+                'signorder' => $signorder,
+                'token' => $this->generate_unique_token(),
+                'status' => self::SIGNER_PENDING,
+                'timecreated' => $now,
+                'timemodified' => $now,
+                'notifiedat' => null,
+                'signedat' => null,
+                'signedby' => null,
+                'rawcms' => null,
+                'signercertificate' => null,
+                'signeriin' => null,
+                'ocspresponse' => null,
+                'signingmethod' => null,
+                'verificationstatus' => null,
+                'verificationinfo' => null,
+                'signmeta' => null,
+            ]);
+            $signorder++;
+        }
+    }
+
+    /**
+     * Delete selected stored file areas for one job.
+     *
+     * @param int $jobid
+     * @param string[] $areas
+     * @return void
+     */
+    private function delete_job_file_areas(int $jobid, array $areas): void {
+        $context = \context_system::instance();
+        $fs = get_file_storage();
+        foreach ($areas as $area) {
+            $fs->delete_area_files($context->id, 'local_ncasign', $area, $jobid);
+        }
     }
 
     /**

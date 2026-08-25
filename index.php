@@ -53,8 +53,12 @@ $jobs = $DB->get_records_sql(
        FROM {local_ncasign_jobs} j
   LEFT JOIN {user} u ON u.id = j.userid
   LEFT JOIN {course} c ON c.id = j.courseid
+      WHERE j.status NOT IN (:replacedbyupload, :softdeleted)
    ORDER BY j.id DESC",
-    [],
+    [
+        'replacedbyupload' => \local_ncasign\local\job_manager::JOB_REPLACED_BY_UPLOAD,
+        'softdeleted' => \local_ncasign\local\job_manager::JOB_SOFT_DELETED,
+    ],
     0,
     200
 );
@@ -268,6 +272,12 @@ function local_ncasign_render_job_status_badge(\stdClass $job, int $signedcount,
     }
     if ($job->status === \local_ncasign\local\job_manager::JOB_FINALIZE_FAILED) {
         return local_ncasign_badge(get_string('badgefinalizefailed', 'local_ncasign'), '#dc3545');
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_REPLACED_BY_UPLOAD) {
+        return local_ncasign_badge(get_string('badgereplacedbyupload', 'local_ncasign'), '#6c757d');
+    }
+    if ($job->status === \local_ncasign\local\job_manager::JOB_SOFT_DELETED) {
+        return local_ncasign_badge(get_string('badgesoftdeleted', 'local_ncasign'), '#343a40');
     }
     if ($signedcount > 0 && $signedcount < $totalcount) {
         return local_ncasign_badge(get_string('badgepartial', 'local_ncasign', "{$signedcount}/{$totalcount}"), '#0d6efd');
