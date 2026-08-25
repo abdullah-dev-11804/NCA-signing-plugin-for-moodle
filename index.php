@@ -146,6 +146,7 @@ $jobs = $DB->get_records_sql(
             u.deleted AS userdeleted,
             c.fullname AS coursefullname,
             c.visible AS coursevisible,
+            j.timecreated AS issuedate,
             COALESCE(sc.signedcount, 0) AS signedcount,
             COALESCE(sc.totalcount, 0) AS totalcount,
             COALESCE(fc.artifactcount, 0) AS artifactcount
@@ -184,6 +185,7 @@ $table->head = [
     local_ncasign_job_sort_heading(get_string('course'), 'course', $filters, $sort, $dir),
     local_ncasign_job_sort_heading(get_string('joborigin', 'local_ncasign'), 'origin', $filters, $sort, $dir),
     local_ncasign_job_sort_heading(get_string('status', 'local_ncasign'), 'status', $filters, $sort, $dir),
+    local_ncasign_job_sort_heading(get_string('issuedate', 'local_ncasign'), 'issuedate', $filters, $sort, $dir),
     local_ncasign_job_sort_heading(get_string('deadline', 'local_ncasign'), 'deadline', $filters, $sort, $dir),
     local_ncasign_job_sort_heading(get_string('manualsigned', 'local_ncasign'), 'manualsigned', $filters, $sort, $dir),
     local_ncasign_job_sort_heading(get_string('autosigned', 'local_ncasign'), 'autosigned', $filters, $sort, $dir),
@@ -205,6 +207,8 @@ foreach ($jobs as $job) {
 
     $artifactcell = new html_table_cell(local_ncasign_render_artifacts((int)$job->id));
     $artifactcell->attributes['class'] = 'local-ncasign-artifacts-cell';
+    $issuedatecell = new html_table_cell(userdate((int)$job->issuedate));
+    $issuedatecell->attributes['class'] = 'local-ncasign-date-cell';
     $deadlinecell = new html_table_cell(userdate((int)$job->manualdeadline));
     $deadlinecell->attributes['class'] = 'local-ncasign-date-cell';
     $autosignedcell = new html_table_cell($job->autosigned ? userdate((int)$job->autosigned) : '-');
@@ -216,6 +220,7 @@ foreach ($jobs as $job) {
         $coursecell,
         local_ncasign_render_origin_badge((string)($job->origin ?? 'course_completion')),
         local_ncasign_render_job_status_badge($job, $signedcount, $totalcount),
+        $issuedatecell,
         $deadlinecell,
         "{$signedcount}/{$totalcount}",
         $autosignedcell,
@@ -294,6 +299,7 @@ function local_ncasign_job_sort_columns(): array {
         'course' => ['sql' => ['c.fullname', 'j.courseid']],
         'origin' => ['sql' => ['j.origin']],
         'status' => ['sql' => ['j.status']],
+        'issuedate' => ['sql' => ['j.timecreated']],
         'deadline' => ['sql' => ['j.manualdeadline']],
         'manualsigned' => ['sql' => ['COALESCE(sc.signedcount, 0)', 'COALESCE(sc.totalcount, 0)']],
         'autosigned' => ['sql' => ['j.autosigned']],

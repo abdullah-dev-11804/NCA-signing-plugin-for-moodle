@@ -143,6 +143,7 @@ $string['demojobcreated'] = 'Демо-задание создано: {$a}';
 $string['demojobcreated_autosigned'] = 'Демо-задание создано и автоматически подписано: {$a}';
 
 $string['status'] = 'Статус';
+$string['issuedate'] = 'Дата выдачи';
 $string['joborigin'] = 'Источник';
 $string['origin_course_completion'] = 'Завершение курса';
 $string['origin_demo_job'] = 'Демо';

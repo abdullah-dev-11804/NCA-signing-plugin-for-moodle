@@ -216,6 +216,7 @@ $string['democourse_invalid'] = 'Enter a valid Moodle course ID.';
 $string['demojobcreated'] = 'Demo job created: {$a}';
 $string['demojobcreated_autosigned'] = 'Demo job created and auto-signed: {$a}';
 $string['status'] = 'Status';
+$string['issuedate'] = 'Issue date';
 $string['joborigin'] = 'Origin';
 $string['origin_course_completion'] = 'Course completion';
 $string['origin_demo_job'] = 'Demo';

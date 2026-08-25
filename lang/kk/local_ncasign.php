@@ -143,6 +143,7 @@ $string['demojobcreated'] = 'Демо тапсырма жасалды: {$a}';
 $string['demojobcreated_autosigned'] = 'Демо тапсырма жасалып, автоматты түрде қол қойылды: {$a}';
 
 $string['status'] = 'Статус';
+$string['issuedate'] = 'Берілген күні';
 $string['joborigin'] = 'Дереккөзі';
 $string['origin_course_completion'] = 'Курсты аяқтау';
 $string['origin_demo_job'] = 'Демо';
