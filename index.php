@@ -359,7 +359,9 @@ function local_ncasign_render_job_filters(
             'value' => s((string)$filters['q']),
             'class' => 'form-control',
         ]),
-        'local-ncasign-filter-field local-ncasign-filter-search'
+        [
+            'class' => 'local-ncasign-filter-field local-ncasign-filter-search',
+        ]
     );
     $fields[] = html_writer::tag('div',
         html_writer::label(get_string('status', 'local_ncasign'), 'id_ncasign_filter_status', false, [
@@ -369,7 +371,9 @@ function local_ncasign_render_job_filters(
             'id' => 'id_ncasign_filter_status',
             'class' => 'form-select custom-select',
         ]),
-        'local-ncasign-filter-field'
+        [
+            'class' => 'local-ncasign-filter-field',
+        ]
     );
     $fields[] = html_writer::tag('div',
         html_writer::label(get_string('joborigin', 'local_ncasign'), 'id_ncasign_filter_origin', false, [
@@ -379,7 +383,9 @@ function local_ncasign_render_job_filters(
             'id' => 'id_ncasign_filter_origin',
             'class' => 'form-select custom-select',
         ]),
-        'local-ncasign-filter-field'
+        [
+            'class' => 'local-ncasign-filter-field',
+        ]
     );
     $fields[] = html_writer::tag('div',
         html_writer::label(get_string('templateprofile', 'local_ncasign'), 'id_ncasign_filter_template', false, [
@@ -389,7 +395,9 @@ function local_ncasign_render_job_filters(
             'id' => 'id_ncasign_filter_template',
             'class' => 'form-select custom-select',
         ]),
-        'local-ncasign-filter-field local-ncasign-filter-template'
+        [
+            'class' => 'local-ncasign-filter-field local-ncasign-filter-template',
+        ]
     );
     $fields[] = html_writer::empty_tag('input', [
         'type' => 'hidden',
@@ -410,11 +418,15 @@ function local_ncasign_render_job_filters(
         html_writer::link(new moodle_url('/local/ncasign/index.php'), get_string('clearfilters', 'local_ncasign'), [
             'class' => 'btn btn-secondary',
         ]),
-        'local-ncasign-filter-actions'
+        [
+            'class' => 'local-ncasign-filter-actions',
+        ]
     );
 
     return html_writer::tag('form',
-        html_writer::tag('div', implode('', $fields), 'local-ncasign-job-filters-inner'),
+        html_writer::tag('div', implode('', $fields), [
+            'class' => 'local-ncasign-job-filters-inner',
+        ]),
         [
             'method' => 'get',
             'action' => (new moodle_url('/local/ncasign/index.php'))->out(false),
