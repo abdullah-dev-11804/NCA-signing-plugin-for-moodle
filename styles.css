@@ -1,3 +1,64 @@
+.local-ncasign-job-filters {
+    background: #fff;
+    border: 1px solid #d7dde3;
+    border-radius: 8px;
+    margin: 16px 0;
+    padding: 14px;
+}
+
+.local-ncasign-job-filters-inner {
+    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.local-ncasign-filter-field {
+    min-width: 180px;
+}
+
+.local-ncasign-filter-search {
+    flex: 1 1 240px;
+}
+
+.local-ncasign-filter-template {
+    flex: 1 1 260px;
+}
+
+.local-ncasign-filter-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.local-ncasign-filter-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.local-ncasign-sort-link {
+    color: inherit;
+    display: inline-flex;
+    gap: 4px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.local-ncasign-sort-link:hover,
+.local-ncasign-sort-link:focus {
+    text-decoration: underline;
+}
+
+.local-ncasign-sort-active {
+    font-weight: 700;
+}
+
+.local-ncasign-sort-arrow {
+    font-size: 12px;
+    line-height: 1;
+}
+
 .local-ncasign-jobs-scroll {
     display: block;
     max-width: 100%;

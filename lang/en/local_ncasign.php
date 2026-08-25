@@ -60,6 +60,12 @@ $string['padesembeddertimeout_desc'] = 'HTTP timeout for detached CMS to embedde
 $string['taskprocessjobs'] = 'Process overdue NCA sign jobs';
 
 $string['jobs'] = 'Signing jobs';
+$string['searchjobs'] = 'Search jobs';
+$string['allstatuses'] = 'All statuses';
+$string['allorigins'] = 'All origins';
+$string['alltemplateprofiles'] = 'All template profiles';
+$string['applyfilters'] = 'Apply filters';
+$string['clearfilters'] = 'Clear filters';
 $string['jobdetails'] = 'Job details';
 $string['viewdetails'] = 'View details';
 $string['backtojobs'] = 'Back to jobs';

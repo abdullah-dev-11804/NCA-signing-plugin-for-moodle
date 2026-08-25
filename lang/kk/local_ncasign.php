@@ -43,6 +43,12 @@ $string['padesembeddertimeout'] = 'Java sidecar таймауты (секунд)'
 $string['taskprocessjobs'] = 'Мерзімі өткен NCA Sign тапсырмаларын өңдеу';
 
 $string['jobs'] = 'Қол қою тапсырмалары';
+$string['searchjobs'] = 'Тапсырмаларды іздеу';
+$string['allstatuses'] = 'Барлық мәртебелер';
+$string['allorigins'] = 'Барлық дереккөздер';
+$string['alltemplateprofiles'] = 'Барлық шаблон профильдері';
+$string['applyfilters'] = 'Сүзгілерді қолдану';
+$string['clearfilters'] = 'Сүзгілерді тазалау';
 $string['jobdetails'] = 'Тапсырма мәліметтері';
 $string['viewdetails'] = 'Толығырақ';
 $string['backtojobs'] = 'Тапсырмаларға қайту';

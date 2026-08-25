@@ -43,6 +43,12 @@ $string['padesembeddertimeout'] = 'Таймаут Java sidecar (секунды)'
 $string['taskprocessjobs'] = 'Обработка просроченных заданий NCA Sign';
 
 $string['jobs'] = 'Задания на подпись';
+$string['searchjobs'] = 'Поиск заданий';
+$string['allstatuses'] = 'Все статусы';
+$string['allorigins'] = 'Все источники';
+$string['alltemplateprofiles'] = 'Все профили шаблонов';
+$string['applyfilters'] = 'Применить фильтры';
+$string['clearfilters'] = 'Очистить фильтры';
 $string['jobdetails'] = 'Детали задания';
 $string['viewdetails'] = 'Подробнее';
 $string['backtojobs'] = 'Назад к заданиям';
