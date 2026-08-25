@@ -44,6 +44,8 @@ $string['taskprocessjobs'] = 'Мерзімі өткен NCA Sign тапсырм�
 
 $string['jobs'] = 'Қол қою тапсырмалары';
 $string['searchjobs'] = 'Тапсырмаларды іздеу';
+$string['searchjobs_placeholder'] = 'Тапсырма ID, пайдаланушы аты, email, курс немесе құжат атауы';
+$string['searchjobs_help'] = 'Тапсырма ID, пайдаланушы аты, email, курс атауы, курстың қысқа атауы немесе құжат атауы бойынша іздеңіз.';
 $string['allstatuses'] = 'Барлық мәртебелер';
 $string['allorigins'] = 'Барлық дереккөздер';
 $string['alltemplateprofiles'] = 'Барлық шаблон профильдері';

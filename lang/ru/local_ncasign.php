@@ -44,6 +44,8 @@ $string['taskprocessjobs'] = 'Обработка просроченных зад
 
 $string['jobs'] = 'Задания на подпись';
 $string['searchjobs'] = 'Поиск заданий';
+$string['searchjobs_placeholder'] = 'ID задания, имя пользователя, email, курс или название документа';
+$string['searchjobs_help'] = 'Поиск по ID задания, имени пользователя, email, названию курса, короткому названию курса или названию документа.';
 $string['allstatuses'] = 'Все статусы';
 $string['allorigins'] = 'Все источники';
 $string['alltemplateprofiles'] = 'Все профили шаблонов';

@@ -356,9 +356,11 @@ function local_ncasign_render_job_filters(
             'type' => 'text',
             'name' => 'q',
             'id' => 'id_ncasign_filter_q',
+            'placeholder' => get_string('searchjobs_placeholder', 'local_ncasign'),
             'value' => s((string)$filters['q']),
             'class' => 'form-control',
-        ]),
+        ]) .
+        html_writer::div(get_string('searchjobs_help', 'local_ncasign'), 'local-ncasign-filter-help'),
         [
             'class' => 'local-ncasign-filter-field local-ncasign-filter-search',
         ]

@@ -61,6 +61,8 @@ $string['taskprocessjobs'] = 'Process overdue NCA sign jobs';
 
 $string['jobs'] = 'Signing jobs';
 $string['searchjobs'] = 'Search jobs';
+$string['searchjobs_placeholder'] = 'Job ID, user name, email, course, or document title';
+$string['searchjobs_help'] = 'Search by job ID, user name, email, course name, course short name, or document title.';
 $string['allstatuses'] = 'All statuses';
 $string['allorigins'] = 'All origins';
 $string['alltemplateprofiles'] = 'All template profiles';
