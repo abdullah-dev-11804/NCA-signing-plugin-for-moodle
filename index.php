@@ -73,6 +73,10 @@ echo $OUTPUT->single_button(
     get_string('createdemojob', 'local_ncasign')
 );
 
+$perpage = 50;
+$page = max(0, optional_param('page', 0, PARAM_INT));
+$limitfrom = $page * $perpage;
+
 $params = [
     'replacedbyupload' => \local_ncasign\local\job_manager::JOB_REPLACED_BY_UPLOAD,
     'softdeleted' => \local_ncasign\local\job_manager::JOB_SOFT_DELETED,
@@ -130,6 +134,29 @@ if ($filters['templateprofileid'] > 0) {
     $params['templateprofilefilter'] = $filters['templateprofileid'];
 }
 
+$countsql = "SELECT COUNT(1)
+               FROM {local_ncasign_jobs} j
+          LEFT JOIN {user} u ON u.id = j.userid
+          LEFT JOIN {course} c ON c.id = j.courseid
+          LEFT JOIN (
+                    SELECT jobid,
+                           SUM(CASE WHEN status = :signersignedstatus THEN 1 ELSE 0 END) AS signedcount,
+                           COUNT(1) AS totalcount
+                      FROM {local_ncasign_signers}
+                  GROUP BY jobid
+                ) sc ON sc.jobid = j.id
+          LEFT JOIN (
+                    SELECT itemid,
+                           COUNT(1) AS artifactcount
+                      FROM {files}
+                     WHERE component = :filecomponent
+                       AND filearea IN ('originalpdf', 'signedpdf', 'signatures', 'publicprofilepdf')
+                       AND filename <> :dot
+                  GROUP BY itemid
+                ) fc ON fc.itemid = j.id
+              WHERE " . implode(' AND ', $where);
+$totaljobs = (int)$DB->count_records_sql($countsql, $params);
+
 $orderparts = [];
 foreach ($sortcolumns[$sort]['sql'] as $sortsql) {
     $orderparts[] = $sortsql . ' ' . strtoupper($dir);
@@ -172,11 +199,17 @@ $jobs = $DB->get_records_sql(
       WHERE " . implode(' AND ', $where) . "
    ORDER BY {$orderclause}",
     $params,
-    0,
-    200
+    $limitfrom,
+    $perpage
 );
 
 echo local_ncasign_render_job_filters($filters, $statusoptions, $originoptions, $templateoptions, $sort, $dir);
+echo $OUTPUT->paging_bar(
+    $totaljobs,
+    $page,
+    $perpage,
+    new moodle_url('/local/ncasign/index.php', local_ncasign_job_url_params($filters, $sort, $dir))
+);
 
 $table = new html_table();
 $table->head = [
@@ -233,6 +266,12 @@ echo html_writer::div(
     html_writer::table($table),
     'local-ncasign-jobs-scroll',
     ['data-ncasign-edge-scroll' => '1']
+);
+echo $OUTPUT->paging_bar(
+    $totaljobs,
+    $page,
+    $perpage,
+    new moodle_url('/local/ncasign/index.php', local_ncasign_job_url_params($filters, $sort, $dir))
 );
 echo $OUTPUT->footer();
 
