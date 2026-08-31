@@ -89,4 +89,9 @@ if (!$file) {
     throw new moodle_exception('filenotfound');
 }
 
-send_stored_file($file, 0, 0, !$inline);
+$options = [];
+if ($type === 'signedpdf') {
+    $options['filename'] = $manager->get_signed_pdf_download_filename($jobid);
+}
+
+send_stored_file($file, 0, 0, !$inline, $options);

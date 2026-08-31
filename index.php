@@ -574,16 +574,11 @@ function local_ncasign_render_artifacts(int $jobid): string {
     }
 
     if ($manager->has_job_signed_pdf($jobid)) {
-        $signedpdf = $manager->get_job_signed_pdf_binary($jobid);
-        $issignedfinal = !empty($signedpdf['filename']) && stripos((string)$signedpdf['filename'], 'signed_final_') !== false;
         $signedpdflink = new moodle_url('/local/ncasign/download_artifact.php', [
             'jobid' => $jobid,
             'type' => 'signedpdf',
         ]);
-        $label = $issignedfinal
-            ? get_string('signedpdffinallabel', 'local_ncasign')
-            : get_string('signedpdfprogresslabel', 'local_ncasign');
-        $links[] = html_writer::link($signedpdflink, $label);
+        $links[] = html_writer::link($signedpdflink, s($manager->get_signed_pdf_download_label($jobid) . '.pdf'));
     }
 
     $verifylink = $manager->get_verification_url_for_job($jobid);

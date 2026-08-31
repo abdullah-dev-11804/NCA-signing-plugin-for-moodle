@@ -795,6 +795,69 @@ class job_manager {
     }
 
     /**
+     * Build the public display name for a signed PDF download.
+     *
+     * @param int $jobid
+     * @return string
+     */
+    public function get_signed_pdf_download_label(int $jobid): string {
+        global $DB;
+
+        $job = $DB->get_record('local_ncasign_jobs', ['id' => $jobid], 'id,userid,courseid,documenttitle', IGNORE_MISSING);
+        if (!$job) {
+            return 'document';
+        }
+
+        $parts = [];
+        $student = $DB->get_record('user', ['id' => (int)$job->userid], 'id,firstname,middlename,lastname,alternatename', IGNORE_MISSING);
+        if ($student) {
+            $studentname = trim($this->format_person_name($student));
+            if ($studentname !== '') {
+                $parts[] = $studentname;
+            }
+        }
+
+        $course = $DB->get_record('course', ['id' => (int)$job->courseid], 'id,fullname,shortname', IGNORE_MISSING);
+        $courseshortname = trim((string)($course->shortname ?? ''));
+        if ($courseshortname !== '') {
+            $parts[] = $courseshortname;
+        }
+
+        if (!$parts) {
+            $fallback = trim((string)($job->documenttitle ?? ''));
+            if ($fallback === '') {
+                $fallback = 'document_' . $jobid;
+            }
+            return $fallback;
+        }
+
+        return trim(implode(' - ', $parts));
+    }
+
+    /**
+     * Build the browser download filename for a signed PDF.
+     *
+     * @param int $jobid
+     * @return string
+     */
+    public function get_signed_pdf_download_filename(int $jobid): string {
+        $label = trim($this->get_signed_pdf_download_label($jobid));
+        if ($label === '') {
+            $label = 'document_' . $jobid;
+        }
+
+        $filename = clean_filename($label);
+        if ($filename === '' || $filename === '.') {
+            $filename = 'document_' . $jobid;
+        }
+        if (!preg_match('/\.pdf$/i', $filename)) {
+            $filename .= '.pdf';
+        }
+
+        return $filename;
+    }
+
+    /**
      * Generate and store signed PDF artifact containing QR block.
      *
      * @param int $jobid
