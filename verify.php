@@ -179,6 +179,7 @@ if (!$signers) {
         } else if (!empty($signer->signercertificate)) {
             $certificate = local_ncasign_safe_json_decode($signer->signercertificate ?? '');
         }
+        $certificate = local_ncasign_normalise_certificate_info($certificate);
         $ocsp = !empty($verification['ocsp']) && is_array($verification['ocsp']) ? $verification['ocsp'] : [];
         $tsa = !empty($verification['tsa']) && is_array($verification['tsa']) ? $verification['tsa'] : [];
 
@@ -196,7 +197,9 @@ if (!$signers) {
                 : '-',
             local_ncasign_verify_text('tsapresent', $lang) => !empty($tsa['present']) ? local_ncasign_verify_text('yes', $lang) : local_ncasign_verify_text('no', $lang),
             local_ncasign_verify_text('tsaauthority', $lang) => !empty($tsa['authority']) ? s((string)$tsa['authority']) : '-',
-            local_ncasign_verify_text('tsagentime', $lang) => !empty($tsa['genTime']) ? s((string)$tsa['genTime']) : '-',
+            local_ncasign_verify_text('tsagentime', $lang) => !empty($tsa['genTime'])
+                ? s(local_ncasign_format_public_iso_datetime((string)$tsa['genTime']))
+                : '-',
         ];
 
         echo html_writer::tag(
@@ -629,7 +632,43 @@ function local_ncasign_build_verify_table(array $rows): html_table {
  * @return string
  */
 function local_ncasign_format_public_datetime(int $timestamp): string {
-    return $timestamp > 0 ? date('Y-m-d H:i', $timestamp) : '-';
+    if ($timestamp <= 0) {
+        return '-';
+    }
+
+    $datetime = (new DateTimeImmutable('@' . $timestamp))->setTimezone(local_ncasign_public_timezone());
+    return $datetime->format('Y-m-d H:i:s');
+}
+
+/**
+ * Format ISO-8601 evidence timestamps for public display.
+ *
+ * @param string $value
+ * @return string
+ */
+function local_ncasign_format_public_iso_datetime(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '-';
+    }
+
+    try {
+        $datetime = new DateTimeImmutable($value);
+        $datetime = $datetime->setTimezone(local_ncasign_public_timezone());
+        return $datetime->format('Y-m-d H:i:s');
+    } catch (Throwable $e) {
+        $timestamp = strtotime($value);
+        return $timestamp !== false ? local_ncasign_format_public_datetime($timestamp) : $value;
+    }
+}
+
+/**
+ * Return the public verification timezone.
+ *
+ * @return DateTimeZone
+ */
+function local_ncasign_public_timezone(): DateTimeZone {
+    return new DateTimeZone('Asia/Almaty');
 }
 
 /**
@@ -668,6 +707,49 @@ function local_ncasign_safe_json_decode($value): array {
 }
 
 /**
+ * Normalise certificate evidence returned by NCANode or the Java sidecar.
+ *
+ * @param array $certificate
+ * @return array
+ */
+function local_ncasign_normalise_certificate_info(array $certificate): array {
+    $subject = !empty($certificate['subject']) && is_array($certificate['subject']) ? $certificate['subject'] : [];
+    $issuer = !empty($certificate['issuer']) && is_array($certificate['issuer']) ? $certificate['issuer'] : [];
+
+    $subjectdn = trim((string)($subject['dn'] ?? ($certificate['subjectDn'] ?? ($certificate['certificateSubjectDn'] ?? ''))));
+    $issuerdn = trim((string)($issuer['dn'] ?? ($certificate['issuerDn'] ?? ($certificate['certificateIssuerDn'] ?? ''))));
+    $iin = preg_replace('/\D+/', '', (string)($subject['iin'] ?? ($certificate['iin'] ?? ($certificate['certificateIin'] ?? ''))));
+
+    if ($subjectdn !== '') {
+        $subject['dn'] = $subjectdn;
+    }
+    if ($iin !== '') {
+        $subject['iin'] = $iin;
+    }
+    if ($issuerdn !== '') {
+        $issuer['dn'] = $issuerdn;
+    }
+
+    if ($subject) {
+        $certificate['subject'] = $subject;
+    }
+    if ($issuer) {
+        $certificate['issuer'] = $issuer;
+    }
+    if (empty($certificate['serialNumber']) && !empty($certificate['certificateSerialNumber'])) {
+        $certificate['serialNumber'] = (string)$certificate['certificateSerialNumber'];
+    }
+    if (empty($certificate['notBefore']) && !empty($certificate['certificateNotBefore'])) {
+        $certificate['notBefore'] = (string)$certificate['certificateNotBefore'];
+    }
+    if (empty($certificate['notAfter']) && !empty($certificate['certificateNotAfter'])) {
+        $certificate['notAfter'] = (string)$certificate['certificateNotAfter'];
+    }
+
+    return $certificate;
+}
+
+/**
  * Extract signer subject identifier from stored signer and certificate evidence.
  *
  * @param stdClass $signer
@@ -679,14 +761,21 @@ function local_ncasign_extract_signer_identifier(stdClass $signer, array $certif
         return (string)$signer->signeriin;
     }
 
-    $subjectdn = '';
-    if (!empty($certificate['subject']['dn']) && is_string($certificate['subject']['dn'])) {
-        $subjectdn = $certificate['subject']['dn'];
+    $certificate = local_ncasign_normalise_certificate_info($certificate);
+    if (!empty($certificate['subject']['iin'])) {
+        return (string)$certificate['subject']['iin'];
     }
+
+    $subjectdn = !empty($certificate['subject']['dn']) && is_string($certificate['subject']['dn'])
+        ? $certificate['subject']['dn']
+        : '';
 
     if ($subjectdn !== '') {
         if (preg_match('/serialNumber=([^,]+)/i', $subjectdn, $matches)) {
             return trim((string)$matches[1]);
+        }
+        if (preg_match('/2\\.5\\.4\\.5=([^,]+)/', $subjectdn, $matches) && strpos((string)$matches[1], '#') !== 0) {
+            return preg_replace('/\D+/', '', (string)$matches[1]);
         }
         if (preg_match('/2\\.5\\.4\\.5=#([0-9A-Fa-f]+)/', $subjectdn, $matches)) {
             $decoded = @hex2bin((string)$matches[1]);
@@ -694,6 +783,10 @@ function local_ncasign_extract_signer_identifier(stdClass $signer, array $certif
                 return (string)$iinmatch[0];
             }
         }
+    }
+
+    if (!empty($signer->expectediin)) {
+        return (string)$signer->expectediin;
     }
 
     return '-';
@@ -706,10 +799,19 @@ function local_ncasign_extract_signer_identifier(stdClass $signer, array $certif
  * @return string
  */
 function local_ncasign_format_certificate_period(array $certificate): string {
+    $certificate = local_ncasign_normalise_certificate_info($certificate);
     if (empty($certificate['notBefore']) && empty($certificate['notAfter'])) {
         return '-';
     }
-    return trim((string)($certificate['notBefore'] ?? '-')) . ' -> ' . trim((string)($certificate['notAfter'] ?? '-'));
+
+    $notbefore = !empty($certificate['notBefore'])
+        ? local_ncasign_format_public_iso_datetime((string)$certificate['notBefore'])
+        : '-';
+    $notafter = !empty($certificate['notAfter'])
+        ? local_ncasign_format_public_iso_datetime((string)$certificate['notAfter'])
+        : '-';
+
+    return $notbefore . ' -> ' . $notafter;
 }
 
 /**
@@ -735,7 +837,7 @@ function local_ncasign_format_revocation_status(array $verification, string $lan
             }
             $line = 'OCSP: ' . $status;
             if (!empty($detail['thisUpdate'])) {
-                $line .= ' (' . (string)$detail['thisUpdate'] . ')';
+                $line .= ' (' . local_ncasign_format_public_iso_datetime((string)$detail['thisUpdate']) . ')';
             }
             $statuses[] = $line;
         }

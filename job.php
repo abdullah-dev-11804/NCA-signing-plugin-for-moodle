@@ -99,7 +99,7 @@ foreach ($signers as $signer) {
         s((string)($signer->signerposition ?? '')),
         local_ncasign_signer_status_badge($signer, $signers),
         $signer->expectediin ? s((string)$signer->expectediin) : '-',
-        $signer->signeriin ? s((string)$signer->signeriin) : '-',
+        ($verifiediin = local_ncasign_get_verified_iin($signer)) !== '' ? s($verifiediin) : '-',
         !empty($signer->signedat) ? userdate((int)$signer->signedat) : '-',
         local_ncasign_verification_badge($signer),
         !empty($signer->signingmethod) ? s((string)$signer->signingmethod) : '-',
@@ -195,6 +195,104 @@ function local_ncasign_safe_json_decode($value): array {
     }
     $decoded = json_decode($value, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+/**
+ * Return verified signer IIN from persisted columns or certificate evidence.
+ *
+ * @param stdClass $signer
+ * @return string
+ */
+function local_ncasign_get_verified_iin(\stdClass $signer): string {
+    $iin = preg_replace('/\D+/', '', (string)($signer->signeriin ?? ''));
+    if ($iin !== '') {
+        return $iin;
+    }
+
+    $certificate = local_ncasign_get_signer_certificate_info($signer);
+    $iin = preg_replace('/\D+/', '', (string)($certificate['subject']['iin'] ?? ''));
+    if ($iin !== '') {
+        return $iin;
+    }
+
+    $subjectdn = trim((string)($certificate['subject']['dn'] ?? ''));
+    if ($subjectdn !== '') {
+        if (preg_match('/serialNumber=([^,]+)/i', $subjectdn, $matches)) {
+            return preg_replace('/\D+/', '', (string)$matches[1]);
+        }
+        if (preg_match('/2\\.5\\.4\\.5=([^,]+)/', $subjectdn, $matches) && strpos((string)$matches[1], '#') !== 0) {
+            return preg_replace('/\D+/', '', (string)$matches[1]);
+        }
+        if (preg_match('/2\\.5\\.4\\.5=#([0-9A-Fa-f]+)/', $subjectdn, $matches)) {
+            $decoded = @hex2bin((string)$matches[1]);
+            if ($decoded !== false && preg_match('/IIN\\d+/i', $decoded, $iinmatch)) {
+                return preg_replace('/\D+/', '', (string)$iinmatch[0]);
+            }
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Return normalised signer certificate evidence.
+ *
+ * @param stdClass $signer
+ * @return array
+ */
+function local_ncasign_get_signer_certificate_info(\stdClass $signer): array {
+    $verification = local_ncasign_safe_json_decode($signer->verificationinfo ?? '');
+    if (!empty($verification['certificateinfo']) && is_array($verification['certificateinfo'])) {
+        return local_ncasign_normalise_certificate_info($verification['certificateinfo']);
+    }
+    if (!empty($signer->signercertificate)) {
+        return local_ncasign_normalise_certificate_info(local_ncasign_safe_json_decode($signer->signercertificate));
+    }
+
+    return [];
+}
+
+/**
+ * Normalise certificate evidence returned by NCANode or the Java sidecar.
+ *
+ * @param array $certificate
+ * @return array
+ */
+function local_ncasign_normalise_certificate_info(array $certificate): array {
+    $subject = !empty($certificate['subject']) && is_array($certificate['subject']) ? $certificate['subject'] : [];
+    $issuer = !empty($certificate['issuer']) && is_array($certificate['issuer']) ? $certificate['issuer'] : [];
+
+    $subjectdn = trim((string)($subject['dn'] ?? ($certificate['subjectDn'] ?? ($certificate['certificateSubjectDn'] ?? ''))));
+    $issuerdn = trim((string)($issuer['dn'] ?? ($certificate['issuerDn'] ?? ($certificate['certificateIssuerDn'] ?? ''))));
+    $iin = preg_replace('/\D+/', '', (string)($subject['iin'] ?? ($certificate['iin'] ?? ($certificate['certificateIin'] ?? ''))));
+
+    if ($subjectdn !== '') {
+        $subject['dn'] = $subjectdn;
+    }
+    if ($iin !== '') {
+        $subject['iin'] = $iin;
+    }
+    if ($issuerdn !== '') {
+        $issuer['dn'] = $issuerdn;
+    }
+
+    if ($subject) {
+        $certificate['subject'] = $subject;
+    }
+    if ($issuer) {
+        $certificate['issuer'] = $issuer;
+    }
+    if (empty($certificate['serialNumber']) && !empty($certificate['certificateSerialNumber'])) {
+        $certificate['serialNumber'] = (string)$certificate['certificateSerialNumber'];
+    }
+    if (empty($certificate['notBefore']) && !empty($certificate['certificateNotBefore'])) {
+        $certificate['notBefore'] = (string)$certificate['certificateNotBefore'];
+    }
+    if (empty($certificate['notAfter']) && !empty($certificate['certificateNotAfter'])) {
+        $certificate['notAfter'] = (string)$certificate['certificateNotAfter'];
+    }
+
+    return $certificate;
 }
 
 /**
@@ -326,6 +424,7 @@ function local_ncasign_render_signer_verification_details(\stdClass $signer): st
     } else if (!empty($signer->signercertificate)) {
         $certificate = local_ncasign_safe_json_decode($signer->signercertificate);
     }
+    $certificate = local_ncasign_normalise_certificate_info($certificate);
     $validation = !empty($verification['validation']) && is_array($verification['validation']) ? $verification['validation'] : [];
     $revocations = !empty($validation['revocations']) && is_array($validation['revocations']) ? $validation['revocations'] : [];
 

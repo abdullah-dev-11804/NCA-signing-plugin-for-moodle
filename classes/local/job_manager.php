@@ -380,18 +380,35 @@ class job_manager {
      *
      * Template profiles keep the historical role order used by document rendering:
      * chair, member 1, member 2. The signing workflow must email member 1, then
-     * member 2, then chair.
+     * member 2, then chair. Missing signer slots are ignored instead of creating
+     * placeholder signer rows.
      *
      * @param array<int,array<string,mixed>> $signers
      * @return array<int,array<string,mixed>>
      */
     private function order_signers_for_commission_workflow(array $signers): array {
         $signers = array_values($signers);
-        $chair = $this->normalise_commission_signer_slot($signers[0] ?? [], 'commission_chair', 'Commission chair');
-        $member1 = $this->normalise_commission_signer_slot($signers[1] ?? [], 'commission_member_1', 'Commission member 1');
-        $member2 = $this->normalise_commission_signer_slot($signers[2] ?? [], 'commission_member_2', 'Commission member 2');
+        $ordered = [];
 
-        return [$member1, $member2, $chair];
+        if (array_key_exists(1, $signers)) {
+            $ordered[] = $this->normalise_commission_signer_slot($signers[1], 'commission_member_1', 'Commission member 1');
+        }
+        if (array_key_exists(2, $signers)) {
+            $ordered[] = $this->normalise_commission_signer_slot($signers[2], 'commission_member_2', 'Commission member 2');
+        }
+        if (array_key_exists(0, $signers)) {
+            $ordered[] = $this->normalise_commission_signer_slot($signers[0], 'commission_chair', 'Commission chair');
+        }
+
+        for ($index = 3; $index < count($signers); $index++) {
+            $ordered[] = $this->normalise_commission_signer_slot(
+                $signers[$index],
+                'commission_signer_' . ($index + 1),
+                'Commission signer ' . ($index + 1)
+            );
+        }
+
+        return $ordered;
     }
 
     /**
