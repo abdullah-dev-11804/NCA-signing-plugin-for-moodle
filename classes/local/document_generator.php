@@ -348,6 +348,7 @@ class document_generator {
                     'customcert_templateid' => $templateid,
                     'customcert_text_overrides' => array_keys($overrides),
                     'customcert_qr_overrides' => array_keys($qroverrides),
+                    'dynamic_fields' => $this->dynamic_fields_manifest($documentdata),
                 ]
             ),
         ];
@@ -478,6 +479,7 @@ class document_generator {
                 'reservationmode' => 'visual_signature_slots_only',
                 'profile_renderer' => self::DOC_ENGINEER_PROTOCOL,
                 'signature_slots' => $signaturemanifest,
+                'dynamic_fields' => $this->dynamic_fields_manifest($documentdata),
             ],
         ];
     }
@@ -569,7 +571,20 @@ class document_generator {
                 'reservationmode' => 'visual_signature_slots_only',
                 'profile_renderer' => self::DOC_STRUCTURED_PROTOCOL,
                 'signature_slots' => $signaturemanifest,
+                'dynamic_fields' => $this->dynamic_fields_manifest($documentdata),
             ],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $documentdata
+     * @return array<string, string>
+     */
+    private function dynamic_fields_manifest(array $documentdata): array {
+        return [
+            'protocol_number' => (string)($documentdata['protocolnumber'] ?? ''),
+            'certificate_number' => (string)($documentdata['certificatenumber'] ?? ''),
+            'book_id' => (string)($documentdata['bookid'] ?? ''),
         ];
     }
 
