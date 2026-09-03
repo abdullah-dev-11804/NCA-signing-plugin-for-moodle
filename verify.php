@@ -187,7 +187,7 @@ if (!$signers) {
             local_ncasign_verify_text('fullname', $lang) => s($signername),
             local_ncasign_verify_text('position', $lang) => s($position),
             local_ncasign_verify_text('iinidentifier', $lang) => s(local_ncasign_extract_signer_identifier($signer, $certificate)),
-            local_ncasign_verify_text('certsubject', $lang) => !empty($certificate['subject']['dn']) ? s((string)$certificate['subject']['dn']) : '-',
+            local_ncasign_verify_text('certsubject', $lang) => local_ncasign_format_certificate_subject($certificate, $lang),
             local_ncasign_verify_text('certserial', $lang) => !empty($certificate['serialNumber']) ? s((string)$certificate['serialNumber']) : '-',
             local_ncasign_verify_text('certperiod', $lang) => local_ncasign_format_certificate_period($certificate),
             local_ncasign_verify_text('revocationstatus', $lang) => s(local_ncasign_format_revocation_status($verification, $lang)),
@@ -326,6 +326,37 @@ function local_ncasign_verify_styles(): string {
     width: 34%;
     color: #4b5563;
 }
+.ncasign-cert-subject {
+    display: grid;
+    gap: 6px;
+}
+.ncasign-cert-subject-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 190px) 1fr;
+    gap: 10px;
+}
+.ncasign-cert-subject-label {
+    color: #4b5563;
+    font-weight: 600;
+}
+.ncasign-cert-subject-value {
+    overflow-wrap: anywhere;
+}
+.ncasign-cert-subject-raw {
+    margin-top: 6px;
+}
+.ncasign-cert-subject-raw summary {
+    cursor: pointer;
+    color: #4f8f3a;
+    font-weight: 600;
+}
+.ncasign-cert-subject-raw div {
+    margin-top: 6px;
+    color: #4b5563;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .88rem;
+    overflow-wrap: anywhere;
+}
 .ncasign-signer-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -386,6 +417,10 @@ function local_ncasign_verify_styles(): string {
     }
     .local-ncasign-verify .ncasign-verify-table td:first-child {
         width: 100%;
+    }
+    .ncasign-cert-subject-row {
+        grid-template-columns: 1fr;
+        gap: 2px;
     }
     .ncasign-signer-grid {
         grid-template-columns: 1fr;
@@ -467,6 +502,14 @@ function local_ncasign_verify_text(string $key, string $lang): string {
             'nosigners' => 'Құжат үшін қол қоюшылар жазбалары табылмады.',
             'publicid' => 'Құжаттың жария ID-і',
             'certsubject' => 'Сертификат иесі',
+            'certsubject_commonname' => 'Жалпы атауы',
+            'certsubject_givenname' => 'Аты',
+            'certsubject_surname' => 'Тегі',
+            'certsubject_iin' => 'ЖСН',
+            'certsubject_bin' => 'БСН',
+            'certsubject_organisation' => 'Ұйым',
+            'certsubject_country' => 'Ел',
+            'certsubject_raw' => 'Техникалық DN көрсету',
             'certserial' => 'Сертификаттың сериялық нөмірі',
             'certperiod' => 'Сертификаттың жарамдылық мерзімі',
             'revocationstatus' => 'Қайтарып алу мәртебесі',
@@ -511,6 +554,14 @@ function local_ncasign_verify_text(string $key, string $lang): string {
             'nosigners' => 'Для документа не найдено записей о подписантах.',
             'publicid' => 'Публичный ID документа',
             'certsubject' => 'Субъект сертификата',
+            'certsubject_commonname' => 'Общее имя',
+            'certsubject_givenname' => 'Имя',
+            'certsubject_surname' => 'Фамилия',
+            'certsubject_iin' => 'ИИН',
+            'certsubject_bin' => 'БИН',
+            'certsubject_organisation' => 'Организация',
+            'certsubject_country' => 'Страна',
+            'certsubject_raw' => 'Показать технический DN',
             'certserial' => 'Серийный номер сертификата',
             'certperiod' => 'Срок действия сертификата',
             'revocationstatus' => 'Статус отзыва',
@@ -555,6 +606,14 @@ function local_ncasign_verify_text(string $key, string $lang): string {
             'nosigners' => 'No signer records were found for this document.',
             'publicid' => 'Public document ID',
             'certsubject' => 'Certificate subject',
+            'certsubject_commonname' => 'Common name',
+            'certsubject_givenname' => 'Given name',
+            'certsubject_surname' => 'Surname',
+            'certsubject_iin' => 'IIN',
+            'certsubject_bin' => 'BIN',
+            'certsubject_organisation' => 'Organisation',
+            'certsubject_country' => 'Country',
+            'certsubject_raw' => 'Show technical DN',
             'certserial' => 'Certificate serial number',
             'certperiod' => 'Certificate validity period',
             'revocationstatus' => 'Revocation status',
@@ -747,6 +806,202 @@ function local_ncasign_normalise_certificate_info(array $certificate): array {
     }
 
     return $certificate;
+}
+
+/**
+ * Format a certificate subject DN into readable public rows.
+ *
+ * @param array $certificate
+ * @param string $lang
+ * @return string
+ */
+function local_ncasign_format_certificate_subject(array $certificate, string $lang): string {
+    $subjectdn = !empty($certificate['subject']['dn']) && is_string($certificate['subject']['dn'])
+        ? trim((string)$certificate['subject']['dn'])
+        : '';
+    if ($subjectdn === '') {
+        return '-';
+    }
+
+    $parts = local_ncasign_parse_distinguished_name($subjectdn);
+    $rows = [];
+    $commonname = trim((string)($parts['CN'] ?? ''));
+    $givenname = trim((string)($parts['2.5.4.42'] ?? ($parts['GIVENNAME'] ?? '')));
+    $surname = trim((string)($parts['2.5.4.4'] ?? ($parts['SURNAME'] ?? '')));
+    $iin = preg_replace('/\D+/', '', (string)($parts['2.5.4.5'] ?? ($parts['SERIALNUMBER'] ?? '')));
+    $bin = preg_replace('/\D+/', '', (string)($parts['OU'] ?? ($parts['ORGANIZATIONALUNITNAME'] ?? '')));
+    $organisation = trim((string)($parts['O'] ?? ($parts['ORGANIZATIONNAME'] ?? '')));
+    $country = trim((string)($parts['C'] ?? ''));
+
+    if ($commonname !== '') {
+        $rows[local_ncasign_verify_text('certsubject_commonname', $lang)] = $commonname;
+    }
+    if ($surname !== '') {
+        $rows[local_ncasign_verify_text('certsubject_surname', $lang)] = $surname;
+    }
+    if ($givenname !== '') {
+        $rows[local_ncasign_verify_text('certsubject_givenname', $lang)] = $givenname;
+    }
+    if ($iin !== '') {
+        $rows[local_ncasign_verify_text('certsubject_iin', $lang)] = $iin;
+    }
+    if ($bin !== '') {
+        $rows[local_ncasign_verify_text('certsubject_bin', $lang)] = $bin;
+    }
+    if ($organisation !== '') {
+        $rows[local_ncasign_verify_text('certsubject_organisation', $lang)] = $organisation;
+    }
+    if ($country !== '') {
+        $rows[local_ncasign_verify_text('certsubject_country', $lang)] = $country;
+    }
+
+    if (!$rows) {
+        return s($subjectdn);
+    }
+
+    $html = html_writer::start_div('ncasign-cert-subject');
+    foreach ($rows as $label => $value) {
+        $html .= html_writer::div(
+            html_writer::div(s($label), 'ncasign-cert-subject-label') .
+            html_writer::div(s($value), 'ncasign-cert-subject-value'),
+            'ncasign-cert-subject-row'
+        );
+    }
+    $html .= html_writer::tag(
+        'details',
+        html_writer::tag('summary', local_ncasign_verify_text('certsubject_raw', $lang)) .
+        html_writer::div(s($subjectdn)),
+        ['class' => 'ncasign-cert-subject-raw']
+    );
+    $html .= html_writer::end_div();
+
+    return $html;
+}
+
+/**
+ * Parse a comma-separated X.500 distinguished name.
+ *
+ * @param string $subjectdn
+ * @return array<string,string>
+ */
+function local_ncasign_parse_distinguished_name(string $subjectdn): array {
+    $parts = [];
+    foreach (local_ncasign_split_dn($subjectdn) as $segment) {
+        [$key, $value] = array_pad(explode('=', $segment, 2), 2, '');
+        $key = strtoupper(trim($key));
+        $value = trim($value);
+        if ($key === '' || $value === '') {
+            continue;
+        }
+        $parts[$key] = local_ncasign_decode_dn_value($value);
+    }
+
+    return $parts;
+}
+
+/**
+ * Split a DN on unescaped commas.
+ *
+ * @param string $subjectdn
+ * @return string[]
+ */
+function local_ncasign_split_dn(string $subjectdn): array {
+    $segments = [];
+    $current = '';
+    $escaped = false;
+    $length = strlen($subjectdn);
+
+    for ($i = 0; $i < $length; $i++) {
+        $char = $subjectdn[$i];
+        if ($escaped) {
+            $current .= '\\' . $char;
+            $escaped = false;
+            continue;
+        }
+        if ($char === '\\') {
+            $escaped = true;
+            continue;
+        }
+        if ($char === ',') {
+            $segments[] = trim($current);
+            $current = '';
+            continue;
+        }
+        $current .= $char;
+    }
+
+    if ($escaped) {
+        $current .= '\\';
+    }
+    if (trim($current) !== '') {
+        $segments[] = trim($current);
+    }
+
+    return $segments;
+}
+
+/**
+ * Decode one DN value, including ASN.1 hex strings such as #0c... and escaped characters.
+ *
+ * @param string $value
+ * @return string
+ */
+function local_ncasign_decode_dn_value(string $value): string {
+    $value = trim($value);
+    if (strpos($value, '#') === 0) {
+        $decoded = local_ncasign_decode_asn1_string(substr($value, 1));
+        if ($decoded !== '') {
+            return $decoded;
+        }
+    }
+
+    return stripcslashes($value);
+}
+
+/**
+ * Decode a simple ASN.1 DER string value from hex.
+ *
+ * @param string $hex
+ * @return string
+ */
+function local_ncasign_decode_asn1_string(string $hex): string {
+    $hex = preg_replace('/[^0-9A-Fa-f]/', '', $hex);
+    if ($hex === '' || strlen($hex) < 4 || strlen($hex) % 2 !== 0) {
+        return '';
+    }
+
+    $bytes = hex2bin($hex);
+    if ($bytes === false || strlen($bytes) < 2) {
+        return '';
+    }
+
+    $tag = ord($bytes[0]);
+    $lengthbyte = ord($bytes[1]);
+    $offset = 2;
+    if (($lengthbyte & 0x80) !== 0) {
+        $lengthbytes = $lengthbyte & 0x7f;
+        if ($lengthbytes < 1 || strlen($bytes) < 2 + $lengthbytes) {
+            return '';
+        }
+        $length = 0;
+        for ($i = 0; $i < $lengthbytes; $i++) {
+            $length = ($length << 8) + ord($bytes[$offset + $i]);
+        }
+        $offset += $lengthbytes;
+    } else {
+        $length = $lengthbyte;
+    }
+
+    $payload = substr($bytes, $offset, $length);
+    if ($payload === '') {
+        return '';
+    }
+
+    if ($tag === 0x1e) {
+        return \core_text::convert($payload, 'UTF-16BE', 'UTF-8');
+    }
+
+    return $payload;
 }
 
 /**
