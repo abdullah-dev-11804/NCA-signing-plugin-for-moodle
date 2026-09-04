@@ -31,6 +31,8 @@ require_once($CFG->libdir . '/clilib.php');
         'include-inactive' => false,
         'only-missing' => true,
         'all' => false,
+        'debug' => false,
+        'debug-text' => false,
     ],
     [
         'h' => 'help',
@@ -40,9 +42,10 @@ require_once($CFG->libdir . '/clilib.php');
 
 if (!empty($options['help']) || !empty($unrecognized)) {
     $help = "Backfill NCAsign protocol/certificate/book numbers from stored PDFs\n\n"
-        . "The script extracts PRO/CER/CID values from the stored job PDF and writes them\n"
-        . "to local_ncasign_jobs.finalizationmanifest.dynamic_fields only when all three\n"
-        . "values are found unambiguously and match the same job userid/courseid.\n\n"
+        . "The script extracts PRO/CER/CID values from the stored job PDF and writes each\n"
+        . "confirmed value to local_ncasign_jobs.finalizationmanifest.dynamic_fields.\n"
+        . "A value is written only when it is found unambiguously and matches the same\n"
+        . "job userid/courseid. Missing values stay empty.\n\n"
         . "Options:\n"
         . "-h, --help                 Print this help\n"
         . "-j, --jobids=IDS           Comma-separated job IDs, for example 300,304\n"
@@ -51,6 +54,8 @@ if (!empty($options['help']) || !empty($unrecognized)) {
         . "--pdftotext=PATH          pdftotext binary path; default pdftotext\n"
         . "--include-inactive        Include replaced_by_upload and soft_deleted jobs\n"
         . "--all                     Re-check jobs even when dynamic_fields already exist\n"
+        . "--debug                   Print extracted number candidates for skipped jobs\n"
+        . "--debug-text              Print a short excerpt of extracted PDF text for skipped jobs\n"
         . "--write                   Save confirmed values to DB; without this it is a dry run\n\n"
         . "Examples:\n"
         . "php local/ncasign/cli/backfill_dynamic_numbers.php --batch-size=100\n"
@@ -66,6 +71,8 @@ $offset = max(0, (int)$options['offset']);
 $pdftotext = trim((string)$options['pdftotext']);
 $onlymissing = empty($options['all']) && !empty($options['only-missing']);
 $includeinactive = !empty($options['include-inactive']);
+$debug = !empty($options['debug']) || !empty($options['debug-text']);
+$debugtext = !empty($options['debug-text']);
 
 if ($pdftotext === '') {
     cli_error('pdftotext path cannot be empty.', 1);
@@ -114,16 +121,25 @@ foreach ($jobs as $job) {
         if (!$numbers['ok']) {
             $summary['skipped']++;
             cli_writeln("Job {$jobid}: skipped, " . $numbers['reason']);
+            if ($debug) {
+                local_ncasign_backfill_print_debug($jobid, $text, (int)$job->userid, (int)$job->courseid, $debugtext);
+            }
             continue;
         }
 
         $manifest = local_ncasign_backfill_decode_manifest($job->finalizationmanifest ?? null);
-        $before = $manifest['dynamic_fields'] ?? [];
-        $manifest['dynamic_fields'] = [
-            'protocol_number' => $numbers['values']['protocol_number'],
-            'certificate_number' => $numbers['values']['certificate_number'],
-            'book_id' => $numbers['values']['book_id'],
+        $before = !empty($manifest['dynamic_fields']) && is_array($manifest['dynamic_fields'])
+            ? $manifest['dynamic_fields']
+            : [];
+        $dynamicfields = [
+            'protocol_number' => (string)($before['protocol_number'] ?? ''),
+            'certificate_number' => (string)($before['certificate_number'] ?? ''),
+            'book_id' => (string)($before['book_id'] ?? ''),
         ];
+        foreach ($numbers['values'] as $field => $value) {
+            $dynamicfields[$field] = (string)$value;
+        }
+        $manifest['dynamic_fields'] = $dynamicfields;
         $manifest['dynamic_fields_backfill'] = [
             'method' => 'pdftotext_regex_strict',
             'sourcearea' => !empty($payload['sourcearea']) ? (string)$payload['sourcearea'] : 'stored_pdf',
@@ -135,7 +151,7 @@ foreach ($jobs as $job) {
         if ($before == $manifest['dynamic_fields']) {
             cli_writeln(
                 "Job {$jobid}: already populated " .
-                implode(', ', $manifest['dynamic_fields'])
+                local_ncasign_backfill_format_dynamic_fields($manifest['dynamic_fields'])
             );
             continue;
         }
@@ -144,7 +160,8 @@ foreach ($jobs as $job) {
             $summary['wouldupdate']++;
             cli_writeln(
                 "Job {$jobid}: would update " .
-                implode(', ', $manifest['dynamic_fields'])
+                local_ncasign_backfill_format_dynamic_fields($manifest['dynamic_fields']) .
+                " (found " . implode(', ', array_keys($numbers['values'])) . ")"
             );
             continue;
         }
@@ -157,7 +174,8 @@ foreach ($jobs as $job) {
         $summary['updated']++;
         cli_writeln(
             "Job {$jobid}: updated " .
-            implode(', ', $manifest['dynamic_fields'])
+            local_ncasign_backfill_format_dynamic_fields($manifest['dynamic_fields']) .
+            " (found " . implode(', ', array_keys($numbers['values'])) . ")"
         );
     } catch (Throwable $e) {
         $summary['failed']++;
@@ -205,11 +223,17 @@ function local_ncasign_backfill_load_jobs(
             OR j.finalizationmanifest NOT LIKE :dynamicmarker
             OR j.finalizationmanifest NOT LIKE :protocolmarker
             OR j.finalizationmanifest NOT LIKE :certmarker
-            OR j.finalizationmanifest NOT LIKE :bookmarker)";
+            OR j.finalizationmanifest NOT LIKE :bookmarker
+            OR j.finalizationmanifest LIKE :protocolempty
+            OR j.finalizationmanifest LIKE :certempty
+            OR j.finalizationmanifest LIKE :bookempty)";
         $params['dynamicmarker'] = '%"dynamic_fields"%';
         $params['protocolmarker'] = '%"protocol_number"%';
         $params['certmarker'] = '%"certificate_number"%';
         $params['bookmarker'] = '%"book_id"%';
+        $params['protocolempty'] = '%"protocol_number":""%';
+        $params['certempty'] = '%"certificate_number":""%';
+        $params['bookempty'] = '%"book_id":""%';
     }
 
     if ($jobids) {
@@ -297,15 +321,14 @@ function local_ncasign_backfill_extract_numbers(string $text, int $userid, int $
         'book_id' => 'CID',
     ];
     $values = [];
+    $missing = [];
 
     foreach ($patterns as $key => $prefix) {
         $regex = '/\b' . $prefix . '-' . preg_quote((string)$userid, '/') . '-' .
             preg_quote($course, '/') . '-\d{8}-\d{4}\b/u';
         if (!preg_match_all($regex, $text, $matches)) {
-            return [
-                'ok' => false,
-                'reason' => "missing {$key} matching {$prefix}-{$userid}-{$course}-YYYYMMDD-NNNN",
-            ];
+            $missing[] = $key;
+            continue;
         }
 
         $unique = array_values(array_unique($matches[0]));
@@ -318,25 +341,83 @@ function local_ncasign_backfill_extract_numbers(string $text, int $userid, int $
         $values[$key] = $unique[0];
     }
 
-    $dates = [];
-    $sequences = [];
-    foreach ($values as $value) {
-        if (preg_match('/^[A-Z]+-\d+-\d{4}-(\d{8})-(\d{4})$/', $value, $matches)) {
-            $dates[] = $matches[1];
-            $sequences[] = $matches[2];
-        }
-    }
-    if (count(array_unique($dates)) !== 1 || count(array_unique($sequences)) !== 1) {
+    if (!$values) {
         return [
             'ok' => false,
-            'reason' => 'PRO/CER/CID values do not share the same date and sequence',
+            'reason' => "no PRO/CER/CID values found for userid={$userid}, course={$course}",
         ];
     }
 
     return [
         'ok' => true,
         'values' => $values,
+        'missing' => $missing,
     ];
+}
+
+/**
+ * Format dynamic fields for CLI output.
+ *
+ * @param array $fields
+ * @return string
+ */
+function local_ncasign_backfill_format_dynamic_fields(array $fields): string {
+    $labels = [];
+    foreach (['protocol_number', 'certificate_number', 'book_id'] as $key) {
+        $value = trim((string)($fields[$key] ?? ''));
+        $labels[] = $key . '=' . ($value !== '' ? $value : '-');
+    }
+
+    return implode(', ', $labels);
+}
+
+/**
+ * Print extraction details for a skipped job.
+ *
+ * @param int $jobid
+ * @param string $text
+ * @param int $userid
+ * @param int $courseid
+ * @param bool $debugtext
+ * @return void
+ */
+function local_ncasign_backfill_print_debug(
+    int $jobid,
+    string $text,
+    int $userid,
+    int $courseid,
+    bool $debugtext
+): void {
+    $normalised = str_replace("\xc2\xa0", ' ', $text);
+    $normalised = preg_replace('/\s*-\s*/u', '-', $normalised);
+    $course = sprintf('%04d', $courseid);
+
+    cli_writeln("Job {$jobid}: debug expected userid={$userid}, course={$course}");
+
+    foreach (['PRO', 'CER', 'CID'] as $prefix) {
+        $strictregex = '/\b' . $prefix . '-' . preg_quote((string)$userid, '/') . '-' .
+            preg_quote($course, '/') . '-\d{8}-\d{4}\b/u';
+        preg_match_all($strictregex, $normalised, $strictmatches);
+
+        $looseregex = '/\b' . $prefix . '-\d+-\d{4}-\d{8}-\d{4}\b/u';
+        preg_match_all($looseregex, $normalised, $loosematches);
+
+        $strict = array_values(array_unique($strictmatches[0] ?? []));
+        $loose = array_values(array_unique($loosematches[0] ?? []));
+
+        cli_writeln("Job {$jobid}: debug {$prefix} strict matches: " . ($strict ? implode(', ', $strict) : '-'));
+        cli_writeln("Job {$jobid}: debug {$prefix} loose matches: " . ($loose ? implode(', ', $loose) : '-'));
+    }
+
+    if ($debugtext) {
+        $excerpt = preg_replace('/[ \t]+/', ' ', $normalised);
+        $excerpt = preg_replace('/\R+/', "\n", $excerpt);
+        $excerpt = trim((string)$excerpt);
+        if (\core_text::strlen($excerpt) > 2500) {
+            $excerpt = \core_text::substr($excerpt, 0, 2500) . "\n...";
+        }
+        cli_writeln("Job {$jobid}: extracted text excerpt:\n" . $excerpt);
+    }
 }
 
 /**
