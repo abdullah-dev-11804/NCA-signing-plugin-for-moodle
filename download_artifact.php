@@ -16,6 +16,11 @@
 
 require_once(__DIR__ . '/../../config.php');
 
+$sentaldocuploadlib = __DIR__ . '/../sentaldocupload/lib.php';
+if (file_exists($sentaldocuploadlib)) {
+    require_once($sentaldocuploadlib);
+}
+
 require_login();
 $syscontext = context_system::instance();
 
@@ -34,13 +39,11 @@ $manager = new \local_ncasign\local\job_manager();
 if ($manager->is_inactive_job_status((string)$job->status) && !$ismanager) {
     throw new moodle_exception('filenotfound');
 }
-$canviewsentaldocuments = has_capability('local/sentaldocupload:viewdocuments', $syscontext)
-    || has_capability('local/sentaldocupload:manage', $syscontext);
 $isownerstudent = ((int)$USER->id === (int)$job->userid);
-$coursecontext = context_course::instance((int)$job->courseid, IGNORE_MISSING);
-$isenrolledincourse = ($coursecontext && is_enrolled($coursecontext, $USER, '', true));
-if (!$ismanager && !$canviewsentaldocuments && !$isownerstudent && !$isenrolledincourse) {
-    require_capability('local/ncasign:managejobs', $syscontext);
+$canviewlearnerdocuments = function_exists('local_sentaldocupload_current_user_can_view_learner_documents')
+    && local_sentaldocupload_current_user_can_view_learner_documents((int)$job->userid);
+if (!$ismanager && !$isownerstudent && !$canviewlearnerdocuments) {
+    throw new required_capability_exception($syscontext, 'local/ncasign:managejobs', 'nopermissions', 'error');
 }
 
 $fs = get_file_storage();

@@ -238,12 +238,15 @@ class document_generator {
             $completiondate = time();
         }
 
+        $dynamicnumberfields = $this->get_customcert_used_dynamic_number_fields($templateid, $layoutconfig);
+        $dataoptions = array_replace($options, ['dynamicnumberfields' => $dynamicnumberfields]);
+
         $documentdata = $this->build_engineer_protocol_data(
             $userid,
             $courseid,
             $completiondate,
             $user,
-            $options,
+            $dataoptions,
             $profile,
             $layoutconfig
         );
@@ -589,6 +592,133 @@ class document_generator {
     }
 
     /**
+     * Resolve which generated document numbers are actually used by a customcert template.
+     *
+     * @param int $templateid
+     * @param array<string,mixed> $layoutconfig
+     * @return array<string,bool>
+     */
+    private function get_customcert_used_dynamic_number_fields(int $templateid, array $layoutconfig): array {
+        global $DB;
+
+        $used = $this->normalise_dynamic_number_fields([]);
+        if ($templateid <= 0) {
+            return $used;
+        }
+
+        $manager = $DB->get_manager();
+        if (!$manager->table_exists(new \xmldb_table('customcert_pages'))
+            || !$manager->table_exists(new \xmldb_table('customcert_elements'))) {
+            return $used;
+        }
+
+        $aliases = $this->get_customcert_text_override_aliases($layoutconfig);
+        foreach ([
+            'protocolnumber' => 'protocolnumber',
+            'certificate_number' => 'certificatenumber',
+            'certificatenumber' => 'certificatenumber',
+            'book_id' => 'bookid',
+            'bookid' => 'bookid',
+            'course_completion_book_id' => 'bookid',
+        ] as $elementname => $sourcefield) {
+            $aliases[$elementname] = $sourcefield;
+        }
+
+        $sql = "SELECT e.name, e.data
+                  FROM {customcert_elements} e
+                  JOIN {customcert_pages} p ON p.id = e.pageid
+                 WHERE p.templateid = :templateid
+                   AND " . $DB->sql_compare_text('e.element') . " = :element";
+        $elements = $DB->get_records_sql($sql, [
+            'templateid' => $templateid,
+            'element' => 'text',
+        ]);
+
+        foreach ($elements as $element) {
+            foreach ([(string)($element->name ?? ''), (string)($element->data ?? '')] as $candidate) {
+                $candidate = $this->normalise_customcert_element_name($candidate);
+                if ($candidate === '') {
+                    continue;
+                }
+
+                $sourcefield = $aliases[$candidate] ?? $candidate;
+                $dynamicfield = $this->normalise_dynamic_number_source_field((string)$sourcefield);
+                if ($dynamicfield !== '') {
+                    $used[$dynamicfield] = true;
+                }
+            }
+        }
+
+        return $used;
+    }
+
+    /**
+     * Normalise an optional dynamic number field selection.
+     *
+     * @param mixed $fields
+     * @return array<string,bool>
+     */
+    private function normalise_dynamic_number_fields($fields): array {
+        $normalised = [
+            'protocolnumber' => false,
+            'certificatenumber' => false,
+            'bookid' => false,
+        ];
+
+        if ($fields === null) {
+            return [
+                'protocolnumber' => true,
+                'certificatenumber' => true,
+                'bookid' => true,
+            ];
+        }
+
+        if (!is_array($fields)) {
+            $fields = preg_split('/[\s,]+/', (string)$fields, -1, PREG_SPLIT_NO_EMPTY);
+        }
+
+        foreach ((array)$fields as $key => $value) {
+            if (is_int($key)) {
+                $field = $this->normalise_dynamic_number_source_field((string)$value);
+                $enabled = true;
+            } else {
+                $field = $this->normalise_dynamic_number_source_field((string)$key);
+                $enabled = !empty($value);
+            }
+
+            if ($field !== '') {
+                $normalised[$field] = $enabled;
+            }
+        }
+
+        return $normalised;
+    }
+
+    /**
+     * Map public/customcert number field names to internal document data keys.
+     *
+     * @param string $field
+     * @return string
+     */
+    private function normalise_dynamic_number_source_field(string $field): string {
+        $field = $this->normalise_customcert_element_name($field);
+        $map = [
+            'protocolnumber' => 'protocolnumber',
+            'protocol_number' => 'protocolnumber',
+            'document_number_pro' => 'protocolnumber',
+            'certificatenumber' => 'certificatenumber',
+            'certificate_number' => 'certificatenumber',
+            'document_number_cer' => 'certificatenumber',
+            'bookid' => 'bookid',
+            'book_id' => 'bookid',
+            'course_completion_book_id' => 'bookid',
+            'document_number_cid' => 'bookid',
+        ];
+
+        return $map[$field] ?? '';
+    }
+
+    /**
      * Overlay dynamic values onto the engineer protocol page.
      *
      * @param \setasign\Fpdi\Tcpdf\Fpdi $pdf
@@ -732,18 +862,31 @@ class document_generator {
         $metadata = (array)($layoutconfig['metadata'] ?? []);
         $outputlanguage = $this->resolve_template_output_language($metadata);
         $documenttimestamp = !empty($options['documenttimestamp']) ? (int)$options['documenttimestamp'] : time();
-        $protocolsequence = !empty($options['dailysequence'])
-            ? max(1, (int)$options['dailysequence'])
-            : $this->build_daily_sequence_number($documenttimestamp, 'protocol');
-        $certificatesequence = !empty($options['certificatesequence'])
-            ? max(1, (int)$options['certificatesequence'])
-            : $this->build_daily_sequence_number($documenttimestamp, 'certificate');
-        $booksequence = !empty($options['booksequence'])
-            ? max(1, (int)$options['booksequence'])
-            : $this->build_daily_sequence_number($documenttimestamp, 'book');
-        $protocolnumber = (string)($options['protocolnumber'] ?? $this->build_protocol_number($courseid, $userid, $documenttimestamp, $protocolsequence));
-        $certificatenumber = (string)($options['certificatenumber'] ?? $this->build_certificate_number($courseid, $userid, $documenttimestamp, $certificatesequence));
-        $bookid = (string)($options['bookid'] ?? ($options['book_id'] ?? $this->build_book_id($courseid, $userid, $documenttimestamp, $booksequence)));
+        $dynamicnumberfields = $this->normalise_dynamic_number_fields($options['dynamicnumberfields'] ?? null);
+        $protocolnumber = '';
+        $certificatenumber = '';
+        $bookid = '';
+        if (!empty($dynamicnumberfields['protocolnumber'])) {
+            $protocolsequence = !empty($options['dailysequence'])
+                ? max(1, (int)$options['dailysequence'])
+                : $this->build_daily_sequence_number($documenttimestamp, 'protocol');
+            $protocolnumber = (string)($options['protocolnumber'] ??
+                $this->build_protocol_number($courseid, $userid, $documenttimestamp, $protocolsequence));
+        }
+        if (!empty($dynamicnumberfields['certificatenumber'])) {
+            $certificatesequence = !empty($options['certificatesequence'])
+                ? max(1, (int)$options['certificatesequence'])
+                : $this->build_daily_sequence_number($documenttimestamp, 'certificate');
+            $certificatenumber = (string)($options['certificatenumber'] ??
+                $this->build_certificate_number($courseid, $userid, $documenttimestamp, $certificatesequence));
+        }
+        if (!empty($dynamicnumberfields['bookid'])) {
+            $booksequence = !empty($options['booksequence'])
+                ? max(1, (int)$options['booksequence'])
+                : $this->build_daily_sequence_number($documenttimestamp, 'book');
+            $bookid = (string)($options['bookid'] ?? ($options['book_id'] ??
+                $this->build_book_id($courseid, $userid, $documenttimestamp, $booksequence)));
+        }
         $sentalcompanyname = trim((string)($options['sentalcompanyname'] ?? ($metadata['sentalcompanyname'] ?? ''))) !== ''
             ? trim((string)($options['sentalcompanyname'] ?? $metadata['sentalcompanyname']))
             : 'ТОО "SENTAL"';
@@ -2439,49 +2582,7 @@ HTML;
      * @return array<string,string>
      */
     private function build_customcert_text_overrides(array $documentdata, array $layoutconfig): array {
-        $aliases = [
-            'protocol_number' => 'protocolnumber',
-            'company_name' => 'clientcompanyname',
-            'issue_date_kazakh' => 'issuedatekz',
-            'issue_date_russian' => 'issuedateru',
-            'comission_chair' => 'chairfull',
-            'commission_chair' => 'chairfull',
-            'commision_member_1' => 'member1full',
-            'commission_member_1' => 'member1full',
-            'commision_member_2' => 'member2full',
-            'comission_member_2' => 'member2full',
-            'commission_member_2' => 'member2full',
-            'order_date_kazakh' => 'orderkz',
-            'order_date_russian' => 'orderru',
-            'protocol_type_kazakh' => 'protocoltypekz',
-            'protocol_type_russian' => 'protocoltyperu',
-            'user_full_name' => 'userfullname',
-            'user_job_title' => 'userjobtitle',
-            'course_completion_status' => 'completionstatus',
-            'certificate_number' => 'certificatenumber',
-            'document_number_cer' => 'certificatenumber',
-            'book_id' => 'bookid',
-            'course_completion_book_id' => 'bookid',
-            'document_number_cid' => 'bookid',
-            'commision_chair_initials_ss' => 'chairinitials',
-            'comission_chair_initials_ss' => 'chairinitials',
-            'commission_chair_initials_ss' => 'chairinitials',
-            'commision_member_1_initials_ss' => 'member1initials',
-            'commission_member_1_initials_ss' => 'member1initials',
-            'comission_member_2_initials_ss' => 'member2initials',
-            'commision_member_2_initials_ss' => 'member2initials',
-            'commission_member_2_initials_ss' => 'member2initials',
-        ];
-
-        $customcertconfig = (array)($layoutconfig['customcert'] ?? []);
-        $customfieldmap = (array)($customcertconfig['fieldmap'] ?? []);
-        foreach ($customfieldmap as $elementname => $sourcefield) {
-            $elementname = trim((string)$elementname);
-            $sourcefield = trim((string)$sourcefield);
-            if ($elementname !== '' && $sourcefield !== '') {
-                $aliases[\core_text::strtolower($elementname)] = $sourcefield;
-            }
-        }
+        $aliases = $this->get_customcert_text_override_aliases($layoutconfig);
 
         $overrides = [];
         foreach ($aliases as $elementname => $sourcefield) {
@@ -2526,6 +2627,60 @@ HTML;
         }
 
         return $overrides;
+    }
+
+    /**
+     * Return supported customcert text element aliases.
+     *
+     * @param array<string,mixed> $layoutconfig
+     * @return array<string,string>
+     */
+    private function get_customcert_text_override_aliases(array $layoutconfig): array {
+        $aliases = [
+            'protocol_number' => 'protocolnumber',
+            'company_name' => 'clientcompanyname',
+            'issue_date_kazakh' => 'issuedatekz',
+            'issue_date_russian' => 'issuedateru',
+            'comission_chair' => 'chairfull',
+            'commission_chair' => 'chairfull',
+            'commision_member_1' => 'member1full',
+            'commission_member_1' => 'member1full',
+            'commision_member_2' => 'member2full',
+            'comission_member_2' => 'member2full',
+            'commission_member_2' => 'member2full',
+            'order_date_kazakh' => 'orderkz',
+            'order_date_russian' => 'orderru',
+            'protocol_type_kazakh' => 'protocoltypekz',
+            'protocol_type_russian' => 'protocoltyperu',
+            'user_full_name' => 'userfullname',
+            'user_job_title' => 'userjobtitle',
+            'course_completion_status' => 'completionstatus',
+            'certificate_number' => 'certificatenumber',
+            'document_number_cer' => 'certificatenumber',
+            'book_id' => 'bookid',
+            'course_completion_book_id' => 'bookid',
+            'document_number_cid' => 'bookid',
+            'commision_chair_initials_ss' => 'chairinitials',
+            'comission_chair_initials_ss' => 'chairinitials',
+            'commission_chair_initials_ss' => 'chairinitials',
+            'commision_member_1_initials_ss' => 'member1initials',
+            'commission_member_1_initials_ss' => 'member1initials',
+            'comission_member_2_initials_ss' => 'member2initials',
+            'commision_member_2_initials_ss' => 'member2initials',
+            'commission_member_2_initials_ss' => 'member2initials',
+        ];
+
+        $customcertconfig = (array)($layoutconfig['customcert'] ?? []);
+        $customfieldmap = (array)($customcertconfig['fieldmap'] ?? []);
+        foreach ($customfieldmap as $elementname => $sourcefield) {
+            $elementname = trim((string)$elementname);
+            $sourcefield = trim((string)$sourcefield);
+            if ($elementname !== '' && $sourcefield !== '') {
+                $aliases[\core_text::strtolower($elementname)] = $sourcefield;
+            }
+        }
+
+        return $aliases;
     }
 
     /**

@@ -33,6 +33,7 @@ require_once($CFG->libdir . '/clilib.php');
         'all' => false,
         'debug' => false,
         'debug-text' => false,
+        'clear-missing' => false,
     ],
     [
         'h' => 'help',
@@ -56,6 +57,7 @@ if (!empty($options['help']) || !empty($unrecognized)) {
         . "--all                     Re-check jobs even when dynamic_fields already exist\n"
         . "--debug                   Print extracted number candidates for skipped jobs\n"
         . "--debug-text              Print a short excerpt of extracted PDF text for skipped jobs\n"
+        . "--clear-missing           Clear PRO/CER/CID fields that are not found in the PDF\n"
         . "--write                   Save confirmed values to DB; without this it is a dry run\n\n"
         . "Examples:\n"
         . "php local/ncasign/cli/backfill_dynamic_numbers.php --batch-size=100\n"
@@ -73,6 +75,7 @@ $onlymissing = empty($options['all']) && !empty($options['only-missing']);
 $includeinactive = !empty($options['include-inactive']);
 $debug = !empty($options['debug']) || !empty($options['debug-text']);
 $debugtext = !empty($options['debug-text']);
+$clearmissing = !empty($options['clear-missing']);
 
 if ($pdftotext === '') {
     cli_error('pdftotext path cannot be empty.', 1);
@@ -132,9 +135,9 @@ foreach ($jobs as $job) {
             ? $manifest['dynamic_fields']
             : [];
         $dynamicfields = [
-            'protocol_number' => (string)($before['protocol_number'] ?? ''),
-            'certificate_number' => (string)($before['certificate_number'] ?? ''),
-            'book_id' => (string)($before['book_id'] ?? ''),
+            'protocol_number' => $clearmissing ? '' : (string)($before['protocol_number'] ?? ''),
+            'certificate_number' => $clearmissing ? '' : (string)($before['certificate_number'] ?? ''),
+            'book_id' => $clearmissing ? '' : (string)($before['book_id'] ?? ''),
         ];
         foreach ($numbers['values'] as $field => $value) {
             $dynamicfields[$field] = (string)$value;
@@ -161,7 +164,8 @@ foreach ($jobs as $job) {
             cli_writeln(
                 "Job {$jobid}: would update " .
                 local_ncasign_backfill_format_dynamic_fields($manifest['dynamic_fields']) .
-                " (found " . implode(', ', array_keys($numbers['values'])) . ")"
+                " (found " . implode(', ', array_keys($numbers['values'])) .
+                ($clearmissing ? ', clear missing enabled' : '') . ")"
             );
             continue;
         }
@@ -175,7 +179,8 @@ foreach ($jobs as $job) {
         cli_writeln(
             "Job {$jobid}: updated " .
             local_ncasign_backfill_format_dynamic_fields($manifest['dynamic_fields']) .
-            " (found " . implode(', ', array_keys($numbers['values'])) . ")"
+            " (found " . implode(', ', array_keys($numbers['values'])) .
+            ($clearmissing ? ', clear missing enabled' : '') . ")"
         );
     } catch (Throwable $e) {
         $summary['failed']++;
